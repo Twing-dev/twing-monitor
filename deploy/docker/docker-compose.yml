@@ -4,6 +4,16 @@
 # architecture. Run from this directory (`docker compose up -d --build`);
 # the build context is the repo root (../..), matching twing-cli's own
 # packages/server/Dockerfile convention.
+#
+# `name:` is required, not cosmetic: compose defaults an unnamed project to
+# its directory's basename, and this directory is literally called
+# `docker` -- same as twing-cli's own deploy/docker. Without an explicit
+# name here, this project and twing-cli's collide under the same default
+# project label, and `docker compose down` in either directory can delete
+# the other's containers/networks (confirmed live, 2026-08-19: bringing
+# this project up warned that twing-cli's already-running twing-serve/caddy
+# containers were "orphans" of this same default project).
+name: twing-monitor
 
 services:
   twing-monitor:

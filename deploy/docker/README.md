@@ -24,14 +24,21 @@ reaching `twing-serve:8787` by existing service-name DNS) and its
 `deploy/docker/Caddyfile` needs one more site block:
 
 ```
-app.twing.dev {
+monitor.twing.dev {
 	reverse_proxy twing-monitor:80
 }
 ```
 
-Point `app.twing.dev` at the box's public IP (DNS A record) before
+Point `monitor.twing.dev` at the box's public IP (DNS A record) before
 starting -- Caddy needs that to issue a Let's Encrypt cert, same as
 `coordination-server.twing.dev` already required.
+
+Also set `TWING_SERVE_CORS_ORIGINS=https://monitor.twing.dev` in
+twing-cli's own `deploy/docker/.env` -- without it, the coordinator mounts
+no CORS middleware at all and every `/v1/*` call this dashboard makes gets
+silently blocked by the browser (it's never same-origin with the
+coordinator). Requires restarting `twing-serve` (not just `caddy`) to pick
+up.
 
 ## Start
 

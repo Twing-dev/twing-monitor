@@ -158,7 +158,7 @@ either, and it's not where the risk is for a read-only dashboard.
    automatic-HTTPS site block reusing the already-provisioned cert
    storage/rate-limit module:
    ```
-   app.twing.dev {
+   monitor.twing.dev {
        reverse_proxy twing-monitor:80
    }
    ```
@@ -196,6 +196,6 @@ genuinely wasteful to duplicate for a static SPA.
 - End-to-end: paste a real PAT, confirm Repos → Designs/Activity/Reviews
   navigation all render actual project data with no CORS errors in the
   browser console.
-- Deploy: `curl -I https://app.twing.dev/` returns a valid cert once
+- Deploy: `curl -I https://monitor.twing.dev/` returns a valid cert once
   live; confirm `coordination-server.twing.dev` is unaffected (existing
   Caddy site block untouched, new one purely additive).

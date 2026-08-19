@@ -1,0 +1,10 @@
+# Internal Caddyfile baked into this image -- serves the static build only,
+# no TLS/ACME here (this container is never bound to a host port; the
+# public-facing Caddy lives in twing-cli's deploy/docker, terminates TLS,
+# and reverse-proxies to this container by service name). `:80` binds the
+# plain HTTP port Caddy defaults to when no site address is given a scheme.
+:80 {
+	root * /usr/share/caddy
+	try_files {path} /index.html
+	file_server
+}

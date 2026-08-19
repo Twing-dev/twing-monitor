@@ -1,0 +1,28 @@
+# Deploys the twing-monitor dashboard as a static site behind Caddy, on the
+# same box as coordination-server.twing.dev but as an independently
+# versioned compose project -- see docs/plan-v1.md section C for the full
+# architecture. Run from this directory (`docker compose up -d --build`);
+# the build context is the repo root (../..), matching twing-cli's own
+# packages/server/Dockerfile convention.
+
+services:
+  twing-monitor:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        VITE_DEFAULT_SERVER_URL: ${VITE_DEFAULT_SERVER_URL:-https://coordination-server.twing.dev}
+    restart: unless-stopped
+    # No `ports:` -- never published to the host directly. Only reachable
+    # from twing-cli's own caddy service, over the shared external network
+    # below, by service name (twing-monitor:80).
+    networks:
+      - twing-edge
+
+networks:
+  # External: created once on the box (`docker network create twing-edge`),
+  # outside either compose project's lifecycle -- so `docker compose down`
+  # here never deletes the network twing-cli's caddy also depends on, and
+  # vice versa.
+  twing-edge:
+    external: true

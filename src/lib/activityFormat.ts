@@ -205,6 +205,13 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivityEven
       ].filter((f): f is ActivityDetailField => f !== undefined);
       return { label: "Constraint updated", details, constraintId: relatedId };
     }
+    case "constraint_removed": {
+      const details = [
+        { label: "Statement", value: str(p, "statement") || "(no statement)" },
+        str(p, "type") ? { label: "Type", value: str(p, "type")!.replace(/_/g, " ") } : undefined,
+      ].filter((f): f is ActivityDetailField => f !== undefined);
+      return { label: "Constraint removed", details, constraintId: relatedId };
+    }
     case "claim_recorded": {
       const details = [
         { label: "Symbol", value: str(p, "symbolId") || relatedId || "(unknown)" },

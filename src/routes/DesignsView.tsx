@@ -7,25 +7,13 @@ import type { ActivityEvent, AlignmentThread, DesignStatement } from "../api/typ
 import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
-import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
+import { StatusBadge } from "../components/StatusBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
+import { toneForDesignStatus } from "../lib/designStatus.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
 type StatusFilter = (typeof STATUSES)[number];
-
-function toneForStatus(status: DesignStatement["status"]): BadgeTone {
-  switch (status) {
-    case "open":
-      return "good";
-    case "flagged":
-      return "warning";
-    case "dormant":
-      return "neutral";
-    default:
-      return "neutral";
-  }
-}
 
 /** `status` alone doesn't tell a list viewer everything worth knowing at a
  * glance: a `"warning"`-severity overlap (2026-08-19 severity split, tier
@@ -165,7 +153,7 @@ export function DesignsView({ projectId, focusDesignId, onOpenTab }: { projectId
                         <div className="card-badges">
                           {hasUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
                           {semanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
-                          <StatusBadge label={d.status} tone={toneForStatus(d.status)} />
+                          <StatusBadge label={d.status} tone={toneForDesignStatus(d.status)} />
                         </div>
                       </div>
                       <div className="card-meta">

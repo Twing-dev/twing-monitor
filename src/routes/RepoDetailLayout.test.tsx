@@ -72,7 +72,7 @@ describe("RepoDetailLayout", () => {
             { status: 200 },
           );
         }
-        if (url.includes("/v1/claims")) {
+        if (url.includes("/v1/claims") || url.includes("/v1/alignment-threads")) {
           return new Response(JSON.stringify({ items: [] }), { status: 200 });
         }
         throw new Error(`unexpected fetch: ${url}`);
@@ -81,6 +81,10 @@ describe("RepoDetailLayout", () => {
     renderLayout();
 
     await user.click(screen.getByRole("tab", { name: "Activity" }));
+    // Activity groups by design by default -- expand the design's group
+    // before its "View design ->" link is reachable.
+    const groupHeader = await screen.findByRole("button", { name: /a design owned by someone else, currently flagged/i, expanded: false });
+    await user.click(groupHeader);
     const link = await screen.findByRole("button", { name: /view design/i });
     await user.click(link);
 

@@ -470,6 +470,55 @@ button {
   flex-direction: column;
 }
 
+.activity-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-group:last-child {
+  border-bottom: none;
+}
+
+.activity-group-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 12px 4px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-group-header:hover {
+  background: var(--surface);
+}
+
+.activity-group-caret {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  width: 0.9em;
+}
+
+.activity-group-summary {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.activity-group-count {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+}
+
+.activity-group-events {
+  padding: 0 4px 8px 26px;
+}
+
 .activity-row {
   display: flex;
   flex-direction: column;

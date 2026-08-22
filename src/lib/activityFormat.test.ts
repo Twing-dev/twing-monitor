@@ -82,6 +82,16 @@ describe("formatActivityEvent", () => {
     ]);
   });
 
+  it("constraint_removed renders the removed constraint's statement and type", () => {
+    const formatted = formatActivityEvent(event({ kind: "constraint_removed", relatedId: "c1", payload: { statement: "keep README.md canonical", type: "canonical_abstraction", scope: ["README.md"] } }));
+    expect(formatted.label).toBe("Constraint removed");
+    expect(formatted.constraintId).toBe("c1");
+    expect(formatted.details).toEqual([
+      { label: "Statement", value: "keep README.md canonical" },
+      { label: "Type", value: "canonical abstraction" },
+    ]);
+  });
+
   it("an unrecognized kind falls back to the raw label with its payload stringified, instead of throwing", () => {
     const formatted = formatActivityEvent(event({ kind: "some_future_kind" as ActivityEvent["kind"], payload: { foo: "bar" } }));
     expect(formatted.label).toBe("some_future_kind");

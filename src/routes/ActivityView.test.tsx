@@ -166,7 +166,7 @@ describe("ActivityView", () => {
     expect(onOpenDesign).toHaveBeenCalledWith("design-42");
   });
 
-  it("a claim_recorded event resolves its session's design (best-effort, client-side) and links to it", async () => {
+  it("a claim_recorded event resolves its session's design (best-effort, client-side) and links to it, once its design group is expanded", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -206,17 +206,120 @@ describe("ActivityView", () => {
             { status: 200 },
           );
         }
+        if (url.includes("/v1/alignment-threads?")) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
     const onOpenDesign = vi.fn();
     renderWithAuth({ onOpenDesign });
 
+    // Grouped by default: the claim is folded under its session's design,
+    // collapsed until the group header is expanded.
+    const groupHeader = await screen.findByRole("button", { name: /add retry backoff/i, expanded: false });
+    expect(screen.queryByText("Claim recorded")).not.toBeInTheDocument();
+
+    await user.click(groupHeader);
     await waitFor(() => expect(screen.getByText("Claim recorded")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("Add retry backoff")).toBeInTheDocument());
 
     const link = screen.getByRole("button", { name: "→ Add retry backoff" });
     await user.click(link);
     expect(onOpenDesign).toHaveBeenCalledWith("design-9");
+  });
+
+  it("defaults the kind filter to the curated high-value set", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+    renderWithAuth();
+
+    const select = (await screen.findByLabelText(/filter by kind/i)) as HTMLSelectElement;
+    expect(select.value).toContain("design_registered");
+    expect(select.value).toContain("review_decided");
+    expect(select.value).not.toContain("claim_recorded");
+  });
+
+  it("groups multiple events under the same design into one collapsed row showing the last-activity time and event count, expandable to the full list", async () => {
+    const user = userEvent.setup();
+    const now = Date.now();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/activity?")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                { id: "evt-2", projectId: "proj-1", developerId: "alice@example.com", sessionId: "sess-1", kind: "design_flagged", relatedId: "design-9", ts: now, payload: { verdict: "overlap" } },
+                { id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", sessionId: "sess-1", kind: "design_registered", relatedId: "design-9", ts: now - 60_000, payload: { summary: "Add retry backoff" } },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/v1/designs?")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "design-9",
+                  projectId: "proj-1",
+                  developerId: "alice@example.com",
+                  sessionId: "sess-1",
+                  status: "flagged",
+                  createdAt: now - 60_000,
+                  summary: "Add retry backoff",
+                  creates: [],
+                  touches: ["src/x.ts"],
+                  dependsOn: [],
+                  ttlMs: 3_600_000,
+                  scopeVersion: 1,
+                  lastActivityAt: now,
+                  justifiedConstraintIds: [],
+                  justifiedOverlaps: [],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    const groupHeader = await screen.findByRole("button", { name: /add retry backoff/i, expanded: false });
+    expect(groupHeader).toHaveTextContent("2");
+    expect(screen.queryByText("Design flagged")).not.toBeInTheDocument();
+    expect(screen.queryByText("Design registered")).not.toBeInTheDocument();
+
+    await user.click(groupHeader);
+    expect(screen.getByText("Design flagged")).toBeInTheDocument();
+    expect(screen.getByText("Design registered")).toBeInTheDocument();
+  });
+
+  it("unchecking \"Group by design\" reverts to a flat chronological list", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/activity?")) {
+          return new Response(
+            JSON.stringify({ items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "constraint_ratified", relatedId: "c1", ts: Date.now(), payload: { statement: "keep README.md canonical", type: "canonical_abstraction" } }] }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("Constraint ratified")).toBeInTheDocument());
+    const toggle = screen.getByRole("checkbox", { name: /group by design/i });
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText("Constraint ratified")).toBeInTheDocument();
   });
 });

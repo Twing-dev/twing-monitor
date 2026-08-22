@@ -1,5 +1,7 @@
 # twing-monitor
 
+Live at [monitor.twing.dev](https://monitor.twing.dev).
+
 A read-only web dashboard for [twing](https://github.com/Twing-dev/twing-cli)'s
 coordination server. Everything in twing is otherwise CLI/hook-driven — there's
 no way to see a project's designs, activity, or review history without

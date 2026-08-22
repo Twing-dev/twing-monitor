@@ -5,6 +5,13 @@ export interface DesignGroup {
   design: DesignStatement;
   events: ActivityEvent[];
   lastActivityAt: number;
+  /** Every distinct `developerId` among the group's events (an
+   * alignment-thread-driven event can carry a different developer than
+   * the design's own owner -- see `finding_raised`'s `otherDeveloperId`),
+   * most-recently-active first, since `events` arrives newest-first. Lets
+   * the collapsed header show whose agent(s) produced this design's
+   * activity without expanding it. */
+  developerIds: string[];
 }
 
 export type ActivityEntry = { type: "group"; group: DesignGroup } | { type: "event"; event: ActivityEvent };
@@ -48,6 +55,7 @@ export function groupActivityByDesign(
   threadDesignById: Record<string, string>,
 ): ActivityEntry[] {
   const groups = new Map<string, DesignGroup>();
+  const developerIds = new Map<string, Set<string>>();
   const entries: ActivityEntry[] = [];
 
   const sessionFallbackKinds = new Set(["claim_recorded", "call_edge_recorded"]);
@@ -67,12 +75,18 @@ export function groupActivityByDesign(
 
     let group = groups.get(design.id);
     if (!group) {
-      group = { design, events: [], lastActivityAt: event.ts };
+      group = { design, events: [], lastActivityAt: event.ts, developerIds: [] };
       groups.set(design.id, group);
+      developerIds.set(design.id, new Set());
       entries.push({ type: "group", group });
     }
     group.events.push(event);
     if (event.ts > group.lastActivityAt) group.lastActivityAt = event.ts;
+    if (event.developerId) developerIds.get(design.id)!.add(event.developerId);
+  }
+
+  for (const group of groups.values()) {
+    group.developerIds = Array.from(developerIds.get(group.design.id) ?? []);
   }
 
   return entries;

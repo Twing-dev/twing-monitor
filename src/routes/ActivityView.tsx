@@ -139,13 +139,22 @@ function DesignGroupRow({
 }) {
   return (
     <li className="activity-group">
-      <button type="button" className="activity-group-header" onClick={onToggle} aria-expanded={expanded}>
-        <span className="activity-group-caret">{expanded ? "▾" : "▸"}</span>
-        <span className="activity-group-summary">{group.design.summary || "(no summary)"}</span>
-        <StatusBadge label={group.design.status} tone={toneForDesignStatus(group.design.status)} />
-        <span className="activity-group-count">{group.events.length}</span>
-        <span className="activity-meta">{relativeTime(group.lastActivityAt)}</span>
-      </button>
+      <div className="activity-group-header">
+        <button type="button" className="activity-group-toggle" onClick={onToggle} aria-expanded={expanded}>
+          <span className="activity-group-caret">{expanded ? "▾" : "▸"}</span>
+          <span className="activity-group-summary">{group.design.summary || "(no summary)"}</span>
+          <StatusBadge label={group.design.status} tone={toneForDesignStatus(group.design.status)} />
+          <span className="activity-group-count">{group.events.length}</span>
+        </button>
+        <span className="activity-meta">
+          {group.developerIds.map((id) => (
+            <button key={id} type="button" className="link-chip" onClick={() => onFilterDeveloper(id)}>
+              {id}
+            </button>
+          ))}
+          <span>{relativeTime(group.lastActivityAt)}</span>
+        </span>
+      </div>
       {expanded && (
         <ul className="activity-list activity-group-events">
           {group.events.map((event) => (

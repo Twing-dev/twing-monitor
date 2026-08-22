@@ -32,15 +32,15 @@ describe("groupActivityByDesign", () => {
     const d = design();
     const registered = event({ kind: "design_registered", relatedId: "design-1", payload: { summary: "Add retry backoff" } });
     const entries = groupActivityByDesign([registered], { "design-1": d }, {}, {});
-    expect(entries).toEqual([{ type: "group", group: { design: d, events: [registered], lastActivityAt: 1000 } }]);
+    expect(entries).toEqual([{ type: "group", group: { design: d, events: [registered], lastActivityAt: 1000, developerIds: [] } }]);
   });
 
   it("groups a claim_recorded event via the session -> design fallback, since it carries no designId of its own", () => {
     const d = design({ sessionId: "sess-1" });
-    const claim = event({ id: "evt-claim", kind: "claim_recorded", sessionId: "sess-1", relatedId: "src/x.ts::f", payload: { symbolId: "src/x.ts::f", kind: "write", stage: "firm" } });
+    const claim = event({ id: "evt-claim", kind: "claim_recorded", sessionId: "sess-1", developerId: "alice@example.com", relatedId: "src/x.ts::f", payload: { symbolId: "src/x.ts::f", kind: "write", stage: "firm" } });
     const entries = groupActivityByDesign([claim], { "design-1": d }, { "sess-1": d }, {});
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [claim], lastActivityAt: 1000 } });
+    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [claim], lastActivityAt: 1000, developerIds: ["alice@example.com"] } });
   });
 
   it("a claim from a different session than any known design's stays ungrouped", () => {
@@ -56,7 +56,22 @@ describe("groupActivityByDesign", () => {
     const opened = event({ id: "evt-opened", kind: "alignment_thread_opened", relatedId: "thread-1", ts: 900 });
     const entries = groupActivityByDesign([finding, opened], { "design-1": d }, {}, { "thread-1": "design-1" });
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [finding, opened], lastActivityAt: 1000 } });
+    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [finding, opened], lastActivityAt: 1000, developerIds: [] } });
+  });
+
+  it("collects every distinct developerId across a group's events, most-recently-active first, deduped and skipping events with none", () => {
+    const d = design();
+    // finding_raised can carry a different developer than the design's own
+    // owner (the other party in the alignment thread) -- both should show.
+    const newest = event({ id: "evt-newest", kind: "finding_raised", relatedId: "thread-1", developerId: "carol@example.com", ts: 3000 });
+    const noDeveloper = event({ id: "evt-system", kind: "finding_raised", relatedId: "thread-1", ts: 2000 });
+    const repeat = event({ id: "evt-repeat", kind: "finding_raised", relatedId: "thread-1", developerId: "carol@example.com", ts: 1500 });
+    const oldest = event({ id: "evt-oldest", kind: "finding_raised", relatedId: "thread-1", developerId: "alice@example.com", ts: 1000 });
+
+    const entries = groupActivityByDesign([newest, noDeveloper, repeat, oldest], { "design-1": d }, {}, { "thread-1": "design-1" });
+
+    const group = entries[0].type === "group" ? entries[0].group : undefined;
+    expect(group?.developerIds).toEqual(["carol@example.com", "alice@example.com"]);
   });
 
   it("constraint_ratified/_updated/_removed are never design-scoped -- always ungrouped even alongside an otherwise-matching session/thread", () => {

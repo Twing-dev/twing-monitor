@@ -216,8 +216,10 @@ describe("ActivityView", () => {
     renderWithAuth({ onOpenDesign });
 
     // Grouped by default: the claim is folded under its session's design,
-    // collapsed until the group header is expanded.
+    // collapsed until the group header is expanded. The developer whose
+    // agent produced the activity is visible on the collapsed row too.
     const groupHeader = await screen.findByRole("button", { name: /add retry backoff/i, expanded: false });
+    expect(screen.getByRole("button", { name: "alice@example.com" })).toBeInTheDocument();
     expect(screen.queryByText("Claim recorded")).not.toBeInTheDocument();
 
     await user.click(groupHeader);
@@ -249,7 +251,7 @@ describe("ActivityView", () => {
           return new Response(
             JSON.stringify({
               items: [
-                { id: "evt-2", projectId: "proj-1", developerId: "alice@example.com", sessionId: "sess-1", kind: "design_flagged", relatedId: "design-9", ts: now, payload: { verdict: "overlap" } },
+                { id: "evt-2", projectId: "proj-1", developerId: "bob@example.com", sessionId: "sess-1", kind: "design_flagged", relatedId: "design-9", ts: now, payload: { verdict: "overlap" } },
                 { id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", sessionId: "sess-1", kind: "design_registered", relatedId: "design-9", ts: now - 60_000, payload: { summary: "Add retry backoff" } },
               ],
             }),
@@ -289,6 +291,10 @@ describe("ActivityView", () => {
 
     const groupHeader = await screen.findByRole("button", { name: /add retry backoff/i, expanded: false });
     expect(groupHeader).toHaveTextContent("2");
+    // Both developers whose agents contributed activity to this design are
+    // visible on the collapsed row, most-recently-active first.
+    expect(screen.getByRole("button", { name: "bob@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "alice@example.com" })).toBeInTheDocument();
     expect(screen.queryByText("Design flagged")).not.toBeInTheDocument();
     expect(screen.queryByText("Design registered")).not.toBeInTheDocument();
 

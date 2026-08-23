@@ -14,32 +14,78 @@ function renderWithAuth(onOpenDesign?: (designId: string) => void) {
   );
 }
 
-const CLAIMS_PATH_THREAD = {
+// A claims-path (design_divergence) thread whose initiating developer
+// (alice) had no design of her own behind the edit -- disable-gate, or the
+// edit happened outside any gated session. Genuinely nothing to link on
+// that side.
+const CLAIMS_PATH_THREAD_NO_DESIGN = {
   id: "thread-1",
   projectId: "proj-1",
   symbolId: "src/net/retry.ts::RetryPolicy.backoff",
+  symbolIds: ["src/net/retry.ts::RetryPolicy.backoff"],
   developerId: "alice@example.com",
   otherDeveloperId: "bob@example.com",
   designId: "design-bob-1",
   status: "open",
   systemDescription: "Both sessions touched RetryPolicy.backoff within the same window.",
+  summary: '1 overlapping path with "Add exponential backoff to RetryPolicy"',
+  category: "symbol_claim",
   openedAt: Date.now(),
+  lastActivityAt: Date.now(),
+};
+
+// Same claims-path origin, but this time alice's own open design *does*
+// resolve -- both sides should link, and the overlap has accumulated more
+// than one path across amendments.
+const CLAIMS_PATH_THREAD_WITH_DESIGN = {
+  id: "thread-3",
+  projectId: "proj-1",
+  symbolId: "src/net/retry.ts::RetryPolicy.backoff",
+  symbolIds: ["src/net/retry.ts::RetryPolicy.backoff", "src/net/retry.test.ts"],
+  developerId: "alice@example.com",
+  otherDeveloperId: "bob@example.com",
+  designId: "design-bob-1",
+  initiatingDesignId: "design-alice-1",
+  status: "open",
+  summary: '2 overlapping paths with "Add exponential backoff to RetryPolicy"',
+  category: "symbol_claim",
+  systemDescription: "Both sessions touched RetryPolicy.backoff within the same window.",
+  openedAt: Date.now(),
+  lastActivityAt: Date.now(),
 };
 
 // A design_semantic_conflict-originated thread (runSemanticComparatorPass,
-// packages/server/src/app.ts): unlike the claims path above, symbolId here
-// is repurposed to hold the *initiating* design's own id -- both sides name
-// a real design.
+// packages/server/src/app.ts): unlike the claims path above, both sides are
+// always real designs.
 const SEMANTIC_PATH_THREAD = {
   id: "thread-2",
   projectId: "proj-1",
   symbolId: "design-alice-1",
+  symbolIds: [],
   developerId: "alice@example.com",
   otherDeveloperId: "carol@example.com",
   designId: "design-carol-1",
+  initiatingDesignId: "design-alice-1",
   status: "open",
   systemDescription: "Both plans independently build a sliding-window rate limiter.",
+  summary: 'Duplicate work with "Add session-guard throttle"',
+  category: "duplication",
   openedAt: Date.now(),
+  lastActivityAt: Date.now(),
+};
+
+// A pre-2026-08-23 thread -- none of the structured fields exist yet.
+const LEGACY_THREAD = {
+  id: "thread-4",
+  projectId: "proj-1",
+  symbolId: "src/legacy.ts::Old.thing",
+  symbolIds: ["src/legacy.ts::Old.thing"], // server-side fromRow fallback would populate this
+  developerId: "alice@example.com",
+  otherDeveloperId: "dave@example.com",
+  status: "open",
+  systemDescription: "A thread from before the 2026-08-23 redesign.",
+  openedAt: Date.now(),
+  lastActivityAt: Date.now(),
 };
 
 const DESIGNS_ITEMS = [
@@ -60,27 +106,42 @@ describe("AlignmentThreadsView", () => {
     await waitFor(() => expect(screen.getByText(/no alignment threads match this filter/i)).toBeInTheDocument());
   });
 
-  it("renders one card per thread with both parties and the system description as its headline", async () => {
+  it("renders one card per thread with both parties, the short summary as its headline, and a category badge", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
-        return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_NO_DESIGN] }), { status: 200 });
       }),
     );
     renderWithAuth();
 
-    await waitFor(() => expect(screen.getByText("Both sessions touched RetryPolicy.backoff within the same window.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(CLAIMS_PATH_THREAD_NO_DESIGN.summary)).toBeInTheDocument());
+    expect(screen.queryByText(CLAIMS_PATH_THREAD_NO_DESIGN.systemDescription)).not.toBeInTheDocument();
     expect(screen.getByText(/alice@example.com/)).toBeInTheDocument();
     expect(screen.getByText(/bob@example.com/)).toBeInTheDocument();
     expect(screen.getByText("open", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Overlapping files", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
-  // Claims-path origin: only the *other* party's design is a real design --
-  // the triggering side is a raw claim, so it should render as a code
-  // symbol, not a fabricated design link.
-  it("a claims-path thread links only the other party's design, and shows the triggering symbol as code", async () => {
+  it("a pre-redesign (legacy) thread falls back to the full systemDescription as its headline, with no category badge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        return new Response(JSON.stringify({ items: [LEGACY_THREAD] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText(LEGACY_THREAD.systemDescription)).toBeInTheDocument());
+    expect(screen.queryByText("Overlapping files", { selector: ".status-badge" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Duplication", { selector: ".status-badge" })).not.toBeInTheDocument();
+  });
+
+  it("a claims-path thread with no design behind the initiating edit shows an honest note, links only the other party's design, and lists the overlapping file", async () => {
     const user = userEvent.setup();
     const onOpenDesign = vi.fn();
     vi.stubGlobal(
@@ -88,30 +149,59 @@ describe("AlignmentThreadsView", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
-        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_NO_DESIGN] }), { status: 200 });
         if (url.includes("/v1/alignment-threads/thread-1")) {
-          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD, messages: [] }), { status: 200 });
+          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_NO_DESIGN, messages: [] }), { status: 200 });
         }
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
     renderWithAuth(onOpenDesign);
 
-    const card = await screen.findByRole("button", { name: /Both sessions touched RetryPolicy\.backoff/ });
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
 
-    const link = await screen.findByRole("button", { name: /Add exponential backoff to RetryPolicy/ });
+    expect(screen.getByText("No design registered for alice@example.com's edit.")).toBeInTheDocument();
+
+    const link = await screen.findByRole("button", { name: /bob@example.com's design: Add exponential backoff to RetryPolicy/ });
     await user.click(link);
     expect(onOpenDesign).toHaveBeenCalledWith("design-bob-1");
 
-    expect(screen.getByText("src/net/retry.ts::RetryPolicy.backoff")).toBeInTheDocument();
-    // Only one design link -- the initiating side wasn't a registered design.
+    // Only one design link -- the initiating side genuinely has none.
     expect(screen.getAllByRole("button", { name: /^→/ })).toHaveLength(1);
+    expect(screen.getByText("src/net/retry.ts::RetryPolicy.backoff")).toBeInTheDocument();
   });
 
-  // Semantic-conflict origin: both sides are real designs, so both should
-  // link -- this is the concrete fix for "link both designs."
-  it("a semantic-conflict thread links both designs", async () => {
+  it("a claims-path thread whose initiating developer does have an open design links both sides and lists every accumulated overlapping path", async () => {
+    const user = userEvent.setup();
+    const onOpenDesign = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_WITH_DESIGN] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads/thread-3")) {
+          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_WITH_DESIGN, messages: [] }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderWithAuth(onOpenDesign);
+
+    const card = await screen.findByRole("button", { name: /overlapping paths with/i });
+    await user.click(card);
+
+    expect(await screen.findByRole("button", { name: /alice@example.com's design: Add API-key rate limiter/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /bob@example.com's design: Add exponential backoff to RetryPolicy/ })).toBeInTheDocument();
+    expect(screen.queryByText(/No design registered/)).not.toBeInTheDocument();
+
+    expect(screen.getByText("src/net/retry.ts::RetryPolicy.backoff")).toBeInTheDocument();
+    expect(screen.getByText("src/net/retry.test.ts")).toBeInTheDocument();
+  });
+
+  // Semantic-conflict origin: both sides are always real designs.
+  it("a semantic-conflict thread links both designs, shows its category, and has no overlapping-files section", async () => {
     const user = userEvent.setup();
     const onOpenDesign = vi.fn();
     vi.stubGlobal(
@@ -128,13 +218,15 @@ describe("AlignmentThreadsView", () => {
     );
     renderWithAuth(onOpenDesign);
 
-    const card = await screen.findByRole("button", { name: /Both plans independently build a sliding-window rate limiter/ });
+    expect(await screen.findByText("Duplication", { selector: ".status-badge" })).toBeInTheDocument();
+    const card = await screen.findByRole("button", { name: /Duplicate work with/ });
     await user.click(card);
 
-    expect(await screen.findByRole("button", { name: /Add API-key rate limiter/ })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /Add session-guard throttle/ })).toBeInTheDocument();
-    // No raw symbol id shown -- there's nothing but designs to reference.
+    expect(await screen.findByRole("button", { name: /alice@example.com's design: Add API-key rate limiter/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /carol@example.com's design: Add session-guard throttle/ })).toBeInTheDocument();
+    // No raw design/symbol id shown -- there's nothing but designs to reference.
     expect(screen.queryByText("design-alice-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Overlapping files")).not.toBeInTheDocument();
   });
 
   it("shows past messages and lets a party reply, appending the new message", async () => {
@@ -145,7 +237,7 @@ describe("AlignmentThreadsView", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
-        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_NO_DESIGN] }), { status: 200 });
         if (url.includes("/v1/alignment-threads/thread-1/messages")) {
           expect(init?.method).toBe("POST");
           expect(JSON.parse(String(init?.body))).toEqual({ message: "Let's coordinate, I'll adopt yours." });
@@ -159,14 +251,14 @@ describe("AlignmentThreadsView", () => {
                 { authorId: "alice@example.com", message: "Let's coordinate, I'll adopt yours.", ts: Date.now() },
               ]
             : [{ authorId: "twing", message: "auto-opened", ts: Date.now() - 1000 }];
-          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD, messages }), { status: 200 });
+          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_NO_DESIGN, messages }), { status: 200 });
         }
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
     renderWithAuth();
 
-    const card = await screen.findByRole("button", { name: /Both sessions touched RetryPolicy\.backoff/ });
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
 
     expect(await screen.findByText("auto-opened")).toBeInTheDocument();
@@ -190,18 +282,18 @@ describe("AlignmentThreadsView", () => {
           return new Response(JSON.stringify({ status: "closed" }), { status: 200 });
         }
         if (url.includes("/v1/alignment-threads?")) {
-          const items = [{ ...CLAIMS_PATH_THREAD, status: closed ? "closed" : "open" }];
+          const items = [{ ...CLAIMS_PATH_THREAD_NO_DESIGN, status: closed ? "closed" : "open" }];
           return new Response(JSON.stringify({ items }), { status: 200 });
         }
         if (url.includes("/v1/alignment-threads/thread-1")) {
-          return new Response(JSON.stringify({ thread: { ...CLAIMS_PATH_THREAD, status: closed ? "closed" : "open" }, messages: [] }), { status: 200 });
+          return new Response(JSON.stringify({ thread: { ...CLAIMS_PATH_THREAD_NO_DESIGN, status: closed ? "closed" : "open" }, messages: [] }), { status: 200 });
         }
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
     renderWithAuth();
 
-    const card = await screen.findByRole("button", { name: /Both sessions touched RetryPolicy\.backoff/ });
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
     await user.click(await screen.findByRole("button", { name: "Close thread" }));
 

@@ -107,10 +107,18 @@ export interface ActivityEvent {
   payload?: unknown;
 }
 
+/** 2026-08-23 categorization redesign -- mirrors SemanticConflictKind
+ * (packages/server/src/design-semantic-check.ts) for the three semantic
+ * values; "symbol_claim" is the claims-path (design-divergence.ts)
+ * equivalent. Absent on a pre-2026-08-23 AlignmentThread. */
+export type AlignmentCategory = "duplication" | "contradictory_assumptions" | "tension" | "symbol_claim";
+
 /** Mirrors packages/server/src/alignment-store.ts's AlignmentThread. */
 export interface AlignmentThread {
   id: string;
   projectId: string;
+  /** Legacy single-symbol field -- see `symbolIds` below, the source of
+   * truth going forward. */
   symbolId: string;
   developerId: string;
   otherDeveloperId: string;
@@ -120,6 +128,22 @@ export interface AlignmentThread {
   openedAt: number;
   closedAt?: number;
   closedBy?: string;
+  category?: AlignmentCategory;
+  /** Short list-view label, distinct from `systemDescription`'s full text.
+   * Absent on a pre-2026-08-23 thread. */
+  summary?: string;
+  /** Every overlapping path/symbol accumulated across amendments -- only
+   * meaningful for `category: "symbol_claim"`. Falls back to `[symbolId]`
+   * server-side for a pre-2026-08-23 row. */
+  symbolIds: string[];
+  /** The initiating developer's own open design, when one resolves --
+   * best-effort; genuinely absent (not a bug) when the initiating edit had
+   * no design behind it at all (the design gate has real, supported
+   * bypasses). */
+  initiatingDesignId?: string;
+  /** Falls back to `openedAt` server-side when a thread's never been
+   * amended (or predates this column). */
+  lastActivityAt: number;
 }
 
 export interface AlignmentMessage {

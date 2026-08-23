@@ -836,6 +836,17 @@ button {
   gap: 8px;
 }
 
+.thread-symbol-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+}
+
 .thread-message-list {
   list-style: none;
   margin: 0;

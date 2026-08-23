@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchAlignmentThreads, fetchAlignmentThread, postAlignmentMessage, closeAlignmentThread } from "../api/alignmentThreads.js";
 import { fetchDesigns } from "../api/designs.js";
-import type { AlignmentThread, DesignStatement } from "../api/types.js";
+import type { AlignmentThread, AlignmentCategory, DesignStatement } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
@@ -15,26 +15,24 @@ function toneForStatus(status: "open" | "closed"): BadgeTone {
   return status === "open" ? "warning" : "neutral";
 }
 
-/** A thread can name one or two designs, depending on what opened it (both
- * write to the same `AlignmentThread` row -- packages/server/src/app.ts):
- *
- * - A claims-path `design_divergence` finding (`POST /v1/claims`): the
- *   *other* party's registered design is `thread.designId`. The developer
- *   who triggered it made a raw claim, not necessarily a design of their
- *   own -- `thread.symbolId` there is a real code symbol (e.g.
- *   `src/x.ts::foo`), not a design.
- * - A `design_semantic_conflict` (the async Bedrock comparator,
- *   `runSemanticComparatorPass`): *both* sides are designs --
- *   `thread.designId` is the other one, and `thread.symbolId` is
- *   repurposed to hold the *initiating* design's own id (there's no real
- *   symbol to name for a design-vs-design finding, see that call site's own
- *   comment).
- *
- * Rather than threading origin metadata through just to tell these apart,
- * this looks `symbolId` up in the project's own design map: a design id is
- * a `crypto.randomUUID()`, a real symbolId always looks like
- * `path::Name` (`symbol-id.ts`) -- the two never collide, so "does it
- * resolve to a known design" is a reliable enough test either way. */
+/** Display label for a thread's category -- undefined on a pre-2026-08-23
+ * thread, which just renders no category badge at all rather than an
+ * "uncategorized" placeholder. */
+function categoryLabel(category?: AlignmentCategory): string | undefined {
+  switch (category) {
+    case "duplication":
+      return "Duplication";
+    case "contradictory_assumptions":
+      return "Contradiction";
+    case "tension":
+      return "Tension";
+    case "symbol_claim":
+      return "Overlapping files";
+    default:
+      return undefined;
+  }
+}
+
 function ThreadDetail({
   thread,
   designsById,
@@ -55,9 +53,14 @@ function ThreadDetail({
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const initiatingDesign = designsById[thread.symbolId];
+  const initiatingDesign = thread.initiatingDesignId ? designsById[thread.initiatingDesignId] : undefined;
   const otherDesign = thread.designId ? designsById[thread.designId] : undefined;
-  const hasSymbolReference = !initiatingDesign;
+  // A claim genuinely can have no design behind it -- the design gate has
+  // real, supported bypasses (`disable-gate`), and `Bash` skips both the
+  // gate and claim capture entirely (`wire-hooks.ts`'s matchers), so it's
+  // not even a Claim. Shown as an honest, labeled state below rather than
+  // left blank or implying a symmetric pair that doesn't exist.
+  const noInitiatingDesign = !thread.initiatingDesignId;
 
   async function sendReply(e: FormEvent) {
     e.preventDefault();
@@ -94,29 +97,38 @@ function ThreadDetail({
     <div className="design-detail">
       <div className="detail-field">
         <h3>Linked designs</h3>
-        {(initiatingDesign || otherDesign) && (
-          <div className="thread-design-links">
-            {initiatingDesign && onOpenDesign && (
-              <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(initiatingDesign.id)}>
-                → {initiatingDesign.summary || initiatingDesign.id.slice(0, 8)}
-              </button>
-            )}
-            {otherDesign && onOpenDesign && (
-              <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(otherDesign.id)}>
-                → {otherDesign.summary || otherDesign.id.slice(0, 8)}
-              </button>
-            )}
-          </div>
-        )}
-        {!initiatingDesign && !otherDesign && (
-          <p className="resolve-pending-note">No linked design found -- it may have since expired or been deleted.</p>
-        )}
-        {hasSymbolReference && (
-          <p className="resolve-pending-note">
-            Triggering symbol: <code>{thread.symbolId}</code>
-          </p>
-        )}
+        <div className="thread-design-links">
+          {initiatingDesign && onOpenDesign ? (
+            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(initiatingDesign.id)}>
+              → {thread.developerId}'s design: {initiatingDesign.summary || initiatingDesign.id.slice(0, 8)}
+            </button>
+          ) : noInitiatingDesign ? (
+            <p className="resolve-pending-note">No design registered for {thread.developerId}'s edit.</p>
+          ) : (
+            <p className="resolve-pending-note">{thread.developerId}'s design -- expired or since deleted.</p>
+          )}
+          {otherDesign && onOpenDesign ? (
+            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(otherDesign.id)}>
+              → {thread.otherDeveloperId}'s design: {otherDesign.summary || otherDesign.id.slice(0, 8)}
+            </button>
+          ) : thread.designId ? (
+            <p className="resolve-pending-note">{thread.otherDeveloperId}'s design -- expired or since deleted.</p>
+          ) : null}
+        </div>
       </div>
+
+      {thread.category === "symbol_claim" && thread.symbolIds.length > 0 && (
+        <div className="detail-field">
+          <h3>Overlapping files</h3>
+          <ul className="thread-symbol-list">
+            {thread.symbolIds.map((s) => (
+              <li key={s}>
+                <code>{s}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="detail-field">
         <h3>Messages</h3>
@@ -224,14 +236,15 @@ export function AlignmentThreadsView({ projectId, onOpenDesign }: { projectId: s
                     onClick={() => setExpandedId(expanded ? null : t.id)}
                   >
                     <div className="card-top-row">
-                      <span className="card-summary">{t.systemDescription}</span>
+                      <span className="card-summary">{t.summary ?? t.systemDescription}</span>
+                      {categoryLabel(t.category) && <StatusBadge label={categoryLabel(t.category)!} tone="accent" />}
                       <StatusBadge label={t.status} tone={toneForStatus(t.status)} />
                     </div>
                     <div className="card-meta">
                       <span>
                         {t.developerId} &amp; {t.otherDeveloperId}
                       </span>
-                      <span>{relativeTime(t.openedAt)}</span>
+                      <span>{relativeTime(t.lastActivityAt ?? t.openedAt)}</span>
                     </div>
                   </button>
                   {expanded && (

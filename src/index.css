@@ -1096,3 +1096,29 @@ button {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+
+/* Card summaries are clamped until the card is expanded (2026-08-25).
+   A design's `summary` is whatever the plan extraction produced, which for
+   a real plan is routinely a 15-line paragraph -- rendered in full on every
+   card, the list became a wall of prose you couldn't scan, and the expand
+   toggle hid the *detail* while leaving the bloat on screen. Clamping is
+   done in CSS rather than by truncating the string: the full text stays in
+   the DOM for find-in-page and copy, and expanding is just removing the
+   clamp. */
+.design-card:not(.expanded) .card-summary,
+.design-card:not(.expanded) .review-headline {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The clamp needs a block-level box to measure, but the collapsed row is a
+   flex line -- without this the summary refuses to shrink and the badge
+   gets pushed off the end on a narrow window. */
+.card-top-row .card-summary,
+.card-top-row .review-headline {
+  min-width: 0;
+  flex: 1;
+}

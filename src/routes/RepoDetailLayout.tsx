@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
+import { useApiFetch } from "../api/client.js";
+import { useAsyncData } from "../hooks/useAsyncData.js";
+import { fetchReviews } from "../api/reviews.js";
 import { DesignsView } from "./DesignsView.js";
 import { ReviewsView } from "./ReviewsView.js";
 import { ActivityView } from "./ActivityView.js";
@@ -23,7 +26,17 @@ function repoLabel(project: ProjectSummary): string {
 }
 
 export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary; onBack: () => void }) {
+  const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>("designs");
+  // A pending review means someone is blocked right now, waiting on a human
+  // -- and nothing in twing tells that human. There's no email, webhook or
+  // digest anywhere, so an admin only finds out by opening this tab and
+  // looking. Surfacing the count on the tab itself is the cheapest possible
+  // step toward closing that: you now see it from any tab, without going
+  // hunting. Deliberately not gated on `role` -- a member can't decide a
+  // review, but knowing the queue is backing up is still worth seeing.
+  const pending = useAsyncData(() => fetchReviews(apiFetch, project.projectId, "pending"), [apiFetch, project.projectId]);
+  const pendingCount = pending.status === "ready" ? pending.data.length : 0;
   // Set by ActivityView's "View design ->" link -- DesignsView consumes it
   // to force ?status=all (a flagged/closed design wouldn't otherwise be
   // visible under the default "open" filter) and auto-expand that card.
@@ -57,6 +70,11 @@ export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary;
             onClick={() => setTab(t.id)}
           >
             {t.label}
+            {t.id === "reviews" && pendingCount > 0 && (
+              <span className="tab-count" aria-label={`${pendingCount} waiting for a decision`}>
+                {pendingCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>

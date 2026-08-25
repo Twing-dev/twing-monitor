@@ -1076,3 +1076,23 @@ button {
   color: var(--text-dim);
   word-break: break-all;
 }
+
+/* Pending-review count on the Reviews tab. A pending review means someone
+   is blocked waiting on a human, and nothing else in twing tells that
+   human -- so this is the one ambient signal that a queue is building. */
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warning, var(--accent));
+  color: var(--bg, #fff);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}

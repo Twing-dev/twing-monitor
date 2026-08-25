@@ -975,3 +975,104 @@ button {
   margin-left: auto;
   font-family: var(--font-mono);
 }
+
+/* --- Review cards (2026-08-25) ---
+   Three bands in the order a reviewer needs them: what is being built,
+   why it stopped, what the requester says. Before this the card showed
+   only the justification, so an admin was approving a sentence. */
+
+.review-card-inner {
+  padding: 14px 18px;
+}
+
+.review-headline {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.review-band {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.review-band-label {
+  flex-shrink: 0;
+  width: 84px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.review-band-blocked .review-band-label {
+  color: var(--warning, var(--text-dim));
+}
+
+.review-band-line {
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.review-band-line:last-child {
+  margin-bottom: 0;
+}
+
+.review-band-sub {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+
+.review-expand {
+  margin-top: 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.review-expand:hover {
+  color: var(--text);
+}
+
+.review-expand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.review-detail {
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.review-detail dt {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.review-detail dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  word-break: break-all;
+}

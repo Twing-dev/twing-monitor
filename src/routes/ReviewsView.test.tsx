@@ -103,3 +103,116 @@ describe("ReviewsView", () => {
     expect(screen.getByText("Overlaps an approved sibling design, same touched path")).toBeInTheDocument();
   });
 });
+
+// The enriched shape GET /v1/reviews returns as of 2026-08-25. Every test
+// above uses a bare review with no `design`, which is now also the
+// against-an-older-coordinator fallback -- so those double as the
+// degradation coverage, and this block covers the real card.
+const ENRICHED_REVIEW = {
+  ...PENDING_REVIEW,
+  constraintIds: ["c-1"],
+  overlapWaivers: [{ conflictingDesignId: "design-2", paths: ["src/billing/charge.ts"] }],
+  design: {
+    summary: "add retry with exponential backoff to the webhook client",
+    creates: ["src/net/retry.ts"],
+    touches: ["src/billing/charge.ts"],
+    developerId: "priya@team.dev",
+    status: "flagged",
+  },
+  constraints: [{ id: "c-1", statement: "money paths need a second pair of eyes", type: "review_required" }],
+  conflicts: [
+    {
+      designId: "design-2",
+      kind: "overlap" as const,
+      summary: "billing retry work",
+      developerId: "ayush@team.dev",
+      paths: ["src/billing/charge.ts"],
+    },
+  ],
+};
+
+describe("ReviewsView — enriched cards", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubEnriched() {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [ENRICHED_REVIEW] }), { status: 200 })));
+  }
+
+  // The point of the whole change: the card leads with the work, not with
+  // the requester's argument for being allowed to do it.
+  it("leads with what is being built, not the justification", async () => {
+    stubEnriched();
+    renderWithAuth();
+
+    await waitFor(() =>
+      expect(screen.getByText("add retry with exponential backoff to the webhook client")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("priya@team.dev")).toBeInTheDocument();
+  });
+
+  it("still shows the justification, but as their argument rather than the headline", async () => {
+    stubEnriched();
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("They say")).toBeInTheDocument());
+    expect(screen.getByText(/Overlaps an approved sibling design/)).toBeInTheDocument();
+  });
+
+  // Regression guard: ReviewsView read `r.constraintId` (singular) while the
+  // server had long since sent `constraintIds`, so the constraint marker
+  // never rendered once. The hand-rolled local type hid the drift.
+  it("names the rule that blocked it, in plain language", async () => {
+    stubEnriched();
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("Blocked by")).toBeInTheDocument());
+    expect(screen.getByText(/money paths need a second pair of eyes/)).toBeInTheDocument();
+    expect(screen.getByText("a human must review changes here")).toBeInTheDocument();
+  });
+
+  it("names whose work it collides with", async () => {
+    stubEnriched();
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("Collides with")).toBeInTheDocument());
+    expect(screen.getByText("billing retry work")).toBeInTheDocument();
+    expect(screen.getByText(/ayush@team\.dev/)).toBeInTheDocument();
+  });
+
+  it("keeps file lists behind a toggle so the card stays scannable", async () => {
+    const user = userEvent.setup();
+    stubEnriched();
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /show detail/i })).toBeInTheDocument());
+    expect(screen.queryByText("Creates")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show detail/i }));
+    expect(screen.getByText("Creates")).toBeInTheDocument();
+    expect(screen.getByText("src/net/retry.ts")).toBeInTheDocument();
+  });
+
+  // A conflicting design deleted since the review was raised: the server
+  // sends the id with no summary. The card must still say something
+  // collided rather than rendering an empty line.
+  it("survives a conflicting design that no longer exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              items: [{ ...ENRICHED_REVIEW, conflicts: [{ designId: "design-gone", kind: "overlap" }] }],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("Collides with")).toBeInTheDocument());
+    expect(screen.getByText(/design-gone/)).toBeInTheDocument();
+  });
+});

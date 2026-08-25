@@ -2,10 +2,11 @@ import { useState, type FormEvent } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchAlignmentThreads, fetchAlignmentThread, postAlignmentMessage, closeAlignmentThread } from "../api/alignmentThreads.js";
 import { fetchDesigns } from "../api/designs.js";
-import type { AlignmentThread, AlignmentCategory, DesignStatement } from "../api/types.js";
+import type { AlignmentThread, AlignmentCategory, DesignStatement, ProjectSummary } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
+import { RepoBadge } from "../components/RepoBadge.js";
 import { relativeTime } from "../lib/time.js";
 
 const STATUSES = ["open", "closed", "all"] as const;
@@ -188,7 +189,15 @@ function ThreadDetail({
   );
 }
 
-export function AlignmentThreadsView({ projectId, onOpenDesign }: { projectId: string; onOpenDesign?: (designId: string) => void }) {
+export function AlignmentThreadsView({
+  projectIds,
+  projectsById,
+  onOpenDesign,
+}: {
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
+  onOpenDesign?: (designId: string) => void;
+}) {
   const apiFetch = useApiFetch();
   const [status, setStatus] = useState<StatusFilter>("open");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -197,15 +206,23 @@ export function AlignmentThreadsView({ projectId, onOpenDesign }: { projectId: s
   const [refreshKey, setRefreshKey] = useState(0);
 
   const state = useAsyncData(
-    () => fetchAlignmentThreads(apiFetch, projectId, status === "all" ? undefined : status),
-    [apiFetch, projectId, status, refreshKey],
+    () =>
+      Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, status === "all" ? undefined : status))).then((lists) =>
+        lists.flat().sort((a, b) => (b.lastActivityAt ?? b.openedAt) - (a.lastActivityAt ?? a.openedAt)),
+      ),
+    [apiFetch, projectIds.join(","), status, refreshKey],
   );
   // See ThreadDetail's own doc comment for why this is needed at all --
   // fetched once per project (every status) rather than per-thread, same
   // "avoid an N-fan-out of lookups" reasoning as ActivityView's own
   // session->design map.
-  const designsState = useAsyncData(() => fetchDesigns(apiFetch, projectId), [apiFetch, projectId]);
+  const designsState = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(",")],
+  );
   const designsById: Record<string, DesignStatement> = designsState.status === "ready" ? Object.fromEntries(designsState.data.map((d) => [d.id, d])) : {};
+
+  const showRepoBadge = projectIds.length > 1;
 
   return (
     <div className="list-view">
@@ -237,6 +254,7 @@ export function AlignmentThreadsView({ projectId, onOpenDesign }: { projectId: s
                   >
                     <div className="card-top-row">
                       <span className="card-summary">{t.summary ?? t.systemDescription}</span>
+                      {showRepoBadge && <RepoBadge project={projectsById[t.projectId] ?? { projectId: t.projectId }} />}
                       {categoryLabel(t.category) && <StatusBadge label={categoryLabel(t.category)!} tone="accent" />}
                       <StatusBadge label={t.status} tone={toneForStatus(t.status)} />
                     </div>

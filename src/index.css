@@ -259,6 +259,35 @@ button {
   }
 }
 
+.repo-select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.checkbox-filter-group {
+  display: flex;
+  gap: 14px;
+}
+
+.repo-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.repo-select-checkbox {
+  flex-shrink: 0;
+  display: flex;
+  cursor: pointer;
+}
+
+.repo-list-item .repo-card {
+  flex: 1;
+}
+
 /* --- Repo detail layout + tabs --- */
 
 .repo-detail-view {
@@ -275,6 +304,23 @@ button {
 
 .back-link {
   font-size: 0.8rem;
+}
+
+.repo-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.repo-chip {
+  display: inline-flex;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 100px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
 }
 
 .tab-bar {
@@ -405,6 +451,13 @@ button {
   flex-shrink: 0;
 }
 
+/* Precedes each member's own DesignDetail inside a grouped (groupId-linked)
+ * card's expanded body -- only rendered when the card has more than one
+ * member, labeling which repo the panel below it belongs to. */
+.repo-badge-row {
+  padding: 10px 18px 0;
+}
+
 .card-body {
   margin: 8px 0 0;
   color: var(--text-dim);
@@ -458,6 +511,20 @@ button {
 .status-badge.tone-critical {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+/* Which repo a card belongs to, in a multi-repo (aggregated) view only --
+ * deliberately not `status-badge` (its uppercase transform would mangle a
+ * real `owner/repo` name), see RepoBadge's own doc comment. */
+.repo-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 100px;
+  background: var(--border);
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 /* --- Activity feed --- */

@@ -4,12 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { AlignmentThreadsView } from "./AlignmentThreadsView.js";
+import type { ProjectSummary } from "../api/types.js";
 
-function renderWithAuth(onOpenDesign?: (designId: string) => void) {
+function renderWithAuth(onOpenDesign?: (designId: string) => void, projectIds: string[] = ["proj-1"], projectsById: Record<string, ProjectSummary> = {}) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
-      <AlignmentThreadsView projectId="proj-1" onOpenDesign={onOpenDesign} />
+      <AlignmentThreadsView projectIds={projectIds} projectsById={projectsById} onOpenDesign={onOpenDesign} />
     </ServerProvider>,
   );
 }
@@ -299,5 +300,42 @@ describe("AlignmentThreadsView", () => {
 
     await waitFor(() => expect(screen.getByText("closed", { selector: ".status-badge" })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Close thread" })).not.toBeInTheDocument();
+  });
+
+  it("merges threads from multiple repos and labels each card with a RepoBadge, absent for a single-repo view", async () => {
+    const threadIn = (projectId: string, id: string) => ({
+      id,
+      projectId,
+      symbolId: "src/x.ts::f",
+      developerId: "alice@example.com",
+      otherDeveloperId: "bob@example.com",
+      designId: undefined,
+      initiatingDesignId: undefined,
+      status: "open" as const,
+      systemDescription: `Thread in ${projectId}`,
+      symbolIds: ["src/x.ts::f"],
+      openedAt: Date.now(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) {
+          const projectId = new URL(url).searchParams.get("projectId");
+          return new Response(JSON.stringify({ items: [threadIn(projectId!, `thread-${projectId}`)] }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderWithAuth(undefined, ["proj-1", "proj-2"], {
+      "proj-1": { projectId: "proj-1", orgId: "", role: "admin" },
+      "proj-2": { projectId: "proj-2", orgId: "", role: "admin" },
+    });
+
+    await waitFor(() => expect(screen.getByText("Thread in proj-1")).toBeInTheDocument());
+    expect(screen.getByText("Thread in proj-2")).toBeInTheDocument();
+    expect(screen.getByText("proj-1", { selector: ".repo-badge" })).toBeInTheDocument();
+    expect(screen.getByText("proj-2", { selector: ".repo-badge" })).toBeInTheDocument();
   });
 });

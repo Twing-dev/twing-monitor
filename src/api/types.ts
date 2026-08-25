@@ -26,6 +26,19 @@ export interface ProjectSummary {
 /** Mirrors @twing/core's DesignStatement (packages/core/src/types.ts). */
 export interface DesignStatement {
   id: string;
+  /** §17 design linking (2026-08, twing-cli): cross-project label --
+   * self-assigned to this design's own `id` server-side when the
+   * registering caller doesn't supply one, so every design has a non-null
+   * `groupId` ("group of one" by default). A sibling design registered for
+   * the same unit of work in a *different* project shares this value.
+   * Linking is purely a label -- `projectId`/`status`/`reviewDecision`/
+   * `creates`/`touches`/`dependsOn` all stay independent per row; only
+   * `summary` and closing propagate across a shared `groupId`
+   * server-side. `lib/aggregate.ts`'s `dedupeDesignsByGroup` is what
+   * collapses every row sharing a `groupId` into one card in the
+   * multi-repo view. Absent (not self-assigned) only on a design
+   * registered before this field existed. */
+  groupId?: string;
   projectId: string;
   developerId: string;
   sessionId: string;

@@ -3,14 +3,16 @@ import { useApiFetch } from "../api/client.js";
 import { fetchDesigns } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
-import type { ActivityEvent, AlignmentThread, DesignStatement } from "../api/types.js";
+import type { ActivityEvent, AlignmentThread, DesignStatement, ProjectSummary } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge } from "../components/StatusBadge.js";
+import { RepoBadge } from "../components/RepoBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
+import { dedupeDesignsByGroup } from "../lib/aggregate.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
 type StatusFilter = (typeof STATUSES)[number];
@@ -56,7 +58,17 @@ function findSemanticOverlapThread(threads: AlignmentThread[], designsById: Reco
   return threads.find((t) => (t.designId === designId || t.symbolId === designId) && Boolean(designsById[t.symbolId]));
 }
 
-export function DesignsView({ projectId, focusDesignId, onOpenTab }: { projectId: string; focusDesignId?: string; onOpenTab?: (tab: "threads") => void }) {
+export function DesignsView({
+  projectIds,
+  projectsById,
+  focusDesignId,
+  onOpenTab,
+}: {
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
+  focusDesignId?: string;
+  onOpenTab?: (tab: "threads") => void;
+}) {
   const apiFetch = useApiFetch();
   const { auth } = useAuth();
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -86,24 +98,46 @@ export function DesignsView({ projectId, focusDesignId, onOpenTab }: { projectId
     setExpandedId(designId);
   }
 
-  const state = useAsyncData(() => fetchDesigns(apiFetch, projectId, status === "all" ? undefined : status), [apiFetch, projectId, status, refreshKey]);
+  // Every fetch below fans out across `projectIds` and merges -- a single
+  // repo is just the `projectIds.length === 1` case of the same
+  // `Promise.all`. Per-project results are individually sorted
+  // newest-first; interleaving several already-sorted lists isn't itself
+  // sorted, so each merge re-sorts before use.
+  const state = useAsyncData(
+    () =>
+      Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, status === "all" ? undefined : status))).then((lists) =>
+        lists.flat().sort((a, b) => b.lastActivityAt - a.lastActivityAt),
+      ),
+    [apiFetch, projectIds.join(","), status, refreshKey],
+  );
   const checksState = useAsyncData(
-    () => fetchActivity(apiFetch, projectId, { kinds: ["design_checked"], limit: 200 }),
-    [apiFetch, projectId, refreshKey],
+    () =>
+      Promise.all(projectIds.map((pid) => fetchActivity(apiFetch, pid, { kinds: ["design_checked"], limit: 200 }))).then((pages) =>
+        pages.flatMap((p) => p.items).sort((a, b) => b.ts - a.ts),
+      ),
+    [apiFetch, projectIds.join(","), refreshKey],
   );
   // Bonus, list-wide context -- same "don't block the primary render on it"
   // stance as DesignDetail's own LatestCheckOutcome: an empty map just means
   // no card gets a conflict chip, not a loading/error state of its own.
-  const latestChecks = checksState.status === "ready" ? latestCheckByDesign(checksState.data.items) : new Map<string, { verdict: string; severity?: string }>();
-  const openThreadsState = useAsyncData(() => fetchAlignmentThreads(apiFetch, projectId, "open"), [apiFetch, projectId, refreshKey]);
+  const latestChecks = checksState.status === "ready" ? latestCheckByDesign(checksState.data) : new Map<string, { verdict: string; severity?: string }>();
+  const openThreadsState = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, "open"))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(","), refreshKey],
+  );
   const openThreads = openThreadsState.status === "ready" ? openThreadsState.data : [];
   // Every status, not just the current filter -- a semantic overlap's
   // counterpart design may not itself match the active status/mine-only
   // filter, and jumpToDesign needs its id to resolve to something real
   // regardless. Also doubles as the origin-detection lookup
   // findSemanticOverlapThread needs (see its own doc comment).
-  const allDesignsState = useAsyncData(() => fetchDesigns(apiFetch, projectId), [apiFetch, projectId, refreshKey]);
+  const allDesignsState = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(","), refreshKey],
+  );
   const designsById: Record<string, DesignStatement> = allDesignsState.status === "ready" ? Object.fromEntries(allDesignsState.data.map((d) => [d.id, d])) : {};
+
+  const showRepoBadge = projectIds.length > 1;
 
   return (
     <div className="list-view">
@@ -125,61 +159,83 @@ export function DesignsView({ projectId, focusDesignId, onOpenTab }: { projectId
         state={state}
         isEmpty={(items) => items.filter((d) => !mineOnly || d.developerId === auth?.developerId).length === 0}
         emptyMessage="No designs match this filter."
-        render={(items) => (
-          <ul className="card-list">
-            {items
-              .filter((d) => !mineOnly || d.developerId === auth?.developerId)
-              .map((d) => {
-                const expanded = expandedId === d.id;
-                // Only surface this for designs still "open" -- "flagged"
+        render={(items) => {
+          const groups = dedupeDesignsByGroup(items.filter((d) => !mineOnly || d.developerId === auth?.developerId));
+          return (
+            <ul className="card-list">
+              {groups.map((group) => {
+                const primary = group.members[0];
+                const expanded = group.members.some((m) => m.id === expandedId);
+                // Only surface this for a member still "open" -- "flagged"
                 // already carries an amber badge of its own, and doubling
-                // up on it here would just be noise.
-                const latestCheck = latestChecks.get(d.id);
-                const hasUnresolvedWarning = d.status === "open" && latestCheck?.severity === "warning" && latestCheck.verdict !== "clean";
-                const semanticThread = findSemanticOverlapThread(openThreads, designsById, d.id);
-                const semanticOverlap: SemanticOverlap | undefined = semanticThread
-                  ? { thread: semanticThread, counterpart: designsById[semanticThread.designId === d.id ? semanticThread.symbolId : semanticThread.designId!] }
-                  : undefined;
+                // up on it here would just be noise. A grouped card can mix
+                // statuses across its members, so this looks at every
+                // member, not just the primary one.
+                const anyUnresolvedWarning = group.members.some((m) => {
+                  const check = latestChecks.get(m.id);
+                  return m.status === "open" && check?.severity === "warning" && check.verdict !== "clean";
+                });
+                const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, designsById, m.id));
                 return (
-                  <li key={d.id} className={`design-card${expanded ? " expanded" : ""}`}>
+                  <li key={group.key} className={`design-card${expanded ? " expanded" : ""}`}>
                     <button
                       type="button"
                       className="design-card-toggle"
                       aria-expanded={expanded}
-                      onClick={() => setExpandedId(expanded ? null : d.id)}
+                      onClick={() => setExpandedId(expanded ? null : primary.id)}
                     >
                       <div className="card-top-row">
-                        <span className="card-summary">{d.summary}</span>
+                        <span className="card-summary">{primary.summary}</span>
                         <div className="card-badges">
-                          {hasUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
-                          {semanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
-                          <StatusBadge label={d.status} tone={toneForDesignStatus(d.status)} />
+                          {anyUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
+                          {anySemanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
+                          {showRepoBadge && group.members.map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+                          {group.members.length === 1 ? (
+                            <StatusBadge label={primary.status} tone={toneForDesignStatus(primary.status)} />
+                          ) : (
+                            group.members.map((m) => <StatusBadge key={m.id} label={m.status} tone={toneForDesignStatus(m.status)} />)
+                          )}
                         </div>
                       </div>
                       <div className="card-meta">
-                        <span>{d.developerId}</span>
-                        <span>{relativeTime(d.createdAt)}</span>
-                        {d.creates.length + d.touches.length > 0 && (
+                        <span>{primary.developerId}</span>
+                        <span>{relativeTime(primary.lastActivityAt)}</span>
+                        {primary.creates.length + primary.touches.length > 0 && (
                           <span>
-                            {d.creates.length} created, {d.touches.length} touched
+                            {primary.creates.length} created, {primary.touches.length} touched
                           </span>
                         )}
                       </div>
                     </button>
-                    {expanded && (
-                      <DesignDetail
-                        design={d}
-                        onResolved={() => setRefreshKey((k) => k + 1)}
-                        semanticOverlap={semanticOverlap}
-                        onOpenDesign={jumpToDesign}
-                        onOpenTab={onOpenTab}
-                      />
-                    )}
+                    {expanded &&
+                      group.members.map((member) => {
+                        const semanticThread = findSemanticOverlapThread(openThreads, designsById, member.id);
+                        const semanticOverlap: SemanticOverlap | undefined = semanticThread
+                          ? { thread: semanticThread, counterpart: designsById[semanticThread.designId === member.id ? semanticThread.symbolId : semanticThread.designId!] }
+                          : undefined;
+                        return (
+                          <div key={member.id}>
+                            {showRepoBadge && (
+                              <div className="repo-badge-row">
+                                <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                              </div>
+                            )}
+                            <DesignDetail
+                              design={member}
+                              onResolved={() => setRefreshKey((k) => k + 1)}
+                              semanticOverlap={semanticOverlap}
+                              onOpenDesign={jumpToDesign}
+                              onOpenTab={onOpenTab}
+                            />
+                          </div>
+                        );
+                      })}
                   </li>
                 );
               })}
-          </ul>
-        )}
+            </ul>
+          );
+        }}
       />
     </div>
   );

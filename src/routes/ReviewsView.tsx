@@ -85,15 +85,27 @@ function ReviewCard({
   const blockerTypes = [...new Set(blockers.map((c) => c.type))];
   const oneBlockerType = blockerTypes.length === 1 ? blockerTypes[0] : undefined;
   const conflicts = review.conflicts ?? [];
-  const hasDetail = Boolean(design?.touches.length || design?.creates.length || conflicts.length);
 
   return (
     <li className={`design-card${expanded ? " expanded" : ""}`}>
-      <div className="review-card-inner">
+      {/* Collapsed to a headline by default. A single expanded card fills a
+          viewport once the rules and the justification are real, so a list
+          of them can't be scanned at all -- you have to read one to reach
+          the next. The header alone answers "is this mine, is it urgent,
+          do I care", which is what a queue is for; everything needed to
+          actually decide is one click away. */}
+      <button
+        type="button"
+        className="design-card-toggle review-card-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
         <div className="card-top-row">
           <span className="review-headline">{design?.summary ?? review.justification}</span>
           <div className="card-badges">
             {repoBadge}
+            {!expanded && blockers.length > 0 && <span className="card-hint">{blockers.length === 1 ? "1 rule" : `${blockers.length} rules`}</span>}
+            {!expanded && conflicts.length > 0 && <span className="card-hint">{conflicts.length === 1 ? "1 collision" : `${conflicts.length} collisions`}</span>}
             <StatusBadge label={decisionLabel(review.decision)} tone={toneForDecision(review.decision)} />
           </div>
         </div>
@@ -102,6 +114,10 @@ function ReviewCard({
           {design?.developerId && <span>{design.developerId}</span>}
           <span>{relativeTime(review.createdAt)}</span>
         </div>
+      </button>
+
+      {expanded && (
+      <div className="review-card-inner">
 
         {blockers.length > 0 && (
           <div className="review-band review-band-blocked">
@@ -162,13 +178,11 @@ function ReviewCard({
           </div>
         )}
 
-        {hasDetail && (
-          <button type="button" className="review-expand" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
-            {expanded ? "Hide detail" : "Show detail"}
-          </button>
-        )}
-
-        {expanded && design && (
+        {/* No nested "Show detail" any more. The card itself is the
+            disclosure now, and a second one inside it meant opening a card
+            still didn't show you the card -- which is the bloat this whole
+            change is removing. Everything below appears on open. */}
+        {design && (
           <dl className="review-detail">
             {design.creates.length > 0 && (
               <>
@@ -204,6 +218,7 @@ function ReviewCard({
           </div>
         )}
       </div>
+      )}
     </li>
   );
 }

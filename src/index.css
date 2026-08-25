@@ -1238,3 +1238,25 @@ button {
 .review-band-heading {
   margin: 0 0 8px;
 }
+
+/* The review card's header is its toggle -- padding lives here rather than
+   on .review-card-inner, which is now only the expanded body. */
+.review-card-toggle {
+  padding: 14px 18px;
+}
+
+.design-card.expanded .review-card-inner {
+  padding: 0 18px 14px;
+}
+
+/* A collapsed card still has to say whether it's worth opening. */
+.card-hint {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}

@@ -226,6 +226,71 @@ describe("ReviewsView — enriched cards", () => {
   // A conflicting design deleted since the review was raised: the server
   // sends the id with no summary. The card must still say something
   // collided rather than rendering an empty line.
+  it("reports a decision in the past tense, so the badge doesn't read as a button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [{ ...ENRICHED_REVIEW, decision: "approve" }] }), { status: 200 })),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("approved", { selector: ".status-badge" })).toBeInTheDocument());
+    expect(screen.queryByText("approve", { selector: ".status-badge" })).not.toBeInTheDocument();
+  });
+
+  // Three review_required rules on one design printed the identical
+  // translation under each -- the common case, and pure noise.
+  it("states a shared rule type once, not once per rule", async () => {
+    const threeSameType = {
+      ...ENRICHED_REVIEW,
+      constraints: [
+        { id: "c-1", statement: "the hosted coordinator itself", type: "review_required" },
+        { id: "c-2", statement: "coordinator's core verdict logic", type: "review_required" },
+        { id: "c-3", statement: "the gate's own verdict/deny logic", type: "review_required" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [threeSameType] }), { status: 200 })));
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText(/3 rules/)).toBeInTheDocument());
+    expect(screen.getAllByText(/a human must review changes here/)).toHaveLength(1);
+  });
+
+  it("keeps per-rule types when they genuinely differ", async () => {
+    const mixed = {
+      ...ENRICHED_REVIEW,
+      constraints: [
+        { id: "c-1", statement: "money paths need review", type: "review_required" },
+        { id: "c-2", statement: "one HTTP wrapper only", type: "canonical_abstraction" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [mixed] }), { status: 200 })));
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText(/a human must review changes here/)).toBeInTheDocument());
+    expect(screen.getByText(/use the existing approach/)).toBeInTheDocument();
+  });
+
+  // The justification is the requester's argument, not the finding -- left
+  // unclamped it dwarfed the two bands a reviewer actually decides on.
+  it("clamps a long justification behind a Show all toggle", async () => {
+    const user = userEvent.setup();
+    const long = { ...ENRICHED_REVIEW, justification: "x".repeat(400) };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [long] }), { status: 200 })));
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /show all/i }));
+    expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+  });
+
+  it("offers no toggle for a justification short enough to read as-is", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [ENRICHED_REVIEW] }), { status: 200 })));
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("They say")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /show all/i })).not.toBeInTheDocument();
+  });
+
   it("survives a conflicting design that no longer exists", async () => {
     vi.stubGlobal(
       "fetch",

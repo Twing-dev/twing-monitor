@@ -1219,3 +1219,22 @@ button {
 .summary-bullets li::marker {
   color: var(--text-dim);
 }
+
+/* A justification written by an agent runs to several hundred words of
+   implementation detail. Left open it dwarfs the bands above it, which are
+   the ones a reviewer actually decides on -- so it's clamped until asked
+   for. Clamped in CSS rather than by truncating, so find-in-page and copy
+   still see the whole thing. */
+.review-band-line.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* One type heading for a group of rules that all share it, instead of the
+   same sentence repeated under each. */
+.review-band-heading {
+  margin: 0 0 8px;
+}

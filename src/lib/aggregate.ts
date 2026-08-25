@@ -1,4 +1,4 @@
-import type { DesignStatement } from "../api/types.js";
+import type { DesignStatement, ProjectMember } from "../api/types.js";
 
 /**
  * Fans a per-project list-fetcher out across every selected repo and
@@ -67,4 +67,38 @@ export function dedupeDesignsByGroup(designs: DesignStatement[]): DesignGroup[] 
   }
 
   return Array.from(groups.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+}
+
+/** One row's worth of `ProjectMember`s for the same developer, across
+ * however many of the selected repos they belong to. A developer's role
+ * is per-project (`admin` in one repo, `member` in another is normal), so
+ * `memberships` keeps every `(projectId, role)` pair rather than
+ * collapsing to a single role -- `MembersView` renders one repo/role chip
+ * per membership on the developer's one row. */
+export interface DeveloperGroup {
+  developerId: string;
+  memberships: ProjectMember[];
+}
+
+/**
+ * Collapses a merged, multi-project member list to one row per developer
+ * -- fixes an early version of the aggregated Members tab that rendered
+ * one row per `(developer, project)` pair, which read as duplicate rows
+ * for the common case of the same person being on several selected repos.
+ * Sorted by `developerId`; each developer's own `memberships` sorted by
+ * repo label via the `projectsById` lookup the caller already has.
+ */
+export function dedupeMembersByDeveloper(members: ProjectMember[]): DeveloperGroup[] {
+  const groups = new Map<string, DeveloperGroup>();
+
+  for (const member of members) {
+    let group = groups.get(member.developerId);
+    if (!group) {
+      group = { developerId: member.developerId, memberships: [] };
+      groups.set(member.developerId, group);
+    }
+    group.memberships.push(member);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => a.developerId.localeCompare(b.developerId));
 }

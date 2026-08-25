@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { fetchAllProjects, dedupeDesignsByGroup } from "./aggregate.js";
-import type { DesignStatement } from "../api/types.js";
+import { fetchAllProjects, dedupeDesignsByGroup, dedupeMembersByDeveloper } from "./aggregate.js";
+import type { DesignStatement, ProjectMember } from "../api/types.js";
 
 function design(overrides: Partial<DesignStatement> & { id: string }): DesignStatement {
   return {
@@ -90,5 +90,38 @@ describe("dedupeDesignsByGroup", () => {
 
     expect(groups.map((g) => g.key)).toEqual(["recent", "old"]);
     expect(groups[0].lastActivityAt).toBe(300);
+  });
+});
+
+describe("dedupeMembersByDeveloper", () => {
+  function member(overrides: Partial<ProjectMember> & { developerId: string; projectId: string }): ProjectMember {
+    return { role: "member", ...overrides };
+  }
+
+  it("merges the same developer's membership across repos into one group with both memberships", () => {
+    const a = member({ developerId: "alice@example.com", projectId: "proj-1", role: "admin" });
+    const b = member({ developerId: "alice@example.com", projectId: "proj-2", role: "member" });
+    const groups = dedupeMembersByDeveloper([a, b]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].developerId).toBe("alice@example.com");
+    expect(groups[0].memberships).toEqual([a, b]);
+  });
+
+  it("keeps different developers as separate groups", () => {
+    const a = member({ developerId: "alice@example.com", projectId: "proj-1" });
+    const b = member({ developerId: "bob@example.com", projectId: "proj-1" });
+    const groups = dedupeMembersByDeveloper([a, b]);
+
+    expect(groups.map((g) => g.developerId)).toEqual(["alice@example.com", "bob@example.com"]);
+  });
+
+  it("sorts groups by developerId", () => {
+    const groups = dedupeMembersByDeveloper([member({ developerId: "zoe@example.com", projectId: "proj-1" }), member({ developerId: "adam@example.com", projectId: "proj-1" })]);
+    expect(groups.map((g) => g.developerId)).toEqual(["adam@example.com", "zoe@example.com"]);
+  });
+
+  it("returns an empty array for an empty input", () => {
+    expect(dedupeMembersByDeveloper([])).toEqual([]);
   });
 });

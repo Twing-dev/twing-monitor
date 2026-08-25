@@ -50,7 +50,7 @@ describe("MembersView", () => {
     expect(screen.getByText("member")).toBeInTheDocument();
   });
 
-  it("merges members from multiple repos, one row per (developer, repo) pair, with a RepoBadge only when >1 repo is in scope", async () => {
+  it("merges the same developer's membership across multiple repos into one row, not one row per (developer, repo) pair", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -68,19 +68,19 @@ describe("MembersView", () => {
       "proj-2": { projectId: "proj-2", orgId: "", role: "member" },
     });
 
-    // Same developer, two rows -- once per repo, with their own role each.
-    await waitFor(() => expect(screen.getAllByText("alice@example.com")).toHaveLength(2));
-    expect(screen.getByText("admin")).toBeInTheDocument();
-    expect(screen.getByText("member")).toBeInTheDocument();
-    expect(screen.getByText("proj-1", { selector: ".repo-badge" })).toBeInTheDocument();
-    expect(screen.getByText("proj-2", { selector: ".repo-badge" })).toBeInTheDocument();
+    // One row for alice, not two -- her per-repo role shows up as a chip
+    // per membership instead.
+    await waitFor(() => expect(screen.getAllByText("alice@example.com")).toHaveLength(1));
+    expect(screen.getByText("proj-1 · admin")).toBeInTheDocument();
+    expect(screen.getByText("proj-2 · member")).toBeInTheDocument();
   });
 
-  it("shows no RepoBadge when only one repo is in scope", async () => {
+  it("shows a plain role badge (no repo label) when only one repo is in scope", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [{ projectId: "proj-1", developerId: "alice@example.com", role: "admin" }] }), { status: 200 })));
     renderWithAuth();
 
     await screen.findByText("alice@example.com");
-    expect(screen.queryByText("proj-1", { selector: ".repo-badge" })).not.toBeInTheDocument();
+    expect(screen.getByText("admin", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText(/proj-1 ·/)).not.toBeInTheDocument();
   });
 });

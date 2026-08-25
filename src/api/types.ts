@@ -80,7 +80,17 @@ export interface Claim {
   ttlMs: number;
 }
 
-/** Mirrors @twing/core's PendingReview. */
+/** Mirrors @twing/core's EnrichedPendingReview -- the shape
+ * `GET /v1/reviews` returns as of 2026-08-25.
+ *
+ * `constraintIds` was declared here as a singular `constraintId` until then,
+ * left behind when the server pluralised it. Because this type is
+ * hand-rolled rather than imported from @twing/core, nothing caught the
+ * drift: `ReviewsView` read `r.constraintId`, which was always `undefined`,
+ * so the constraint-waiver marker on a review card never rendered once.
+ * `conflictWaivers` was likewise never added after the semantic comparator
+ * shipped. Worth remembering when deciding whether to keep hand-rolling
+ * these -- see this file's header comment. */
 export interface PendingReview {
   id: string;
   designId: string;
@@ -88,8 +98,28 @@ export interface PendingReview {
   justification: string;
   createdAt: number;
   decision?: "approve" | "reject";
-  constraintId?: string;
+  constraintIds?: string[];
   overlapWaivers?: { conflictingDesignId: string; paths: string[] }[];
+  conflictWaivers?: { conflictingDesignId: string }[];
+
+  /** Everything below is server-assembled and optional. A coordinator
+   * predating the enrichment simply omits it, and the review card falls
+   * back to its previous justification-led rendering. */
+  design?: {
+    summary: string;
+    creates: string[];
+    touches: string[];
+    developerId: string;
+    status: string;
+  };
+  constraints?: { id: string; statement: string; type: string }[];
+  conflicts?: {
+    designId: string;
+    kind: "overlap" | "conflict";
+    summary?: string;
+    developerId?: string;
+    paths?: string[];
+  }[];
 }
 
 /** Mirrors @twing/core's DesignConstraint. */

@@ -442,11 +442,21 @@ button {
 .card-summary {
   font-size: 0.92rem;
   line-height: 1.4;
+  /* Without this, a flex item's automatic minimum width is its min-content
+   * size (the width of its single longest word) -- fine normally, but once
+   * `.card-badges` grows wide enough (a grouped design card can carry a
+   * badge per distinct repo/status), the summary gets squeezed down to
+   * exactly that min-content width and wraps every word onto its own line
+   * instead of just wrapping normally at whatever room is actually left. */
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .card-badges {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
   flex-shrink: 0;
 }

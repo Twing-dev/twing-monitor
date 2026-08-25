@@ -58,6 +58,21 @@ function findSemanticOverlapThread(threads: AlignmentThread[], designsById: Reco
   return threads.find((t) => (t.designId === designId || t.symbolId === designId) && Boolean(designsById[t.symbolId]));
 }
 
+/** First occurrence per key, order preserved -- used to collapse a grouped
+ * card's badge row to one badge per distinct repo/status rather than one
+ * per member (see the `card-badges` doc comment above its use). */
+function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
+  const seen = new Set<K>();
+  const result: T[] = [];
+  for (const item of items) {
+    const k = key(item);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    result.push(item);
+  }
+  return result;
+}
+
 export function DesignsView({
   projectIds,
   projectsById,
@@ -189,12 +204,16 @@ export function DesignsView({
                         <div className="card-badges">
                           {anyUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
                           {anySemanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
-                          {showRepoBadge && group.members.map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
-                          {group.members.length === 1 ? (
-                            <StatusBadge label={primary.status} tone={toneForDesignStatus(primary.status)} />
-                          ) : (
-                            group.members.map((m) => <StatusBadge key={m.id} label={m.status} tone={toneForDesignStatus(m.status)} />)
-                          )}
+                          {/* One badge per distinct repo/status, not per member -- a group can
+                              have more members than repos (two designs linked in the same
+                              project) or more members than distinct statuses (a uniformly
+                              closed group), and a badge per member in either case just repeats
+                              the same label back-to-back rather than adding information. */}
+                          {showRepoBadge &&
+                            uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+                          {uniqueBy(group.members, (m) => m.status).map((m) => (
+                            <StatusBadge key={m.status} label={m.status} tone={toneForDesignStatus(m.status)} />
+                          ))}
                         </div>
                       </div>
                       <div className="card-meta">

@@ -651,6 +651,33 @@ describe("DesignsView", () => {
       expect(screen.getByText("src/api/types.ts")).toBeInTheDocument();
     });
 
+    it("collapses a group's badges to one per distinct repo/status, not one per member", async () => {
+      // Two members in proj-1 (same repo) plus one in proj-2, all closed --
+      // the collapsed header should show "acme/widgets" once, "proj-2"
+      // once, and "closed" once, never three of any of them.
+      const first = { ...ERIN_DESIGN, id: "design-1", projectId: "proj-1", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      const second = { ...ERIN_DESIGN, id: "design-2", projectId: "proj-1", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      const third = { ...ERIN_DESIGN, id: "design-3", projectId: "proj-2", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [first, second], "proj-2": [third] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      await screen.findByText("Three-way linked design");
+      expect(screen.getAllByText("acme/widgets")).toHaveLength(1);
+      expect(screen.getAllByText("proj-2")).toHaveLength(1);
+      expect(screen.getAllByText("closed", { selector: ".status-badge" })).toHaveLength(1);
+    });
+
+    it("shows one badge per distinct status when a group's members disagree", async () => {
+      const openMember = { ...ERIN_DESIGN, id: "design-open", projectId: "proj-1", groupId: "grp-4", status: "open", summary: "Mixed-status group" };
+      const closedMember = { ...ERIN_DESIGN, id: "design-closed", projectId: "proj-2", groupId: "grp-4", status: "closed", summary: "Mixed-status group" };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [openMember], "proj-2": [closedMember] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      await screen.findByText("Mixed-status group");
+      expect(screen.getByText("open", { selector: ".status-badge" })).toBeInTheDocument();
+      expect(screen.getByText("closed", { selector: ".status-badge" })).toBeInTheDocument();
+    });
+
     it("renders two unrelated designs in different repos as two separate cards", async () => {
       const a = { ...ERIN_DESIGN, id: "design-a", projectId: "proj-1", summary: "Unrelated design A" };
       const b = { ...ERIN_DESIGN, id: "design-b", projectId: "proj-2", summary: "Unrelated design B" };

@@ -8,11 +8,11 @@ import type { ProjectSummary } from "../api/types.js";
 
 const project: ProjectSummary = { projectId: "proj-1", orgId: "org-1", role: "admin" };
 
-function renderLayout() {
+function renderLayout(projects: ProjectSummary[] = [project]) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
-      <RepoDetailLayout project={project} onBack={() => {}} />
+      <RepoDetailLayout projects={projects} onBack={() => {}} />
     </ServerProvider>,
   );
 }
@@ -95,5 +95,26 @@ describe("RepoDetailLayout", () => {
     // It also arrives pre-expanded (no extra click needed).
     await waitFor(() => expect(screen.getByText("A design owned by someone else, currently flagged")).toBeInTheDocument());
     expect(screen.getByText("src/x.ts")).toBeInTheDocument();
+  });
+
+  it("renders the single-repo header (name + role badge) unchanged when given exactly one project", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+    renderLayout();
+
+    expect(await screen.findByRole("heading", { name: "proj-1" })).toBeInTheDocument();
+    expect(screen.getByText("admin")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^\d+ repos$/ })).not.toBeInTheDocument();
+  });
+
+  it("renders an 'N repos' header with a chip per repo when given more than one project", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+    const other: ProjectSummary = { projectId: "proj-2", orgId: "org-1", role: "member", githubOwner: "acme", githubRepo: "widgets" };
+    renderLayout([project, other]);
+
+    expect(await screen.findByRole("heading", { name: "2 repos" })).toBeInTheDocument();
+    expect(screen.getByText("proj-1")).toBeInTheDocument();
+    expect(screen.getByText("acme/widgets")).toBeInTheDocument();
+    // No single-repo role badge when aggregating multiple repos.
+    expect(screen.queryByText("admin")).not.toBeInTheDocument();
   });
 });

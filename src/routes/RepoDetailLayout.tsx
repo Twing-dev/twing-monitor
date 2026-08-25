@@ -3,6 +3,7 @@ import type { ProjectSummary } from "../api/types.js";
 import { useApiFetch } from "../api/client.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { fetchReviews } from "../api/reviews.js";
+import { repoLabel } from "../lib/repoLabel.js";
 import { DesignsView } from "./DesignsView.js";
 import { ReviewsView } from "./ReviewsView.js";
 import { ActivityView } from "./ActivityView.js";
@@ -21,22 +22,17 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "constraints", label: "Constraints" },
 ];
 
-function repoLabel(project: ProjectSummary): string {
-  return project.githubOwner && project.githubRepo ? `${project.githubOwner}/${project.githubRepo}` : project.projectId;
-}
-
-export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary; onBack: () => void }) {
+/**
+ * A single repo's tab view is the `projects.length === 1` case of the same
+ * component that renders a multi-repo aggregated view -- every tab view
+ * below takes `projectIds`/`projectsById` regardless of how many repos are
+ * in scope, so there's exactly one code path instead of a
+ * single-repo/aggregate pair that can drift apart. Only this layout's own
+ * header branches on the count.
+ */
+export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummary[]; onBack: () => void }) {
   const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>("designs");
-  // A pending review means someone is blocked right now, waiting on a human
-  // -- and nothing in twing tells that human. There's no email, webhook or
-  // digest anywhere, so an admin only finds out by opening this tab and
-  // looking. Surfacing the count on the tab itself is the cheapest possible
-  // step toward closing that: you now see it from any tab, without going
-  // hunting. Deliberately not gated on `role` -- a member can't decide a
-  // review, but knowing the queue is backing up is still worth seeing.
-  const pending = useAsyncData(() => fetchReviews(apiFetch, project.projectId, "pending"), [apiFetch, project.projectId]);
-  const pendingCount = pending.status === "ready" ? pending.data.length : 0;
   // Set by ActivityView's "View design ->" link -- DesignsView consumes it
   // to force ?status=all (a flagged/closed design wouldn't otherwise be
   // visible under the default "open" filter) and auto-expand that card.
@@ -47,6 +43,24 @@ export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary;
     setTab("designs");
   }
 
+  const projectIds = projects.map((p) => p.projectId);
+  // A pending review means someone is blocked right now, waiting on a
+  // human -- and nothing in twing tells that human. There's no email,
+  // webhook or digest anywhere, so an admin only finds out by opening this
+  // tab and looking. Surfacing the count on the tab itself is the cheapest
+  // step toward closing that: a queue building up is visible from any tab.
+  // Summed across every selected repo, matching what the Reviews tab
+  // itself shows in the aggregated view. Deliberately not gated on role --
+  // a member can't decide a review, but knowing the queue is backing up is
+  // still worth seeing.
+  const pending = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(",")],
+  );
+  const pendingCount = pending.status === "ready" ? pending.data.length : 0;
+  const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
+  const single = projects.length === 1 ? projects[0] : undefined;
+
   return (
     <div className="repo-detail-view">
       <header className="view-header">
@@ -54,9 +68,22 @@ export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary;
           <button type="button" className="link-button back-link" onClick={onBack}>
             ← All repos
           </button>
-          <h1>{repoLabel(project)}</h1>
+          {single ? (
+            <h1>{repoLabel(single)}</h1>
+          ) : (
+            <>
+              <h1>{projects.length} repos</h1>
+              <div className="repo-chip-row">
+                {projects.map((p) => (
+                  <span key={p.projectId} className="repo-chip">
+                    {repoLabel(p)}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
-        <span className={`role-badge role-${project.role}`}>{project.role}</span>
+        {single && <span className={`role-badge role-${single.role}`}>{single.role}</span>}
       </header>
 
       <nav className="tab-bar" role="tablist">
@@ -80,12 +107,12 @@ export function RepoDetailLayout({ project, onBack }: { project: ProjectSummary;
       </nav>
 
       <div className="tab-panel">
-        {tab === "designs" && <DesignsView projectId={project.projectId} focusDesignId={focusDesignId} onOpenTab={setTab} />}
-        {tab === "reviews" && <ReviewsView projectId={project.projectId} canDecide={project.role === "admin"} />}
-        {tab === "activity" && <ActivityView projectId={project.projectId} onOpenDesign={openDesign} onOpenTab={setTab} />}
-        {tab === "threads" && <AlignmentThreadsView projectId={project.projectId} onOpenDesign={openDesign} />}
-        {tab === "members" && <MembersView projectId={project.projectId} />}
-        {tab === "constraints" && <ConstraintsView projectId={project.projectId} />}
+        {tab === "designs" && <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onOpenTab={setTab} />}
+        {tab === "reviews" && <ReviewsView projectIds={projectIds} projectsById={projectsById} />}
+        {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={setTab} />}
+        {tab === "threads" && <AlignmentThreadsView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} />}
+        {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
+        {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
       </div>
     </div>
   );

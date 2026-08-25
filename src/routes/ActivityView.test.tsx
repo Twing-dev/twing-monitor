@@ -5,11 +5,12 @@ import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { ActivityView, type ActivityViewProps } from "./ActivityView.js";
 
-function renderWithAuth(props: Partial<Omit<ActivityViewProps, "projectId">> = {}) {
+function renderWithAuth(props: Partial<Omit<ActivityViewProps, "projectIds" | "projectsById">> & { projectIds?: string[]; projectsById?: ActivityViewProps["projectsById"] } = {}) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+  const { projectIds = ["proj-1"], projectsById = {}, ...rest } = props;
   return render(
     <ServerProvider>
-      <ActivityView projectId="proj-1" {...props} />
+      <ActivityView projectIds={projectIds} projectsById={projectsById} {...rest} />
     </ServerProvider>,
   );
 }
@@ -327,5 +328,64 @@ describe("ActivityView", () => {
     await user.click(toggle);
     expect(toggle).not.toBeChecked();
     expect(screen.getByText("Constraint ratified")).toBeInTheDocument();
+  });
+
+  describe("multi-repo pagination", () => {
+    function event(id: string, projectId: string, ts: number) {
+      return { id, projectId, developerId: "alice@example.com", kind: "design_registered", relatedId: `design-${id}`, ts, payload: { summary: id } };
+    }
+
+    it("keeps 'Load older' visible after one project's cursor is exhausted but another's isn't, and only re-fetches the project(s) that still have one", async () => {
+      const user = userEvent.setup();
+      const now = Date.now();
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (!url.includes("/v1/activity?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        const params = new URL(url).searchParams;
+        const projectId = params.get("projectId");
+        const before = params.get("before");
+        if (projectId === "proj-1") {
+          // proj-1 has exactly one page -- no nextBefore, ever.
+          if (before) throw new Error("proj-1's exhausted cursor should never be re-fetched");
+          return new Response(JSON.stringify({ items: [event("p1-a", "proj-1", now)] }), { status: 200 });
+        }
+        // proj-2 has two pages.
+        if (!before) return new Response(JSON.stringify({ items: [event("p2-a", "proj-2", now - 1)], nextBefore: now - 1 }), { status: 200 });
+        return new Response(JSON.stringify({ items: [event("p2-b", "proj-2", now - 2)] }), { status: 200 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderWithAuth({ projectIds: ["proj-1", "proj-2"] });
+
+      await waitFor(() => expect(screen.getAllByText(/^p[12]-[ab]$/).length).toBe(2));
+      expect(screen.getByRole("button", { name: /load older/i })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /load older/i }));
+
+      await waitFor(() => expect(screen.getAllByText(/^p[12]-[ab]$/).length).toBe(3));
+      // proj-2's second page arrived; proj-1 was correctly never re-queried
+      // (the mock throws above if it is) and the button is now gone since
+      // both projects' cursors are exhausted.
+      expect(screen.queryByRole("button", { name: /load older/i })).not.toBeInTheDocument();
+    });
+
+    it("shows no RepoBadge when only one repo is in scope, and one per event when more than one is", async () => {
+      const now = Date.now();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (!url.includes("/v1/activity?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+          const projectId = new URL(url).searchParams.get("projectId");
+          return new Response(JSON.stringify({ items: projectId === "proj-1" ? [event("a", "proj-1", now)] : [event("b", "proj-2", now)] }), { status: 200 });
+        }),
+      );
+      renderWithAuth({
+        projectIds: ["proj-1", "proj-2"],
+        projectsById: { "proj-1": { projectId: "proj-1", orgId: "", role: "admin" }, "proj-2": { projectId: "proj-2", orgId: "", role: "admin" } },
+      });
+
+      await waitFor(() => expect(screen.getAllByText("proj-1", { selector: ".repo-badge" }).length).toBeGreaterThan(0));
+      expect(screen.getByText("proj-2", { selector: ".repo-badge" })).toBeInTheDocument();
+    });
   });
 });

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchReviews, decideReview, type ReviewStatus } from "../api/reviews.js";
+import type { ProjectSummary, PendingReview } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
+import { RepoBadge } from "../components/RepoBadge.js";
 import { relativeTime } from "../lib/time.js";
-import type { PendingReview } from "../api/types.js";
 
 const STATUSES: ReviewStatus[] = ["pending", "decided", "all"];
 
@@ -50,11 +51,13 @@ function ReviewCard({
   review,
   canDecide,
   busy,
+  repoBadge,
   onDecide,
 }: {
   review: PendingReview;
   canDecide: boolean;
   busy: boolean;
+  repoBadge?: React.ReactNode;
   onDecide: (id: string, decision: "approve" | "reject") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -67,10 +70,11 @@ function ReviewCard({
     <li className={`design-card${expanded ? " expanded" : ""}`}>
       <div className="review-card-inner">
         <div className="card-top-row">
-          <span className="review-headline">
-            {design?.summary ?? review.justification}
-          </span>
-          <StatusBadge label={review.decision ?? "pending"} tone={toneForDecision(review.decision)} />
+          <span className="review-headline">{design?.summary ?? review.justification}</span>
+          <div className="card-badges">
+            {repoBadge}
+            <StatusBadge label={review.decision ?? "pending"} tone={toneForDecision(review.decision)} />
+          </div>
         </div>
 
         <div className="card-meta">
@@ -165,12 +169,14 @@ function ReviewCard({
   );
 }
 
-/** `canDecide` gates the Approve/Reject buttons -- `POST
- * /v1/reviews/:id/decide` requires that review's project `admin` role
- * server-side (§17.10 hardening), so a `member` would just get a 403 back;
- * hiding the buttons for them is purely UX, the server is the real
- * enforcement either way. */
-export function ReviewsView({ projectId, canDecide }: { projectId: string; canDecide: boolean }) {
+/** `POST /v1/reviews/:id/decide` requires that review's *own* project
+ * `admin` role server-side (§17.10 hardening) -- a developer can be
+ * `admin` in one repo and `member` in another, so "can I decide" is
+ * resolved per-review from `projectsById[review.projectId]`, not a single
+ * boolean for the whole view (unlike the pre-aggregation version of this
+ * component). Hiding the buttons for a `member` is purely UX either way;
+ * the server is the real enforcement. */
+export function ReviewsView({ projectIds, projectsById }: { projectIds: string[]; projectsById: Record<string, ProjectSummary> }) {
   const apiFetch = useApiFetch();
   const [status, setStatus] = useState<ReviewStatus>("pending");
   const [decidingId, setDecidingId] = useState<string | null>(null);
@@ -180,7 +186,10 @@ export function ReviewsView({ projectId, canDecide }: { projectId: string; canDe
   // "all"), and useAsyncData has no refetch of its own.
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const state = useAsyncData(() => fetchReviews(apiFetch, projectId, status), [apiFetch, projectId, status, refreshKey]);
+  const state = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, status))).then((lists) => lists.flat().sort((a, b) => b.createdAt - a.createdAt)),
+    [apiFetch, projectIds.join(","), status, refreshKey],
+  );
 
   async function decide(id: string, decision: "approve" | "reject") {
     setDecidingId(id);
@@ -194,6 +203,8 @@ export function ReviewsView({ projectId, canDecide }: { projectId: string; canDe
       setDecidingId(null);
     }
   }
+
+  const showRepoBadge = projectIds.length > 1;
 
   return (
     <div className="list-view">
@@ -223,8 +234,9 @@ export function ReviewsView({ projectId, canDecide }: { projectId: string; canDe
               <ReviewCard
                 key={r.id}
                 review={r}
-                canDecide={canDecide}
+                canDecide={projectsById[r.projectId]?.role === "admin"}
                 busy={decidingId !== null}
+                repoBadge={showRepoBadge ? <RepoBadge project={projectsById[r.projectId] ?? { projectId: r.projectId }} /> : undefined}
                 onDecide={decide}
               />
             ))}

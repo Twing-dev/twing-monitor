@@ -4,12 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { DesignsView } from "./DesignsView.js";
+import type { ProjectSummary } from "../api/types.js";
 
-function renderWithAuth(onOpenTab?: (tab: "threads") => void) {
+function renderWithAuth(onOpenTab?: (tab: "threads") => void, projectIds: string[] = ["proj-1"], projectsById: Record<string, ProjectSummary> = {}) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
-      <DesignsView projectId="proj-1" onOpenTab={onOpenTab} />
+      <DesignsView projectIds={projectIds} projectsById={projectsById} onOpenTab={onOpenTab} />
     </ServerProvider>,
   );
 }
@@ -613,5 +614,87 @@ describe("DesignsView", () => {
 
     await screen.findByText("Add API-key rate limiter");
     expect(screen.queryByText("semantic overlap", { selector: ".status-badge" })).not.toBeInTheDocument();
+  });
+
+  describe("multi-repo aggregation", () => {
+    function mockMultiProjectFetch(designsByProject: Record<string, unknown[]>) {
+      return vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const projectId = new URL(url).searchParams.get("projectId") ?? "";
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: designsByProject[projectId] ?? [] }), { status: 200 });
+        if (url.includes("/v1/activity?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        if (url.includes("/v1/claims?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+    }
+
+    const PROJECTS = {
+      "proj-1": { projectId: "proj-1", orgId: "", role: "admin" as const, githubOwner: "acme", githubRepo: "widgets" },
+      "proj-2": { projectId: "proj-2", orgId: "", role: "admin" as const },
+    };
+
+    it("collapses two designs sharing a groupId across repos into one card with a RepoBadge per member, and expands into one detail panel each", async () => {
+      const user = userEvent.setup();
+      const cliSide = { ...ERIN_DESIGN, id: "design-cli", projectId: "proj-1", groupId: "grp-1", summary: "Add groupId to DesignStatement", touches: ["packages/core/src/types.ts"] };
+      const monitorSide = { ...ERIN_DESIGN, id: "design-monitor", projectId: "proj-2", groupId: "grp-1", summary: "Add groupId to DesignStatement", touches: ["src/api/types.ts"] };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [cliSide], "proj-2": [monitorSide] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      // One card, not two.
+      expect(await screen.findAllByText("Add groupId to DesignStatement")).toHaveLength(1);
+      expect(screen.getByText("acme/widgets")).toBeInTheDocument();
+      expect(screen.getByText("proj-2")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /Add groupId to DesignStatement/ }));
+      expect(await screen.findByText("packages/core/src/types.ts")).toBeInTheDocument();
+      expect(screen.getByText("src/api/types.ts")).toBeInTheDocument();
+    });
+
+    it("collapses a group's badges to one per distinct repo/status, not one per member", async () => {
+      // Two members in proj-1 (same repo) plus one in proj-2, all closed --
+      // the collapsed header should show "acme/widgets" once, "proj-2"
+      // once, and "closed" once, never three of any of them.
+      const first = { ...ERIN_DESIGN, id: "design-1", projectId: "proj-1", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      const second = { ...ERIN_DESIGN, id: "design-2", projectId: "proj-1", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      const third = { ...ERIN_DESIGN, id: "design-3", projectId: "proj-2", groupId: "grp-3", status: "closed", summary: "Three-way linked design" };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [first, second], "proj-2": [third] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      await screen.findByText("Three-way linked design");
+      expect(screen.getAllByText("acme/widgets")).toHaveLength(1);
+      expect(screen.getAllByText("proj-2")).toHaveLength(1);
+      expect(screen.getAllByText("closed", { selector: ".status-badge" })).toHaveLength(1);
+    });
+
+    it("shows one badge per distinct status when a group's members disagree", async () => {
+      const openMember = { ...ERIN_DESIGN, id: "design-open", projectId: "proj-1", groupId: "grp-4", status: "open", summary: "Mixed-status group" };
+      const closedMember = { ...ERIN_DESIGN, id: "design-closed", projectId: "proj-2", groupId: "grp-4", status: "closed", summary: "Mixed-status group" };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [openMember], "proj-2": [closedMember] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      await screen.findByText("Mixed-status group");
+      expect(screen.getByText("open", { selector: ".status-badge" })).toBeInTheDocument();
+      expect(screen.getByText("closed", { selector: ".status-badge" })).toBeInTheDocument();
+    });
+
+    it("renders two unrelated designs in different repos as two separate cards", async () => {
+      const a = { ...ERIN_DESIGN, id: "design-a", projectId: "proj-1", summary: "Unrelated design A" };
+      const b = { ...ERIN_DESIGN, id: "design-b", projectId: "proj-2", summary: "Unrelated design B" };
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [a], "proj-2": [b] }));
+      renderWithAuth(undefined, ["proj-1", "proj-2"], PROJECTS);
+
+      expect(await screen.findByText("Unrelated design A")).toBeInTheDocument();
+      expect(screen.getByText("Unrelated design B")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /Unrelated design/ })).toHaveLength(2);
+    });
+
+    it("shows no RepoBadge at all when only one repo is in scope", async () => {
+      vi.stubGlobal("fetch", mockMultiProjectFetch({ "proj-1": [ERIN_DESIGN] }));
+      renderWithAuth();
+
+      await screen.findByText("Add API-key rate limiter");
+      expect(screen.queryByText("acme/widgets")).not.toBeInTheDocument();
+    });
   });
 });

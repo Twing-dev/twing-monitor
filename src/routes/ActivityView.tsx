@@ -3,11 +3,12 @@ import { useApiFetch } from "../api/client.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchDesigns } from "../api/designs.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
-import type { ActivityEvent, DesignStatement } from "../api/types.js";
+import type { ActivityEvent, DesignStatement, ProjectSummary } from "../api/types.js";
 import { relativeTime } from "../lib/time.js";
 import { formatActivityEvent, type ActivityDetailField } from "../lib/activityFormat.js";
 import { groupActivityByDesign, type ActivityEntry, type DesignGroup } from "../lib/designGrouping.js";
 import { StatusBadge } from "../components/StatusBadge.js";
+import { RepoBadge } from "../components/RepoBadge.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
 
 const KIND_GROUPS = [
@@ -30,7 +31,8 @@ const KIND_GROUPS = [
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 
 export interface ActivityViewProps {
-  projectId: string;
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
   /** Jumps to the Designs tab with this design expanded -- RepoDetailLayout
    * owns the actual tab switch, this view only ever knows "which design." */
   onOpenDesign?: (designId: string) => void;
@@ -45,12 +47,16 @@ export interface ActivityViewProps {
 function ActivityRow({
   event,
   designsBySession,
+  projectsById,
+  showRepoBadge,
   onOpenDesign,
   onOpenTab,
   onFilterDeveloper,
 }: {
   event: ActivityEvent;
   designsBySession: Record<string, DesignStatement>;
+  projectsById: Record<string, ProjectSummary>;
+  showRepoBadge: boolean;
   onOpenDesign?: (designId: string) => void;
   onOpenTab?: (tab: "threads" | "constraints") => void;
   onFilterDeveloper: (developerId: string) => void;
@@ -75,6 +81,7 @@ function ActivityRow({
       <div className="activity-row-top">
         <span className="activity-kind">{formatted.label}</span>
         <span className="activity-meta">
+          {showRepoBadge && <RepoBadge project={projectsById[event.projectId] ?? { projectId: event.projectId }} />}
           {event.developerId && (
             <button type="button" className="link-chip" onClick={() => onFilterDeveloper(event.developerId!)}>
               {event.developerId}
@@ -125,6 +132,8 @@ function DesignGroupRow({
   expanded,
   onToggle,
   designsBySession,
+  projectsById,
+  showRepoBadge,
   onOpenDesign,
   onOpenTab,
   onFilterDeveloper,
@@ -133,6 +142,8 @@ function DesignGroupRow({
   expanded: boolean;
   onToggle: () => void;
   designsBySession: Record<string, DesignStatement>;
+  projectsById: Record<string, ProjectSummary>;
+  showRepoBadge: boolean;
   onOpenDesign?: (designId: string) => void;
   onOpenTab?: (tab: "threads" | "constraints") => void;
   onFilterDeveloper: (developerId: string) => void;
@@ -143,6 +154,7 @@ function DesignGroupRow({
         <button type="button" className="activity-group-toggle" onClick={onToggle} aria-expanded={expanded}>
           <span className="activity-group-caret">{expanded ? "▾" : "▸"}</span>
           <span className="activity-group-summary">{group.design.summary || "(no summary)"}</span>
+          {showRepoBadge && <RepoBadge project={projectsById[group.design.projectId] ?? { projectId: group.design.projectId }} />}
           <StatusBadge label={group.design.status} tone={toneForDesignStatus(group.design.status)} />
           <span className="activity-group-count">{group.events.length}</span>
         </button>
@@ -158,7 +170,16 @@ function DesignGroupRow({
       {expanded && (
         <ul className="activity-list activity-group-events">
           {group.events.map((event) => (
-            <ActivityRow key={event.id} event={event} designsBySession={designsBySession} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} onFilterDeveloper={onFilterDeveloper} />
+            <ActivityRow
+              key={event.id}
+              event={event}
+              designsBySession={designsBySession}
+              projectsById={projectsById}
+              showRepoBadge={showRepoBadge}
+              onOpenDesign={onOpenDesign}
+              onOpenTab={onOpenTab}
+              onFilterDeveloper={onFilterDeveloper}
+            />
           ))}
         </ul>
       )}
@@ -166,19 +187,27 @@ function DesignGroupRow({
   );
 }
 
+type ProjectPage = { items: ActivityEvent[]; nextBefore?: number };
+
 /** Unlike the other list views, this one accumulates pages rather than
  * replacing them wholesale on every render -- `useAsyncData` resets to
  * "loading" on any dependency change, which is right for a filter swap
  * (start over) but wrong for "load older" (append). So this view manages
- * its own load state instead of going through that hook. */
-export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityViewProps) {
+ * its own load state instead of going through that hook.
+ *
+ * Generalized to multiple repos by keeping one page/cursor *per project*
+ * (`pages: Record<projectId, ProjectPage>`) rather than a single shared
+ * one -- each repo's activity volume/history is independent, so `loadMore`
+ * re-fetches only the projects that still have a cursor, and "Load older"
+ * stays visible until every project's cursor is exhausted, not just the
+ * first one to run out. */
+export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab }: ActivityViewProps) {
   const apiFetch = useApiFetch();
   const [kindFilter, setKindFilter] = useState(KIND_GROUPS[0].value);
   const [developerFilter, setDeveloperFilter] = useState<string | undefined>(undefined);
   const [groupByDesign, setGroupByDesign] = useState(true);
   const [expandedDesignIds, setExpandedDesignIds] = useState<Set<string>>(new Set());
-  const [items, setItems] = useState<ActivityEvent[]>([]);
-  const [nextBefore, setNextBefore] = useState<number | undefined>(undefined);
+  const [pages, setPages] = useState<Record<string, ProjectPage>>({});
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   // Backs both the flat list's per-row "View design" link (session-based
@@ -191,21 +220,23 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
   // threadId but no designId of their own -- see designGrouping.ts.
   const [threadDesignById, setThreadDesignById] = useState<Record<string, string>>({});
 
+  const projectIdsKey = projectIds.join(",");
+
   useEffect(() => {
     let cancelled = false;
-    fetchDesigns(apiFetch, projectId)
-      .then((fetched) => {
-        if (!cancelled) setDesigns(fetched);
+    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid)))
+      .then((lists) => {
+        if (!cancelled) setDesigns(lists.flat());
       })
       .catch(() => {
         // Best-effort only -- a failed lookup just means rows fall back to
         // showing no design reference, not a broken activity feed.
       });
-    fetchAlignmentThreads(apiFetch, projectId)
-      .then((threads) => {
+    Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid)))
+      .then((lists) => {
         if (cancelled) return;
         const byId: Record<string, string> = {};
-        for (const t of threads) if (t.designId) byId[t.id] = t.designId;
+        for (const t of lists.flat()) if (t.designId) byId[t.id] = t.designId;
         setThreadDesignById(byId);
       })
       .catch(() => {
@@ -214,7 +245,8 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, projectId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFetch, projectIdsKey]);
 
   const designsById = useMemo(() => Object.fromEntries(designs.map((d) => [d.id, d])), [designs]);
 
@@ -227,6 +259,12 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
     return bySession;
   }, [designs]);
 
+  // Flattened, newest-first across every project's own (independently
+  // sorted) page -- interleaving several sorted lists isn't itself sorted,
+  // so this re-sorts on every merge.
+  const items = useMemo(() => Object.values(pages).flatMap((p) => p.items).sort((a, b) => b.ts - a.ts), [pages]);
+  const hasMore = Object.values(pages).some((p) => p.nextBefore !== undefined);
+
   const entries: ActivityEntry[] = useMemo(
     () => (groupByDesign ? groupActivityByDesign(items, designsById, designsBySession, threadDesignById) : items.map((event) => ({ type: "event" as const, event }))),
     [groupByDesign, items, designsById, designsBySession, threadDesignById],
@@ -235,11 +273,16 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
   const loadFirstPage = useCallback(() => {
     let cancelled = false;
     setState({ status: "loading" });
-    fetchActivity(apiFetch, projectId, { kinds: kindFilter ? kindFilter.split(",") : undefined, developerId: developerFilter })
-      .then((page) => {
+    Promise.all(
+      projectIds.map((pid) =>
+        fetchActivity(apiFetch, pid, { kinds: kindFilter ? kindFilter.split(",") : undefined, developerId: developerFilter }).then(
+          (page) => [pid, page] as const,
+        ),
+      ),
+    )
+      .then((results) => {
         if (cancelled) return;
-        setItems(page.items);
-        setNextBefore(page.nextBefore);
+        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
         setState({ status: "ready" });
       })
       .catch((err: unknown) => {
@@ -249,20 +292,30 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
     return () => {
       cancelled = true;
     };
-  }, [apiFetch, projectId, kindFilter, developerFilter]);
+  }, [apiFetch, projectIdsKey, kindFilter, developerFilter]);
 
   useEffect(() => loadFirstPage(), [loadFirstPage]);
 
   async function loadMore() {
-    if (nextBefore === undefined) return;
+    const toFetch = projectIds.filter((pid) => pages[pid]?.nextBefore !== undefined);
+    if (toFetch.length === 0) return;
     try {
-      const page = await fetchActivity(apiFetch, projectId, {
-        before: nextBefore,
-        kinds: kindFilter ? kindFilter.split(",") : undefined,
-        developerId: developerFilter,
+      const results = await Promise.all(
+        toFetch.map((pid) =>
+          fetchActivity(apiFetch, pid, {
+            before: pages[pid].nextBefore,
+            kinds: kindFilter ? kindFilter.split(",") : undefined,
+            developerId: developerFilter,
+          }).then((page) => [pid, page] as const),
+        ),
+      );
+      setPages((prev) => {
+        const next = { ...prev };
+        for (const [pid, page] of results) {
+          next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        }
+        return next;
       });
-      setItems((prev) => [...prev, ...page.items]);
-      setNextBefore(page.nextBefore);
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
@@ -276,6 +329,8 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
       return next;
     });
   }
+
+  const showRepoBadge = projectIds.length > 1;
 
   return (
     <div className="list-view">
@@ -319,16 +374,27 @@ export function ActivityView({ projectId, onOpenDesign, onOpenTab }: ActivityVie
                   expanded={expandedDesignIds.has(entry.group.design.id)}
                   onToggle={() => toggleGroup(entry.group.design.id)}
                   designsBySession={designsBySession}
+                  projectsById={projectsById}
+                  showRepoBadge={showRepoBadge}
                   onOpenDesign={onOpenDesign}
                   onOpenTab={onOpenTab}
                   onFilterDeveloper={setDeveloperFilter}
                 />
               ) : (
-                <ActivityRow key={entry.event.id} event={entry.event} designsBySession={designsBySession} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} onFilterDeveloper={setDeveloperFilter} />
+                <ActivityRow
+                  key={entry.event.id}
+                  event={entry.event}
+                  designsBySession={designsBySession}
+                  projectsById={projectsById}
+                  showRepoBadge={showRepoBadge}
+                  onOpenDesign={onOpenDesign}
+                  onOpenTab={onOpenTab}
+                  onFilterDeveloper={setDeveloperFilter}
+                />
               ),
             )}
           </ul>
-          {nextBefore !== undefined && (
+          {hasMore && (
             <button type="button" className="load-more-button" onClick={loadMore}>
               Load older
             </button>

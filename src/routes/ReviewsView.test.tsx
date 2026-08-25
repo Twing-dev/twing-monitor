@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { ReviewsView } from "./ReviewsView.js";
+import type { ProjectSummary } from "../api/types.js";
 
-function renderWithAuth(canDecide = false) {
+function renderWithAuth(canDecide = false, projectIds: string[] = ["proj-1"], projectsByIdOverride?: Record<string, ProjectSummary>) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+  const projectsById =
+    projectsByIdOverride ?? Object.fromEntries(projectIds.map((id) => [id, { projectId: id, orgId: "", role: canDecide ? "admin" : "member" } as ProjectSummary]));
   return render(
     <ServerProvider>
-      <ReviewsView projectId="proj-1" canDecide={canDecide} />
+      <ReviewsView projectIds={projectIds} projectsById={projectsById} />
     </ServerProvider>,
   );
 }
@@ -101,6 +104,32 @@ describe("ReviewsView", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("not an admin of this project"));
     // The review is still there -- a failed decide doesn't silently drop it.
     expect(screen.getByText("Overlaps an approved sibling design, same touched path")).toBeInTheDocument();
+  });
+
+  it("resolves canDecide per-review from that review's own project role, not one setting for the whole list", async () => {
+    const memberReview = { ...PENDING_REVIEW, id: "review-member-side", projectId: "proj-1", justification: "Review in the member-role repo" };
+    const adminReview = { ...PENDING_REVIEW, id: "review-admin-side", projectId: "proj-2", justification: "Review in the admin-role repo" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const projectId = new URL(url).searchParams.get("projectId");
+        const items = projectId === "proj-1" ? [memberReview] : projectId === "proj-2" ? [adminReview] : [];
+        return new Response(JSON.stringify({ items }), { status: 200 });
+      }),
+    );
+    renderWithAuth(false, ["proj-1", "proj-2"], {
+      "proj-1": { projectId: "proj-1", orgId: "", role: "member" },
+      "proj-2": { projectId: "proj-2", orgId: "", role: "admin" },
+    });
+
+    await waitFor(() => expect(screen.getByText("Review in the member-role repo")).toBeInTheDocument());
+    expect(screen.getByText("Review in the admin-role repo")).toBeInTheDocument();
+
+    const memberCard = screen.getByText("Review in the member-role repo").closest("li")!;
+    const adminCard = screen.getByText("Review in the admin-role repo").closest("li")!;
+    expect(within(memberCard).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(within(adminCard).getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
 });
 

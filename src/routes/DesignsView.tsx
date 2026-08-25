@@ -10,6 +10,7 @@ import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
+import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
@@ -166,6 +167,22 @@ export function DesignsView({ projectId, focusDesignId, onOpenTab }: { projectId
                         )}
                       </div>
                     </button>
+                    {/* The clamped line in the button above is the card's
+                        title; this is the summary in full. Rendered as one
+                        bullet per sentence, because a real extracted plan
+                        describes four or five separate things in one block
+                        and prose gives you no way to tell where one ends.
+                        Sits outside the button deliberately -- a <ul>
+                        inside one isn't valid HTML. Skipped entirely for a
+                        summary that's already a single sentence, which
+                        would otherwise just repeat the title. */}
+                    {expanded && toBullets(d.summary).length > 0 && (
+                      <ul className="summary-bullets">
+                        {toBullets(d.summary).map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
                     {expanded && (
                       <DesignDetail
                         design={d}

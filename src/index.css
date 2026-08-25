@@ -1122,3 +1122,22 @@ button {
   min-width: 0;
   flex: 1;
 }
+
+/* The expanded summary, one bullet per sentence. Sits between the card
+   header and DesignDetail. */
+.summary-bullets {
+  margin: 0;
+  padding: 12px 18px 4px 36px;
+  list-style: disc;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.summary-bullets li {
+  margin-bottom: 6px;
+}
+
+.summary-bullets li::marker {
+  color: var(--text-dim);
+}

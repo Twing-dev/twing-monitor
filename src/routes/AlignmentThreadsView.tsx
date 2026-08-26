@@ -3,7 +3,7 @@ import { useApiFetch } from "../api/client.js";
 import { fetchAlignmentThreads, fetchAlignmentThread, postAlignmentMessage, closeAlignmentThread } from "../api/alignmentThreads.js";
 import { fetchDesigns } from "../api/designs.js";
 import type { AlignmentThread, AlignmentCategory, AlignmentSubKind, DesignStatement, ProjectSummary } from "../api/types.js";
-import { legacyCategoryBucket } from "../api/types.js";
+import { resolveAlignmentBucket } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
@@ -15,16 +15,6 @@ type StatusFilter = (typeof STATUSES)[number];
 
 function toneForStatus(status: "open" | "closed"): BadgeTone {
   return status === "open" ? "warning" : "neutral";
-}
-
-/** Resolves a thread's raw `category` (possibly a pre-2026-08-26 legacy
- * string, never backfilled -- see `legacyCategoryBucket`'s own doc comment,
- * api/types.ts) to which of the two current buckets it represents. A
- * category already in the new shape just passes through unchanged
- * (`legacyCategoryBucket` only maps the old four-way strings). */
-function bucketOf(category?: string): AlignmentCategory | undefined {
-  if (!category) return undefined;
-  return legacyCategoryBucket(category) ?? (category as AlignmentCategory);
 }
 
 /** Display label for a thread's detail -- `subKind` going forward (2026-08-26
@@ -147,7 +137,7 @@ function ThreadDetail({
         </div>
       </div>
 
-      {bucketOf(thread.category) === "symbol_conflict" && thread.symbolIds.length > 0 && (
+      {resolveAlignmentBucket(thread.category) === "symbol_conflict" && thread.symbolIds.length > 0 && (
         <div className="detail-field">
           <h3>Overlapping files</h3>
           <ul className="thread-symbol-list">

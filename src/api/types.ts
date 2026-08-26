@@ -222,6 +222,20 @@ export function legacyCategoryBucket(raw: string): AlignmentCategory | undefined
   }
 }
 
+/** Resolves a thread's raw `category` to which of the two current buckets
+ * it represents, old or new row alike -- `legacyCategoryBucket` handles the
+ * pre-2026-08-26 four-way strings, anything else already in the new shape
+ * passes through unchanged. Extracted out of `AlignmentThreadsView.tsx`
+ * (originally `bucketOf`, its only caller) so `DesignsView.tsx` can filter
+ * threads by bucket the same way instead of a second, drifting copy of this
+ * same two-line resolution (2026-08-26, alongside fixing
+ * `findSemanticOverlapThread`'s dead-`symbolId` bug -- see its own doc
+ * comment). */
+export function resolveAlignmentBucket(category?: string): AlignmentCategory | undefined {
+  if (!category) return undefined;
+  return legacyCategoryBucket(category) ?? (category as AlignmentCategory);
+}
+
 /** Mirrors packages/server/src/alignment-store.ts's AlignmentThread. */
 export interface AlignmentThread {
   id: string;

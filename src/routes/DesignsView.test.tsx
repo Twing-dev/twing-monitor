@@ -553,10 +553,14 @@ describe("DesignsView", () => {
   const SEMANTIC_THREAD = {
     id: "thread-semantic-1",
     projectId: "proj-1",
-    symbolId: "design-erin-1", // repurposed: the initiating design's own id
+    symbolId: "", // real shape: runSemanticComparatorPass always passes symbolIds: [],
+    // so the store computes symbolId as symbolIds[0] ?? "" -- never a design id.
+    // initiatingDesignId is the real carrier of "which side actually got flagged."
     developerId: "erin@example.com",
     otherDeveloperId: "frank@example.com",
     designId: "design-frank-1",
+    initiatingDesignId: "design-erin-1",
+    category: "llm_divergence",
     status: "open",
     systemDescription: "Both plans independently build a sliding-window rate limiter.",
     openedAt: Date.now(),

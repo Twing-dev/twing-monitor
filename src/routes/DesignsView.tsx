@@ -11,6 +11,7 @@ import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
+import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
 import { dedupeDesignsByGroup } from "../lib/aggregate.js";
 
@@ -226,6 +227,25 @@ export function DesignsView({
                         )}
                       </div>
                     </button>
+                    {/* The clamped line in the button above is the card's
+                        title; this is the summary in full, one bullet per
+                        sentence -- a real extracted plan describes four or
+                        five separate things in one block, and as prose you
+                        can't tell where one ends. Rendered once for the
+                        group rather than per member: a groupId-linked group
+                        shares one summary by design (only `summary` and
+                        closing propagate across a group), so per-member
+                        would repeat the same text. Sits outside the toggle
+                        button deliberately -- a <ul> inside one isn't valid
+                        HTML. Skipped for an already-single-sentence
+                        summary, which would just repeat the title. */}
+                    {expanded && toBullets(primary.summary).length > 0 && (
+                      <ul className="summary-bullets">
+                        {toBullets(primary.summary).map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
                     {expanded &&
                       group.members.map((member) => {
                         const semanticThread = findSemanticOverlapThread(openThreads, designsById, member.id);

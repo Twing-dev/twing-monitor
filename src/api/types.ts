@@ -90,12 +90,21 @@ export interface Claim {
   ttlMs: number;
 }
 
-/** Mirrors @twing/core's PendingReview. `constraintId` -> `constraintIds`
- * (2026-08-22, plural: one justified divergence can settle several distinct
- * constraint matches at once) plus two more waiver-kind fields (2026-08-26):
- * `conflictWaivers` (the semantic comparator's llm_divergence judgement, no
- * paths) and `symbolConflictWaivers` (symbol_conflict's counterpart to
- * `overlapWaivers`, naming the specific symbols that collided). */
+/** Mirrors @twing/core's EnrichedPendingReview -- the shape `GET /v1/reviews`
+ * returns as of 2026-08-25.
+ *
+ * `constraintIds` was declared here as a singular `constraintId` until then,
+ * left behind when the server pluralised it (2026-08-22, plural: one
+ * justified divergence can settle several distinct constraint matches at
+ * once). Because this type is hand-rolled rather than imported from
+ * @twing/core, nothing caught the drift: `ReviewsView` read `r.constraintId`,
+ * which was always `undefined`, so the constraint-waiver marker on a review
+ * card never rendered once. `conflictWaivers`/`symbolConflictWaivers`
+ * (2026-08-26: the semantic comparator's llm_divergence judgement, and
+ * symbol_conflict's counterpart to `overlapWaivers` naming the specific
+ * symbols that collided) were likewise missing until now. Worth remembering
+ * when deciding whether to keep hand-rolling these -- see this file's header
+ * comment. */
 export interface PendingReview {
   id: string;
   designId: string;
@@ -107,6 +116,29 @@ export interface PendingReview {
   overlapWaivers?: { conflictingDesignId: string; paths: string[] }[];
   conflictWaivers?: { conflictingDesignId: string }[];
   symbolConflictWaivers?: { conflictingDesignId: string; symbolIds: string[] }[];
+
+  /** Everything below is server-assembled and optional. A coordinator
+   * predating the enrichment simply omits it, and the review card falls
+   * back to its previous justification-led rendering. */
+  design?: {
+    summary: string;
+    creates: string[];
+    touches: string[];
+    developerId: string;
+    status: string;
+  };
+  constraints?: { id: string; statement: string; type: string }[];
+  /** `kind` mirrors @twing/core's `ReviewConflictSummary` -- `"overlap"`/
+   * `"conflict"` are this field's own waiver-kind labels, not `DesignVerdict`
+   * values (`"conflict"` here means what's now called the `llm_divergence`
+   * bucket; left unrenamed server-side to keep that diff bounded). */
+  conflicts?: {
+    designId: string;
+    kind: "overlap" | "conflict" | "symbol_conflict";
+    summary?: string;
+    developerId?: string;
+    paths?: string[];
+  }[];
 }
 
 /** Mirrors @twing/core's DesignConstraintType/DesignConstraint. `type`

@@ -1052,3 +1052,170 @@ button {
   margin-left: auto;
   font-family: var(--font-mono);
 }
+
+/* --- Review cards (2026-08-25) ---
+   Three bands in the order a reviewer needs them: what is being built,
+   why it stopped, what the requester says. Before this the card showed
+   only the justification, so an admin was approving a sentence. */
+
+.review-card-inner {
+  padding: 14px 18px;
+}
+
+.review-headline {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.review-band {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.review-band-label {
+  flex-shrink: 0;
+  width: 84px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.review-band-blocked .review-band-label {
+  color: var(--warning, var(--text-dim));
+}
+
+.review-band-line {
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.review-band-line:last-child {
+  margin-bottom: 0;
+}
+
+.review-band-sub {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+
+.review-expand {
+  margin-top: 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.review-expand:hover {
+  color: var(--text);
+}
+
+.review-expand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.review-detail {
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.review-detail dt {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.review-detail dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* Pending-review count on the Reviews tab. A pending review means someone
+   is blocked waiting on a human, and nothing else in twing tells that
+   human -- so this is the one ambient signal that a queue is building. */
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warning, var(--accent));
+  color: var(--bg, #fff);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Card summaries are clamped until the card is expanded (2026-08-25).
+   A design's `summary` is whatever the plan extraction produced, which for
+   a real plan is routinely a 15-line paragraph -- rendered in full on every
+   card, the list became a wall of prose you couldn't scan, and the expand
+   toggle hid the *detail* while leaving the bloat on screen. Clamping is
+   done in CSS rather than by truncating the string: the full text stays in
+   the DOM for find-in-page and copy, and expanding is just removing the
+   clamp. */
+.design-card:not(.expanded) .card-summary,
+.design-card:not(.expanded) .review-headline {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The clamp needs a block-level box to measure, but the collapsed row is a
+   flex line -- without this the headline refuses to shrink and the badges
+   get pushed off the end on a narrow window. `.card-summary` already gets
+   this from the grouped-card badge fix on main; `.review-headline` is this
+   branch's own element and needs it too. */
+.card-top-row .review-headline {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* The expanded summary, one bullet per sentence. Sits between the card
+   header and DesignDetail. */
+.summary-bullets {
+  margin: 0;
+  padding: 12px 18px 4px 36px;
+  list-style: disc;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.summary-bullets li {
+  margin-bottom: 6px;
+}
+
+.summary-bullets li::marker {
+  color: var(--text-dim);
+}

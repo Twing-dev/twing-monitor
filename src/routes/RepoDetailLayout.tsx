@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
+import { useApiFetch } from "../api/client.js";
+import { useAsyncData } from "../hooks/useAsyncData.js";
+import { fetchReviews } from "../api/reviews.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import { DesignsView } from "./DesignsView.js";
 import { ReviewsView } from "./ReviewsView.js";
@@ -28,6 +31,7 @@ const TABS: { id: TabId; label: string }[] = [
  * header branches on the count.
  */
 export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummary[]; onBack: () => void }) {
+  const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>("designs");
   // Set by ActivityView's "View design ->" link -- DesignsView consumes it
   // to force ?status=all (a flagged/closed design wouldn't otherwise be
@@ -40,6 +44,20 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
   }
 
   const projectIds = projects.map((p) => p.projectId);
+  // A pending review means someone is blocked right now, waiting on a
+  // human -- and nothing in twing tells that human. There's no email,
+  // webhook or digest anywhere, so an admin only finds out by opening this
+  // tab and looking. Surfacing the count on the tab itself is the cheapest
+  // step toward closing that: a queue building up is visible from any tab.
+  // Summed across every selected repo, matching what the Reviews tab
+  // itself shows in the aggregated view. Deliberately not gated on role --
+  // a member can't decide a review, but knowing the queue is backing up is
+  // still worth seeing.
+  const pending = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(",")],
+  );
+  const pendingCount = pending.status === "ready" ? pending.data.length : 0;
   const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
   const single = projects.length === 1 ? projects[0] : undefined;
 
@@ -79,6 +97,11 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
             onClick={() => setTab(t.id)}
           >
             {t.label}
+            {t.id === "reviews" && pendingCount > 0 && (
+              <span className="tab-count" aria-label={`${pendingCount} waiting for a decision`}>
+                {pendingCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>

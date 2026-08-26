@@ -18,6 +18,8 @@ function design(overrides: Partial<DesignStatement> & { id: string }): DesignSta
     lastActivityAt: 0,
     justifiedConstraintIds: [],
     justifiedOverlaps: [],
+    justifiedConflicts: [],
+    justifiedSymbolConflicts: [],
     ...overrides,
   };
 }

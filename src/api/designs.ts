@@ -10,16 +10,24 @@ export async function fetchDesigns(fetcher: Fetcher, projectId: string, status?:
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body
  * (`ResolveRequestBody`) -- the two ways a flagged design gets addressed
  * (§17.5): supersede it in favor of the design it conflicts with, or
- * justify the divergence, which only *queues* a review (see
- * `PendingReview`/`decideReview` below) rather than unblocking anything by
- * itself. There's deliberately no third "just dismiss it" option -- the
- * server has none either. */
+ * justify the divergence, which either self-clears immediately or *queues*
+ * a review (see `PendingReview`/`decideReview` below), depending on what it
+ * carries -- see `ResolveDesignResult.status`'s own doc comment. There's
+ * deliberately no third "just dismiss it" option -- the server has none
+ * either. */
 export type ResolveDesignBody =
   | { resolution: "adopted"; adoptedDesignId: string }
   | { resolution: "justified_divergence"; justification: string };
 
 export interface ResolveDesignResult {
-  status?: "superseded" | "pending_review";
+  /** `"resolved"` (2026-08-26 self-approve): a justified_divergence that
+   * carries zero constraint hits -- `symbol_conflict`/`llm_divergence`
+   * alone, never `constraint_violation` -- auto-decides "approve" in the
+   * same request and reopens the design immediately, no admin involved.
+   * Any constraint hit in the mix (even bundled with other waiver kinds)
+   * keeps it `"pending_review"`, same as before this change -- that's
+   * someone else's rule to waive, not the flagged developer's own. */
+  status?: "superseded" | "resolved" | "pending_review";
   adoptedDesignId?: string;
   reviewId?: string;
   error?: string;

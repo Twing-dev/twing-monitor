@@ -95,7 +95,7 @@ describe("ActivityView", () => {
         async () =>
           new Response(
             JSON.stringify({
-              items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "design_flagged", relatedId: "design-42", ts: Date.now(), payload: { verdict: "overlap" } }],
+              items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "design_flagged", relatedId: "design-42", ts: Date.now(), payload: { verdict: "constraint_violation" } }],
             }),
             { status: 200 },
           ),
@@ -116,7 +116,7 @@ describe("ActivityView", () => {
         async () =>
           new Response(
             JSON.stringify({
-              items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "design_flagged", relatedId: "design-42", ts: Date.now(), payload: { verdict: "overlap" } }],
+              items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "design_flagged", relatedId: "design-42", ts: Date.now(), payload: { verdict: "constraint_violation" } }],
             }),
             { status: 200 },
           ),
@@ -145,7 +145,7 @@ describe("ActivityView", () => {
                   kind: "design_flagged",
                   relatedId: "design-42",
                   ts: Date.now(),
-                  payload: { verdict: "constraint_flag", summary: "Touches README.md", constraint: { id: "c1", statement: "keep README.md canonical", type: "canonical_abstraction" } },
+                  payload: { verdict: "constraint_violation", summary: "Touches README.md", constraints: [{ id: "c1", statement: "keep README.md canonical", type: "constraint" }] },
                 },
               ],
             }),
@@ -160,7 +160,7 @@ describe("ActivityView", () => {
 
     await waitFor(() => expect(screen.getByText("Design")).toBeInTheDocument());
     expect(screen.getAllByText("Touches README.md").length).toBeGreaterThan(0);
-    expect(screen.getByText("[canonical abstraction] keep README.md canonical")).toBeInTheDocument();
+    expect(screen.getByText("keep README.md canonical")).toBeInTheDocument();
 
     const link = screen.getByRole("button", { name: "→ Touches README.md" });
     await user.click(link);
@@ -252,7 +252,7 @@ describe("ActivityView", () => {
           return new Response(
             JSON.stringify({
               items: [
-                { id: "evt-2", projectId: "proj-1", developerId: "bob@example.com", sessionId: "sess-1", kind: "design_flagged", relatedId: "design-9", ts: now, payload: { verdict: "overlap" } },
+                { id: "evt-2", projectId: "proj-1", developerId: "bob@example.com", sessionId: "sess-1", kind: "design_flagged", relatedId: "design-9", ts: now, payload: { verdict: "constraint_violation" } },
                 { id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", sessionId: "sess-1", kind: "design_registered", relatedId: "design-9", ts: now - 60_000, payload: { summary: "Add retry backoff" } },
               ],
             }),

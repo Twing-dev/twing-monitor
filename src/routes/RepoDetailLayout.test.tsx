@@ -39,7 +39,7 @@ describe("RepoDetailLayout", () => {
                   kind: "design_flagged",
                   relatedId: "design-42",
                   ts: Date.now(),
-                  payload: { verdict: "constraint_flag" },
+                  payload: { verdict: "constraint_violation" },
                 },
               ],
             }),

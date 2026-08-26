@@ -61,6 +61,16 @@ export interface DesignStatement {
   reviewDecision?: "approve" | "reject";
   justifiedConstraintIds: string[];
   justifiedOverlaps: string[];
+  /** Semantic comparator's counterpart to `justifiedOverlaps` -- entries are
+   * bare conflicting design ids (an `llm_divergence` verdict has no path
+   * evidence to key on). */
+  justifiedConflicts: string[];
+  /** `symbol_conflict`'s own approval memory (2026-08-26 terminology
+   * simplification) -- same composite-key shape as `justifiedOverlaps`, kept
+   * as its own field since a `file_overlap` warning and a `symbol_conflict`
+   * block are philosophically different waivers even though the key shape
+   * coincides. */
+  justifiedSymbolConflicts: string[];
 }
 
 /** Mirrors @twing/core's Claim (packages/core/src/types.ts) -- the
@@ -80,7 +90,12 @@ export interface Claim {
   ttlMs: number;
 }
 
-/** Mirrors @twing/core's PendingReview. */
+/** Mirrors @twing/core's PendingReview. `constraintId` -> `constraintIds`
+ * (2026-08-22, plural: one justified divergence can settle several distinct
+ * constraint matches at once) plus two more waiver-kind fields (2026-08-26):
+ * `conflictWaivers` (the semantic comparator's llm_divergence judgement, no
+ * paths) and `symbolConflictWaivers` (symbol_conflict's counterpart to
+ * `overlapWaivers`, naming the specific symbols that collided). */
 export interface PendingReview {
   id: string;
   designId: string;
@@ -88,15 +103,27 @@ export interface PendingReview {
   justification: string;
   createdAt: number;
   decision?: "approve" | "reject";
-  constraintId?: string;
+  constraintIds?: string[];
   overlapWaivers?: { conflictingDesignId: string; paths: string[] }[];
+  conflictWaivers?: { conflictingDesignId: string }[];
+  symbolConflictWaivers?: { conflictingDesignId: string; symbolIds: string[] }[];
 }
 
-/** Mirrors @twing/core's DesignConstraint. */
+/** Mirrors @twing/core's DesignConstraintType/DesignConstraint. `type`
+ * collapsed from a three-way union to this single value (2026-08-26
+ * terminology simplification) -- kept on the wire rather than removed, same
+ * reasoning as the `constraints` payload-key rename before it. A
+ * pre-2026-08-26 row may still carry its old `"canonical_abstraction"` /
+ * `"domain_fact"` / `"review_required"` value verbatim server-side (no
+ * migration touched existing rows), same "never backfilled" convention
+ * twing-cli's own server-side type applies to itself -- see
+ * DesignConstraintType's doc comment in packages/core/src/types.ts. */
+export type DesignConstraintType = "constraint";
+
 export interface DesignConstraint {
   id: string;
   projectId: string;
-  type: "canonical_abstraction" | "review_required";
+  type: DesignConstraintType;
   statement: string;
   scope: string[];
   source: string;
@@ -120,11 +147,48 @@ export interface ActivityEvent {
   payload?: unknown;
 }
 
-/** 2026-08-23 categorization redesign -- mirrors SemanticConflictKind
- * (packages/server/src/design-semantic-check.ts) for the three semantic
- * values; "symbol_claim" is the claims-path (design-divergence.ts)
- * equivalent. Absent on a pre-2026-08-23 AlignmentThread. */
-export type AlignmentCategory = "duplication" | "contradictory_assumptions" | "tension" | "symbol_claim";
+/** 2026-08-26 terminology simplification -- mirrors packages/server/src/
+ * alignment-store.ts's AlignmentCategory: which of the two self-approvable
+ * design-conflict buckets a thread represents (see DesignVerdict's doc
+ * comment, packages/core/src/types.ts, for the full four-bucket model).
+ * Collapsed from the four-way `"duplication" | "contradictory_assumptions" |
+ * "tension" | "symbol_claim"` union below -- those were a bucket name and
+ * its sub-reason tangled into one field. The old four values survive as
+ * `AlignmentSubKind`/`AlignmentThread.subKind`, detail text under the
+ * bucket rather than a competing top-level name. A pre-2026-08-26 thread
+ * keeps its old value in `category` unconverted (never backfilled) -- use
+ * `legacyCategoryBucket` to treat old and new rows uniformly. */
+export type AlignmentCategory = "symbol_conflict" | "llm_divergence";
+
+/** Detail label shown under the bucket name -- `duplication` /
+ * `contradictory_assumptions` / `tension` for `llm_divergence` (mirrors
+ * `SemanticConflictKind`, design-semantic-check.ts's only producer), or
+ * `real_edit_collision` / `scope_intrusion` / `contract_break` for
+ * `symbol_conflict`. Undefined on any thread that predates this column. */
+export type AlignmentSubKind =
+  | "duplication"
+  | "contradictory_assumptions"
+  | "tension"
+  | "real_edit_collision"
+  | "scope_intrusion"
+  | "contract_break";
+
+/** Legacy pre-2026-08-26 `category` strings, mapped to which of the two
+ * current buckets they represent -- mirrors alignment-store.ts's function of
+ * the same name. Use for any reader that needs to treat old rows uniformly
+ * with new ones (list-view filtering, etc.) without a backfill. */
+export function legacyCategoryBucket(raw: string): AlignmentCategory | undefined {
+  switch (raw) {
+    case "duplication":
+    case "contradictory_assumptions":
+    case "tension":
+      return "llm_divergence";
+    case "symbol_claim":
+      return "symbol_conflict";
+    default:
+      return undefined;
+  }
+}
 
 /** Mirrors packages/server/src/alignment-store.ts's AlignmentThread. */
 export interface AlignmentThread {
@@ -142,12 +206,16 @@ export interface AlignmentThread {
   closedAt?: number;
   closedBy?: string;
   category?: AlignmentCategory;
+  /** Detail label under the bucket name -- see `AlignmentSubKind`'s own doc
+   * comment. Undefined on any thread that predates this column. */
+  subKind?: AlignmentSubKind;
   /** Short list-view label, distinct from `systemDescription`'s full text.
    * Absent on a pre-2026-08-23 thread. */
   summary?: string;
   /** Every overlapping path/symbol accumulated across amendments -- only
-   * meaningful for `category: "symbol_claim"`. Falls back to `[symbolId]`
-   * server-side for a pre-2026-08-23 row. */
+   * meaningful for `category: "symbol_conflict"` (was `"symbol_claim"`
+   * before the 2026-08-26 rename). Falls back to `[symbolId]` server-side
+   * for a pre-2026-08-23 row. */
   symbolIds: string[];
   /** The initiating developer's own open design, when one resolves --
    * best-effort; genuinely absent (not a bug) when the initiating edit had

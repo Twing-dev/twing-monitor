@@ -19,6 +19,8 @@ function design(overrides: Partial<DesignStatement> = {}): DesignStatement {
     lastActivityAt: 1000,
     justifiedConstraintIds: [],
     justifiedOverlaps: [],
+    justifiedConflicts: [],
+    justifiedSymbolConflicts: [],
     ...overrides,
   };
 }
@@ -82,7 +84,7 @@ describe("groupActivityByDesign", () => {
   });
 
   it("a resolved designId that isn't in designsById degrades to ungrouped rather than throwing", () => {
-    const flagged = event({ kind: "design_flagged", relatedId: "design-missing", payload: { verdict: "overlap" } });
+    const flagged = event({ kind: "design_flagged", relatedId: "design-missing", payload: { verdict: "constraint_violation" } });
     const entries = groupActivityByDesign([flagged], {}, {}, {});
     expect(entries).toEqual([{ type: "event", event: flagged }]);
   });
@@ -90,7 +92,7 @@ describe("groupActivityByDesign", () => {
   it("tracks lastActivityAt as the group's own most recent event and preserves newest-first ordering without a separate sort", () => {
     const d = design();
     const other = design({ id: "design-2", summary: "Unrelated" });
-    const newestForD = event({ id: "evt-newest", kind: "design_flagged", relatedId: "design-1", ts: 3000, payload: { verdict: "overlap" } });
+    const newestForD = event({ id: "evt-newest", kind: "design_flagged", relatedId: "design-1", ts: 3000, payload: { verdict: "constraint_violation" } });
     const otherDesignEvent = event({ id: "evt-other", kind: "design_registered", relatedId: "design-2", ts: 2000, payload: { summary: "Unrelated" } });
     const olderForD = event({ id: "evt-older", kind: "design_registered", relatedId: "design-1", ts: 1000, payload: { summary: "Add retry backoff" } });
 

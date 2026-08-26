@@ -1,15 +1,10 @@
 import { useApiFetch } from "../api/client.js";
 import { fetchConstraints } from "../api/constraints.js";
-import type { DesignConstraint, ProjectSummary } from "../api/types.js";
+import type { ProjectSummary } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
-import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { relativeTime } from "../lib/time.js";
-
-function toneForType(type: DesignConstraint["type"]): BadgeTone {
-  return type === "review_required" ? "warning" : "accent";
-}
 
 export function ConstraintsView({ projectIds, projectsById }: { projectIds: string[]; projectsById: Record<string, ProjectSummary> }) {
   const apiFetch = useApiFetch();
@@ -32,10 +27,16 @@ export function ConstraintsView({ projectIds, projectsById }: { projectIds: stri
               <li key={c.id} className="design-card">
                 <div className="card-top-row">
                   <span className="card-summary">{c.statement}</span>
-                  <div className="card-badges">
-                    {showRepoBadge && <RepoBadge project={projectsById[c.projectId] ?? { projectId: c.projectId }} />}
-                    <StatusBadge label={c.type.replace(/_/g, " ")} tone={toneForType(c.type)} />
-                  </div>
+                  {/* 2026-08-26 terminology simplification: DesignConstraintType
+                      collapsed to a single value, so a per-constraint type badge
+                      no longer distinguishes anything -- dropped, same call
+                      twing-cli's own `twing constraints list` made (see
+                      constraints.ts's list output). */}
+                  {showRepoBadge && (
+                    <div className="card-badges">
+                      <RepoBadge project={projectsById[c.projectId] ?? { projectId: c.projectId }} />
+                    </div>
+                  )}
                 </div>
                 <div className="card-meta">
                   <span>{c.scope.join(", ") || "(no scope paths)"}</span>

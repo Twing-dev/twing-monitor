@@ -18,22 +18,22 @@ const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired
 type StatusFilter = (typeof STATUSES)[number];
 
 /** `status` alone doesn't tell a list viewer everything worth knowing at a
- * glance: a `"warning"`-severity overlap (2026-08-19 severity split, tier
- * 1's exactOverlap) never demotes a design out of `"open"` -- by design,
- * it's advisory-only -- so without this, an open design with a live,
- * unresolved warning looks identical to a design with nothing wrong at all
- * until you expand the card. One project-wide `design_checked` fetch
- * (capped at the server's own 200-event page limit -- fine for a dashboard
- * list, not meant to paginate infinitely) covers every visible design in a
- * single request; each design's own latest event wins since the API
- * already returns newest-first. */
-function latestCheckByDesign(events: ActivityEvent[]): Map<string, { verdict: string; severity?: string }> {
-  const byDesign = new Map<string, { verdict: string; severity?: string }>();
+ * glance: `"file_overlap"` (2026-08-26 terminology simplification, was
+ * `"overlap"` tier 1 at "warning" severity) never demotes a design out of
+ * `"open"` -- by design, it's always advisory-only -- so without this, an
+ * open design with a live, unresolved overlap looks identical to a design
+ * with nothing wrong at all until you expand the card. One project-wide
+ * `design_checked` fetch (capped at the server's own 200-event page limit
+ * -- fine for a dashboard list, not meant to paginate infinitely) covers
+ * every visible design in a single request; each design's own latest event
+ * wins since the API already returns newest-first. */
+function latestCheckByDesign(events: ActivityEvent[]): Map<string, { verdict: string }> {
+  const byDesign = new Map<string, { verdict: string }>();
   for (const event of events) {
     if (!event.relatedId || byDesign.has(event.relatedId)) continue; // newest-first: first hit per id is the latest
-    const payload = event.payload as { verdict?: string; severity?: string } | undefined;
+    const payload = event.payload as { verdict?: string } | undefined;
     if (!payload?.verdict) continue;
-    byDesign.set(event.relatedId, { verdict: payload.verdict, severity: payload.severity });
+    byDesign.set(event.relatedId, { verdict: payload.verdict });
   }
   return byDesign;
 }
@@ -135,7 +135,7 @@ export function DesignsView({
   // Bonus, list-wide context -- same "don't block the primary render on it"
   // stance as DesignDetail's own LatestCheckOutcome: an empty map just means
   // no card gets a conflict chip, not a loading/error state of its own.
-  const latestChecks = checksState.status === "ready" ? latestCheckByDesign(checksState.data) : new Map<string, { verdict: string; severity?: string }>();
+  const latestChecks = checksState.status === "ready" ? latestCheckByDesign(checksState.data) : new Map<string, { verdict: string }>();
   const openThreadsState = useAsyncData(
     () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, "open"))).then((lists) => lists.flat()),
     [apiFetch, projectIds.join(","), refreshKey],
@@ -188,7 +188,7 @@ export function DesignsView({
                 // member, not just the primary one.
                 const anyUnresolvedWarning = group.members.some((m) => {
                   const check = latestChecks.get(m.id);
-                  return m.status === "open" && check?.severity === "warning" && check.verdict !== "clean";
+                  return m.status === "open" && check?.verdict === "file_overlap";
                 });
                 const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, designsById, m.id));
                 return (

@@ -90,8 +90,12 @@ export function ReviewsView({ projectIds, projectsById }: { projectIds: string[]
                   </div>
                   <div className="card-meta">
                     <span>{relativeTime(r.createdAt)}</span>
-                    {r.constraintId && <span>constraint waiver</span>}
+                    {r.constraintIds && r.constraintIds.length > 0 && <span>constraint waiver</span>}
                     {r.overlapWaivers && r.overlapWaivers.length > 0 && <span>{r.overlapWaivers.length} overlap waiver(s)</span>}
+                    {r.conflictWaivers && r.conflictWaivers.length > 0 && <span>{r.conflictWaivers.length} llm divergence waiver(s)</span>}
+                    {r.symbolConflictWaivers && r.symbolConflictWaivers.length > 0 && (
+                      <span>{r.symbolConflictWaivers.length} symbol conflict waiver(s)</span>
+                    )}
                   </div>
                   {canDecide && !r.decision && (
                     <div className="review-actions">

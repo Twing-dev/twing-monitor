@@ -130,10 +130,12 @@ describe("DesignsView", () => {
     expect(screen.queryByText(/Add exponential backoff/)).not.toBeInTheDocument();
   });
 
-  // 2026-08-19 severity split: the detail panel now queries design_checked
-  // (fired on every check, unlike design_flagged which only ever fires for
-  // an error-severity verdict) -- so this pins that the query really does
-  // ask for the right kind, not just that *some* activity event renders.
+  // 2026-08-26: `constraint_violation` is the one verdict that still fires a
+  // synchronous `design_checked` on the very request that flags it (see
+  // ResolveActions/LatestCheckOutcome's own doc comments, DesignDetail.tsx,
+  // for why the detail panel queries both design_checked and design_flagged
+  // now) -- this pins that the query really does ask for the right kinds,
+  // not just that *some* activity event renders.
   it("a flagged design's expanded detail shows why it was flagged (fetched from its own design_checked activity event)", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -177,7 +179,7 @@ describe("DesignsView", () => {
                   kind: "design_checked",
                   relatedId: "design-flagged-1",
                   ts: Date.now(),
-                  payload: { verdict: "constraint_flag", severity: "error", summary: "Touches README.md", constraint: { id: "c1", statement: "keep README.md canonical", type: "canonical_abstraction" } },
+                  payload: { verdict: "constraint_violation", summary: "Touches README.md", constraints: [{ id: "c1", statement: "keep README.md canonical", type: "constraint" }] },
                 },
               ],
             }),
@@ -205,21 +207,21 @@ describe("DesignsView", () => {
     await user.click(card);
 
     expect(await screen.findByText("Why flagged")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("[canonical abstraction] keep README.md canonical")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("keep README.md canonical")).toBeInTheDocument());
 
-    // A constraint_flag names a rule, not another design -- there's nothing
-    // to adopt, so only the justify form should be offered.
+    // A constraint_violation names a rule, not another design -- there's
+    // nothing to adopt, so only the justify form should be offered.
     await waitFor(() => expect(screen.getByText("Resolve")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /^Adopt/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Justify divergence")).toBeInTheDocument();
   });
 
-  // The new case this split introduces: an "open" design (never demoted to
-  // "flagged") that still has an unresolved warning-severity conflict worth
-  // surfacing -- must show a distinct, clearly-non-blocking panel, not
-  // "Why flagged" (which implies the design was actually demoted) and not
-  // silence (which is the bug this whole update fixes).
-  it("an open design with an unresolved warning-severity overlap shows a non-blocking 'Heads up' panel, not 'Why flagged'", async () => {
+  // file_overlap (2026-08-26, was "overlap" tier 1 at "warning" severity):
+  // an "open" design (never demoted to "flagged") that still has an
+  // unresolved overlap worth surfacing -- must show a distinct, clearly
+  // non-blocking panel, not "Why flagged" (which implies the design was
+  // actually demoted) and not silence.
+  it("an open design with an unresolved file_overlap shows a non-blocking 'Heads up' panel, not 'Why flagged'", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -268,8 +270,7 @@ describe("DesignsView", () => {
                   relatedId: "design-warned-1",
                   ts: Date.now(),
                   payload: {
-                    verdict: "overlap",
-                    severity: "warning",
+                    verdict: "file_overlap",
                     summary: "Add a shared cache helper",
                     conflicts: [{ conflictingDesignId: "design-other", overlapKind: "touches", overlapDetail: "both touch shared.ts", conflictingSummary: "another session's work" }],
                   },
@@ -386,24 +387,29 @@ describe("DesignsView", () => {
     justifiedOverlaps: [],
   };
 
+  // 2026-08-26: symbol_conflict, not file_overlap -- file_overlap never
+  // flags at all now (always advisory), so a *flagged* design with named
+  // conflicting designs to adopt is sourced from a real edit collision
+  // instead, via an async `design_flagged` event rather than a synchronous
+  // `design_checked` (see ResolveActions' own doc comment, DesignDetail.tsx).
   const OVERLAP_CHECK_EVENT = {
     id: "evt-1",
     projectId: "proj-1",
-    kind: "design_checked",
+    kind: "design_flagged",
     relatedId: "design-overlap-1",
     ts: Date.now(),
     payload: {
-      verdict: "overlap",
-      severity: "error",
+      verdict: "symbol_conflict",
       summary: "Rewrite the invite email template",
-      conflicts: [{ conflictingDesignId: "design-other-1", overlapKind: "touches", overlapDetail: "summaries are 93% similar", conflictingSummary: "Also rewrite the invite email" }],
+      conflicts: [{ conflictingDesignId: "design-other-1", overlapKind: "symbol", overlapDetail: "both edited Inbox.tsx::sendInvite", conflictingSummary: "Also rewrite the invite email" }],
     },
   };
 
-  // §17.5: an overlap names specific conflicting design(s), so -- unlike
-  // constraint_flag -- there's something concrete to adopt instead of this
-  // design, offered alongside the same justify escape hatch.
-  it("an overlap-flagged design offers an Adopt button per conflict, plus justify", async () => {
+  // §17.5: symbol_conflict names specific conflicting design(s), so --
+  // unlike constraint_violation -- there's something concrete to adopt
+  // instead of this design, offered alongside the same justify escape
+  // hatch (which is self-approvable for this bucket, no admin needed).
+  it("a symbol_conflict-flagged design offers an Adopt button per conflict, plus justify", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",

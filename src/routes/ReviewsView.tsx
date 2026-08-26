@@ -17,9 +17,16 @@ function toneForDecision(decision?: "approve" | "reject"): BadgeTone {
 }
 
 /** The machine names for a constraint type say nothing to someone who has
- * never opened `.twing/twing.yml`. Mirrors the same translation the CLI's
- * deny messages make (`hook/design_gate.go`'s constraintTypeText). */
-function constraintTypeText(type: string): string {
+ * never opened `.twing/twing.yml`. Only meaningful for a pre-2026-08-26
+ * constraint row, which may still carry one of these three old type strings
+ * verbatim (no migration touched existing rows -- see `DesignConstraintType`'s
+ * doc comment, api/types.ts). A new row's `type` is always the single value
+ * `"constraint"`, which is no longer informative enough to show -- mirrors
+ * the CLI dropping the same per-constraint-type text entirely
+ * (`hook/design_gate.go`'s `constraintTypeText`, removed 2026-08-26).
+ * Returns `undefined` rather than the raw type string so the caller can
+ * skip rendering the sub-line at all in that case. */
+function constraintTypeText(type: string): string | undefined {
   switch (type) {
     case "review_required":
       return "a human must review changes here";
@@ -28,7 +35,7 @@ function constraintTypeText(type: string): string {
     case "domain_fact":
       return "a fact about this codebase you shouldn't contradict";
     default:
-      return type;
+      return undefined;
   }
 }
 
@@ -86,12 +93,15 @@ function ReviewCard({
           <div className="review-band review-band-blocked">
             <span className="review-band-label">Blocked by</span>
             <div>
-              {blockers.map((c) => (
-                <p key={c.id} className="review-band-line">
-                  “{c.statement}”
-                  <span className="review-band-sub">{constraintTypeText(c.type)}</span>
-                </p>
-              ))}
+              {blockers.map((c) => {
+                const typeText = constraintTypeText(c.type);
+                return (
+                  <p key={c.id} className="review-band-line">
+                    “{c.statement}”
+                    {typeText && <span className="review-band-sub">{typeText}</span>}
+                  </p>
+                );
+              })}
             </div>
           </div>
         )}
@@ -105,7 +115,7 @@ function ReviewCard({
                   {c.summary ?? <span className="review-band-sub">design {c.designId}</span>}
                   <span className="review-band-sub">
                     {c.developerId ? `${c.developerId} · ` : ""}
-                    {c.kind === "overlap" ? "same files" : "same work, judged by content"}
+                    {c.kind === "overlap" ? "same files" : c.kind === "symbol_conflict" ? "same real edits" : "same work, judged by content"}
                   </span>
                 </p>
               ))}

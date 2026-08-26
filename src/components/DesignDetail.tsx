@@ -41,23 +41,25 @@ function PathList({ title, paths }: { title: string; paths: string[] }) {
   );
 }
 
-/** Rendered whenever there's a non-"clean" check outcome to explain --
- * `status: "flagged"` (error severity: overlap tier 4, constraint_flag) or
- * `status: "open"` with an unresolved warning (2026-08-19 severity split:
- * tier 1's exactOverlap, display-only, never demotes out of "open"). Pulls
- * the most recent `design_checked` event tied to this exact design --
- * fired on every registration/amend/resume regardless of verdict (unlike
- * `design_flagged`, only ever logged for an error severity) -- so this is
- * the one query that covers both cases uniformly, and reuses the same
- * per-kind formatter the Activity feed uses so the text reads identically
- * in both places. A design's `status` field alone never explains *why* --
- * this is the only place that answer lives. Renders nothing once the
- * latest check came back clean (a resolved warning, or a design that was
+/** Rendered whenever there's a non-"clean" check outcome to explain.
+ * `status: "flagged"` can come from either a synchronous `design_checked`
+ * (`constraint_violation`, register/amend/resume) or an async
+ * `design_flagged` with no matching `design_checked` at all
+ * (`symbol_conflict`/`llm_divergence`, flagged later from `/v1/claims` or
+ * the semantic comparator pass -- see DesignVerdict's doc comment,
+ * packages/core/src/types.ts) -- so this queries both kinds and takes
+ * whichever is most recent, rather than assuming `design_checked` always
+ * exists. `status: "open"` with a `file_overlap` verdict is the other case:
+ * always advisory, display-only, never demotes out of "open". Reuses the
+ * same per-kind formatter the Activity feed uses so the text reads
+ * identically in both places. A design's `status` field alone never
+ * explains *why* -- this is the only place that answer lives. Renders
+ * nothing once the latest check came back clean (or a design that was
  * never non-clean to begin with). */
 function LatestCheckOutcome({ design }: { design: DesignStatement }) {
   const apiFetch = useApiFetch();
   const state = useAsyncData(
-    () => fetchActivity(apiFetch, design.projectId, { relatedId: design.id, kinds: ["design_checked"], limit: 1 }),
+    () => fetchActivity(apiFetch, design.projectId, { relatedId: design.id, kinds: ["design_checked", "design_flagged"], limit: 1 }),
     [apiFetch, design.projectId, design.id],
   );
   // Silent on loading/error/empty -- this is a bonus panel on top of the
@@ -68,19 +70,19 @@ function LatestCheckOutcome({ design }: { design: DesignStatement }) {
   const formatted = formatActivityEvent(state.data.items[0]);
   const verdictField = formatted.details.find((d) => d.label === "Verdict");
   if (!verdictField || verdictField.value === "clean") return null;
-  const isWarning = formatted.severity === "warning";
+  // file_overlap never blocks (2026-08-26) -- the only verdict that can
+  // reach this panel while `status` stays "open" rather than "flagged".
+  const isAdvisoryOnly = verdictField.value === "file_overlap";
   return (
-    <div className={`detail-field why-flagged${isWarning ? " why-flagged-warning" : ""}`}>
-      <h3>{isWarning ? "Heads up (non-blocking)" : design.status === "flagged" ? "Why flagged" : "Unresolved conflict"}</h3>
+    <div className={`detail-field why-flagged${isAdvisoryOnly ? " why-flagged-warning" : ""}`}>
+      <h3>{isAdvisoryOnly ? "Heads up (non-blocking)" : design.status === "flagged" ? "Why flagged" : "Unresolved conflict"}</h3>
       <dl className="detail-kv">
-        {formatted.details
-          .filter((d) => d.label !== "Severity")
-          .map((d) => (
-            <Fragment key={d.label}>
-              <dt>{d.label}</dt>
-              <dd>{d.value}</dd>
-            </Fragment>
-          ))}
+        {formatted.details.map((d) => (
+          <Fragment key={d.label}>
+            <dt>{d.label}</dt>
+            <dd>{d.value}</dd>
+          </Fragment>
+        ))}
       </dl>
     </div>
   );
@@ -141,17 +143,27 @@ interface LatestCheckPayload {
 
 /** The two resolutions the server actually supports for a flagged design
  * (§17.5) -- there's no third "just dismiss it" option, so neither is this
- * panel's. Which one(s) make sense depends entirely on *why* it's flagged:
- * a `constraint_flag` names a rule, not another design, so there's nothing
- * to adopt -- justify is the only path. An `overlap` names one or more
- * specific conflicting designs, so adopting one of *those* (superseding
- * this one outright, no review needed) is offered alongside justify.
- * Own fetches for the latest check payload and this project's pending
- * reviews -- same "independent bonus panel" shape as `LatestCheckOutcome`
- * above, deliberately not sharing its query (it only keeps formatted
- * strings, not the raw conflict/constraint ids this needs). Renders
- * nothing once the design isn't `"flagged"` -- a warning never needed
- * resolving in the first place. */
+ * panel's. Which one(s) make sense depends entirely on *why* it's flagged
+ * (see DesignVerdict's doc comment, packages/core/src/types.ts, for the
+ * four-bucket model): `constraint_violation` names a rule, not another
+ * design, so there's nothing to adopt -- justify is the only path (and
+ * still needs a project admin to decide it -- §17's one bucket where
+ * approval isn't the flagged developer's own to give). `symbol_conflict`
+ * names one or more specific conflicting designs -- like `file_overlap`
+ * before it, but sourced from real `Claim`s via an async `design_flagged`
+ * rather than the synchronous `design_checked` -- so adopting one of those
+ * (superseding this one outright, no review needed) is offered alongside a
+ * self-clearing justify. `llm_divergence` names a conflicting design too,
+ * but with no specific paths behind it (a judgement about intent, not
+ * files) -- adopt is still offered since `resolve`'s `adopted` path is
+ * generic (`designs.supersede`, no verdict-specific logic server-side), but
+ * there's nothing path-level to show for why. Own fetches for the latest
+ * check payload and this project's pending reviews -- same "independent
+ * bonus panel" shape as `LatestCheckOutcome` above, deliberately not
+ * sharing its query (it only keeps formatted strings, not the raw
+ * conflict/constraint ids this needs). Renders nothing once the design
+ * isn't `"flagged"` -- `file_overlap` never needed resolving in the first
+ * place. */
 function ResolveActions({ design, onResolved }: { design: DesignStatement; onResolved: () => void }) {
   const apiFetch = useApiFetch();
   // This component's own refresh signal, separate from the parent list's:
@@ -162,8 +174,14 @@ function ResolveActions({ design, onResolved }: { design: DesignStatement; onRes
   // to re-query its own `reviewsState` itself to notice that, or it'd be
   // stuck showing the just-submitted form forever.
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
+  // 2026-08-26: also fetch `design_flagged` -- `symbol_conflict`/
+  // `llm_divergence` are only ever set via `DesignRegistry.flag()` from an
+  // async pass (`/v1/claims`, the semantic comparator), which never fires a
+  // matching `design_checked` event at all; `constraint_violation` still
+  // fires both (design_checked first, then flag() from the same request),
+  // so this always finds the newest of whichever exists.
   const checkState = useAsyncData(
-    () => fetchActivity(apiFetch, design.projectId, { relatedId: design.id, kinds: ["design_checked"], limit: 1 }),
+    () => fetchActivity(apiFetch, design.projectId, { relatedId: design.id, kinds: ["design_checked", "design_flagged"], limit: 1 }),
     [apiFetch, design.projectId, design.id, localRefreshKey],
   );
   const reviewsState = useAsyncData(
@@ -225,7 +243,7 @@ function ResolveActions({ design, onResolved }: { design: DesignStatement; onRes
   return (
     <div className="detail-field resolve-actions">
       <h3>Resolve</h3>
-      {payload.verdict === "overlap" && payload.conflicts && payload.conflicts.length > 0 && (
+      {payload.conflicts && payload.conflicts.length > 0 && (
         <div className="resolve-adopt-list">
           {payload.conflicts.map((c) => (
             <button
@@ -247,7 +265,7 @@ function ResolveActions({ design, onResolved }: { design: DesignStatement; onRes
           value={justification}
           onChange={(e) => setJustification(e.target.value)}
           placeholder={
-            payload.verdict === "constraint_flag"
+            payload.verdict === "constraint_violation"
               ? "Why this design needs to diverge from the constraint..."
               : "Why this design needs to coexist with the design(s) above..."
           }
@@ -342,6 +360,22 @@ export function DesignDetail({
             <>
               <dt>Justified overlaps</dt>
               <dd>{design.justifiedOverlaps.length}</dd>
+            </>
+          )}
+          {/* `?? []` -- defensive, not expected in practice (the server
+              always defaults both to `[]`, never omits them): guards
+              against an older/incomplete fixture or hand-built object that
+              predates these two fields existing at all. */}
+          {(design.justifiedConflicts ?? []).length > 0 && (
+            <>
+              <dt>Justified llm divergences</dt>
+              <dd>{design.justifiedConflicts.length}</dd>
+            </>
+          )}
+          {(design.justifiedSymbolConflicts ?? []).length > 0 && (
+            <>
+              <dt>Justified symbol conflicts</dt>
+              <dd>{design.justifiedSymbolConflicts.length}</dd>
             </>
           )}
         </dl>

@@ -36,23 +36,19 @@ export interface FormattedActivityEvent {
   designSummary?: string;
   constraintId?: string;
   threadId?: string;
-  /** design_checked/design_flagged only (2026-08-19 severity split,
-   * design-checks.ts): "warning" is display-only (the design stayed
-   * "open", nothing blocked), "error" is today's original blocking
-   * behavior. Absent on a "clean" verdict or a pre-split event. Surfaced
-   * as its own field, not just a details row, so callers (DesignDetail's
-   * conflict panel, in particular) can style/gate on it without
-   * re-parsing `details`. */
-  severity?: "warning" | "error";
 }
 
 /** design_checked/design_flagged share this shape (2026-08-19 enrichment:
  * both now carry the full `runDesignChecks` outcome, not just the bare
  * verdict string) -- factored out so "why was this non-clean" renders
- * identically wherever it shows up. */
+ * identically wherever it shows up. `constraints` was a single object
+ * before 2026-08-22 (`matchConstraintsForPaths` used to collapse several
+ * simultaneous hits to one "best" match); it's a list now, one "Constraint"
+ * row per match, so a session justifying the first one sees every other
+ * match up front instead of discovering the next one only on retry. */
 function verdictDetails(p: unknown): ActivityDetailField[] {
   const conflicts = (p && typeof p === "object" && "conflicts" in p ? (p as Record<string, unknown>).conflicts : undefined) as RawDesignConflict[] | undefined;
-  const constraint = (p && typeof p === "object" && "constraint" in p ? (p as Record<string, unknown>).constraint : undefined) as RawConstraintMatch | undefined;
+  const constraints = (p && typeof p === "object" && "constraints" in p ? (p as Record<string, unknown>).constraints : undefined) as RawConstraintMatch[] | undefined;
   const fields: ActivityDetailField[] = [];
   if (conflicts && conflicts.length > 0) {
     fields.push({
@@ -60,15 +56,12 @@ function verdictDetails(p: unknown): ActivityDetailField[] {
       value: conflicts.map((c) => `"${c.conflictingSummary || c.conflictingDesignId.slice(0, 8)}" -- ${c.overlapDetail}`).join("; "),
     });
   }
-  if (constraint) {
-    fields.push({ label: "Constraint", value: `[${constraint.type.replace(/_/g, " ")}] ${constraint.statement}` });
+  if (constraints && constraints.length > 0) {
+    for (const c of constraints) {
+      fields.push({ label: "Constraint", value: c.statement });
+    }
   }
   return fields;
-}
-
-function severityOf(p: unknown): "warning" | "error" | undefined {
-  const v = str(p, "severity");
-  return v === "warning" || v === "error" ? v : undefined;
 }
 
 function str(payload: unknown, key: string): string | undefined {
@@ -123,25 +116,13 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivityEven
     }
     case "design_checked": {
       const verdict = str(p, "verdict");
-      const severity = severityOf(p);
-      const details = [
-        verdict ? { label: "Verdict", value: verdict } : undefined,
-        // Only shown once there's something to distinguish -- a "clean"
-        // check has no severity at all, and there's nothing to warn about.
-        severity ? { label: "Severity", value: severity } : undefined,
-        ...verdictDetails(p),
-      ].filter((f): f is ActivityDetailField => f !== undefined);
-      return { label: "Design checked", details, designId: relatedId, designSummary: str(p, "summary"), severity };
+      const details = [verdict ? { label: "Verdict", value: verdict } : undefined, ...verdictDetails(p)].filter((f): f is ActivityDetailField => f !== undefined);
+      return { label: "Design checked", details, designId: relatedId, designSummary: str(p, "summary") };
     }
     case "design_flagged": {
       const verdict = str(p, "verdict");
-      // design_flagged is only ever logged for an error-severity verdict
-      // (2026-08-19 -- a warning stays "open" and is never flagged), so
-      // this defaults to "error" even for an older event that predates the
-      // payload carrying severity explicitly.
-      const severity = severityOf(p) ?? "error";
       const details = [verdict ? { label: "Verdict", value: verdict } : undefined, ...verdictDetails(p)].filter((f): f is ActivityDetailField => f !== undefined);
-      return { label: "Design flagged", details, designId: relatedId, designSummary: str(p, "summary"), severity };
+      return { label: "Design flagged", details, designId: relatedId, designSummary: str(p, "summary") };
     }
     case "design_amended": {
       const details = [
@@ -177,12 +158,20 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivityEven
     }
     case "review_created": {
       const justification = str(p, "justification");
-      const constraintId = str(p, "constraintId");
+      // constraintId -> constraintIds (2026-08-22, plural: one justified
+      // divergence can settle several distinct constraint matches at once).
+      const constraintIds = arr(p, "constraintIds");
       const overlapWaivers = arr(p, "overlapWaivers");
+      // conflictWaivers/symbolConflictWaivers (2026-08-26): llm_divergence's
+      // and symbol_conflict's own waiver kinds, alongside file_overlap's.
+      const conflictWaivers = arr(p, "conflictWaivers");
+      const symbolConflictWaivers = arr(p, "symbolConflictWaivers");
       const details = [
         justification ? { label: "Justification", value: justification } : undefined,
-        constraintId ? { label: "Constraint waiver", value: constraintId.slice(0, 8) } : undefined,
-        overlapWaivers && overlapWaivers.length > 0 ? { label: "Overlap waivers", value: String(overlapWaivers.length) } : undefined,
+        constraintIds && constraintIds.length > 0 ? { label: "Constraint waiver(s)", value: String(constraintIds.length) } : undefined,
+        overlapWaivers && overlapWaivers.length > 0 ? { label: "Overlap waiver(s)", value: String(overlapWaivers.length) } : undefined,
+        conflictWaivers && conflictWaivers.length > 0 ? { label: "LLM divergence waiver(s)", value: String(conflictWaivers.length) } : undefined,
+        symbolConflictWaivers && symbolConflictWaivers.length > 0 ? { label: "Symbol conflict waiver(s)", value: String(symbolConflictWaivers.length) } : undefined,
       ].filter((f): f is ActivityDetailField => f !== undefined);
       return { label: "Review requested", details, designId: str(p, "designId") };
     }

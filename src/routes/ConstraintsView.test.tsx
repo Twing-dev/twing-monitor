@@ -26,7 +26,7 @@ describe("ConstraintsView", () => {
     await waitFor(() => expect(screen.getByText(/no constraints registered/i)).toBeInTheDocument());
   });
 
-  it("renders one card per constraint with its statement, type badge, and scope", async () => {
+  it("renders one card per constraint with its statement and scope", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -37,7 +37,7 @@ describe("ConstraintsView", () => {
                 {
                   id: "constraint-1",
                   projectId: "proj-1",
-                  type: "review_required",
+                  type: "constraint",
                   statement: "hook/main.go carries the capture edge and must stay a trivial socket client",
                   scope: ["hook/main.go", "hook/socket.go"],
                   source: "twing.yml",
@@ -52,7 +52,6 @@ describe("ConstraintsView", () => {
     renderWithAuth();
 
     await waitFor(() => expect(screen.getByText(/hook\/main\.go carries the capture edge/)).toBeInTheDocument());
-    expect(screen.getByText("review required")).toBeInTheDocument();
     expect(screen.getByText("hook/main.go, hook/socket.go")).toBeInTheDocument();
   });
 
@@ -64,8 +63,8 @@ describe("ConstraintsView", () => {
         const projectId = new URL(url).searchParams.get("projectId");
         const items =
           projectId === "proj-1"
-            ? [{ id: "c1", projectId: "proj-1", type: "review_required", statement: "Constraint in proj-1", scope: [], source: "twing.yml", createdAt: Date.now() }]
-            : [{ id: "c2", projectId: "proj-2", type: "canonical_abstraction", statement: "Constraint in proj-2", scope: [], source: "twing.yml", createdAt: Date.now() - 1 }];
+            ? [{ id: "c1", projectId: "proj-1", type: "constraint", statement: "Constraint in proj-1", scope: [], source: "twing.yml", createdAt: Date.now() }]
+            : [{ id: "c2", projectId: "proj-2", type: "constraint", statement: "Constraint in proj-2", scope: [], source: "twing.yml", createdAt: Date.now() - 1 }];
         return new Response(JSON.stringify({ items }), { status: 200 });
       }),
     );
@@ -85,7 +84,7 @@ describe("ConstraintsView", () => {
       "fetch",
       vi.fn(async () =>
         new Response(
-          JSON.stringify({ items: [{ id: "c1", projectId: "proj-1", type: "review_required", statement: "Solo repo constraint", scope: [], source: "twing.yml", createdAt: Date.now() }] }),
+          JSON.stringify({ items: [{ id: "c1", projectId: "proj-1", type: "constraint", statement: "Solo repo constraint", scope: [], source: "twing.yml", createdAt: Date.now() }] }),
           { status: 200 },
         ),
       ),

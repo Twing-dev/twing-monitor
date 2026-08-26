@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchAlignmentThreads, fetchAlignmentThread, postAlignmentMessage, closeAlignmentThread } from "../api/alignmentThreads.js";
 import { fetchDesigns } from "../api/designs.js";
-import type { AlignmentThread, AlignmentCategory, DesignStatement, ProjectSummary } from "../api/types.js";
+import type { AlignmentThread, AlignmentCategory, AlignmentSubKind, DesignStatement, ProjectSummary } from "../api/types.js";
+import { legacyCategoryBucket } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
@@ -16,11 +17,39 @@ function toneForStatus(status: "open" | "closed"): BadgeTone {
   return status === "open" ? "warning" : "neutral";
 }
 
-/** Display label for a thread's category -- undefined on a pre-2026-08-23
- * thread, which just renders no category badge at all rather than an
+/** Resolves a thread's raw `category` (possibly a pre-2026-08-26 legacy
+ * string, never backfilled -- see `legacyCategoryBucket`'s own doc comment,
+ * api/types.ts) to which of the two current buckets it represents. A
+ * category already in the new shape just passes through unchanged
+ * (`legacyCategoryBucket` only maps the old four-way strings). */
+function bucketOf(category?: string): AlignmentCategory | undefined {
+  if (!category) return undefined;
+  return legacyCategoryBucket(category) ?? (category as AlignmentCategory);
+}
+
+/** Display label for a thread's detail -- `subKind` going forward (2026-08-26
+ * terminology simplification: `category` collapsed to the two bucket names,
+ * `subKind` carries what used to be the whole `category` value), falling
+ * back to interpreting a pre-2026-08-26 thread's legacy `category` string
+ * directly for a row that predates the `subKind` column entirely. Undefined
+ * only for a thread with neither -- renders no badge rather than an
  * "uncategorized" placeholder. */
-function categoryLabel(category?: AlignmentCategory): string | undefined {
-  switch (category) {
+function categoryLabel(thread: { category?: AlignmentCategory; subKind?: AlignmentSubKind }): string | undefined {
+  switch (thread.subKind) {
+    case "duplication":
+      return "Duplication";
+    case "contradictory_assumptions":
+      return "Contradiction";
+    case "tension":
+      return "Tension";
+    case "real_edit_collision":
+      return "Real edit collision";
+    case "scope_intrusion":
+      return "Scope intrusion";
+    case "contract_break":
+      return "Contract break";
+  }
+  switch (thread.category as string | undefined) {
     case "duplication":
       return "Duplication";
     case "contradictory_assumptions":
@@ -118,7 +147,7 @@ function ThreadDetail({
         </div>
       </div>
 
-      {thread.category === "symbol_claim" && thread.symbolIds.length > 0 && (
+      {bucketOf(thread.category) === "symbol_conflict" && thread.symbolIds.length > 0 && (
         <div className="detail-field">
           <h3>Overlapping files</h3>
           <ul className="thread-symbol-list">
@@ -255,7 +284,7 @@ export function AlignmentThreadsView({
                     <div className="card-top-row">
                       <span className="card-summary">{t.summary ?? t.systemDescription}</span>
                       {showRepoBadge && <RepoBadge project={projectsById[t.projectId] ?? { projectId: t.projectId }} />}
-                      {categoryLabel(t.category) && <StatusBadge label={categoryLabel(t.category)!} tone="accent" />}
+                      {categoryLabel(t) && <StatusBadge label={categoryLabel(t)!} tone="accent" />}
                       <StatusBadge label={t.status} tone={toneForStatus(t.status)} />
                     </div>
                     <div className="card-meta">

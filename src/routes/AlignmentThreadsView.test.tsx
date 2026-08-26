@@ -126,6 +126,28 @@ describe("AlignmentThreadsView", () => {
     expect(screen.getByText("Overlapping files", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
+  // 2026-08-26 terminology simplification: category collapsed to the two
+  // bucket names ("symbol_conflict"/"llm_divergence"), subKind carries the
+  // old four-way detail -- this is the shape a fresh thread carries going
+  // forward, distinct from the legacy `category: "symbol_claim"`/
+  // `"duplication"` fixtures used elsewhere in this file (which exercise
+  // the pre-2026-08-26 fallback, still exactly as before).
+  it("a new-shape thread reads its category badge from subKind, not the collapsed top-level category", async () => {
+    const thread = { ...SEMANTIC_PATH_THREAD, category: "llm_divergence" as const, subKind: "contradictory_assumptions" as const };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        return new Response(JSON.stringify({ items: [thread] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    expect(await screen.findByText("Contradiction", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Duplication", { selector: ".status-badge" })).not.toBeInTheDocument();
+  });
+
   it("a pre-redesign (legacy) thread falls back to the full systemDescription as its headline, with no category badge", async () => {
     vi.stubGlobal(
       "fetch",

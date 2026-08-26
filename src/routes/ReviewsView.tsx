@@ -10,6 +10,19 @@ import { relativeTime } from "../lib/time.js";
 
 const STATUSES: ReviewStatus[] = ["pending", "decided", "all"];
 
+/** Roughly the length at which the clamp actually hides something -- below
+ * it, a "Show all" control costs more attention than the text it saves. */
+const SAID_CLAMP_CHARS = 220;
+
+/** The stored value is the verb the API takes ("approve"), but a badge is
+ * reporting state, not offering an action -- "APPROVE" sitting next to
+ * Approve/Reject buttons reads as a third button. */
+function decisionLabel(decision?: "approve" | "reject"): string {
+  if (decision === "approve") return "approved";
+  if (decision === "reject") return "rejected";
+  return "pending";
+}
+
 function toneForDecision(decision?: "approve" | "reject"): BadgeTone {
   if (decision === "approve") return "good";
   if (decision === "reject") return "critical";
@@ -68,19 +81,43 @@ function ReviewCard({
   onDecide: (id: string, decision: "approve" | "reject") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [saidExpanded, setSaidExpanded] = useState(false);
   const design = review.design;
   const blockers = review.constraints ?? [];
+  // Every rule carries a type, but a card whose rules all share one (the
+  // common case -- three `review_required` paths on the same design) was
+  // printing the identical translation under each of them. Show it once,
+  // as a heading for the group, and only fall back to per-rule when the
+  // types genuinely differ.
+  const blockerTypes = [...new Set(blockers.map((c) => c.type))];
+  const oneBlockerType = blockerTypes.length === 1 ? blockerTypes[0] : undefined;
+  // A new-style row's type is always "constraint" -- constraintTypeText
+  // returns undefined for it (nothing worth heading a group with), so the
+  // dedup heading only ever appears for a shared *old*-style type.
+  const oneBlockerTypeText = oneBlockerType ? constraintTypeText(oneBlockerType) : undefined;
   const conflicts = review.conflicts ?? [];
-  const hasDetail = Boolean(design?.touches.length || design?.creates.length || conflicts.length);
 
   return (
     <li className={`design-card${expanded ? " expanded" : ""}`}>
-      <div className="review-card-inner">
+      {/* Collapsed to a headline by default. A single expanded card fills a
+          viewport once the rules and the justification are real, so a list
+          of them can't be scanned at all -- you have to read one to reach
+          the next. The header alone answers "is this mine, is it urgent,
+          do I care", which is what a queue is for; everything needed to
+          actually decide is one click away. */}
+      <button
+        type="button"
+        className="design-card-toggle review-card-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
         <div className="card-top-row">
           <span className="review-headline">{design?.summary ?? review.justification}</span>
           <div className="card-badges">
             {repoBadge}
-            <StatusBadge label={review.decision ?? "pending"} tone={toneForDecision(review.decision)} />
+            {!expanded && blockers.length > 0 && <span className="card-hint">{blockers.length === 1 ? "1 rule" : `${blockers.length} rules`}</span>}
+            {!expanded && conflicts.length > 0 && <span className="card-hint">{conflicts.length === 1 ? "1 collision" : `${conflicts.length} collisions`}</span>}
+            <StatusBadge label={decisionLabel(review.decision)} tone={toneForDecision(review.decision)} />
           </div>
         </div>
 
@@ -88,17 +125,27 @@ function ReviewCard({
           {design?.developerId && <span>{design.developerId}</span>}
           <span>{relativeTime(review.createdAt)}</span>
         </div>
+      </button>
+
+      {expanded && (
+      <div className="review-card-inner">
 
         {blockers.length > 0 && (
           <div className="review-band review-band-blocked">
             <span className="review-band-label">Blocked by</span>
             <div>
+              {oneBlockerTypeText && (
+                <p className="review-band-sub review-band-heading">
+                  {blockers.length > 1 ? `${blockers.length} rules — ` : ""}
+                  {oneBlockerTypeText}
+                </p>
+              )}
               {blockers.map((c) => {
                 const typeText = constraintTypeText(c.type);
                 return (
                   <p key={c.id} className="review-band-line">
                     “{c.statement}”
-                    {typeText && <span className="review-band-sub">{typeText}</span>}
+                    {!oneBlockerTypeText && typeText && <span className="review-band-sub">{typeText}</span>}
                   </p>
                 );
               })}
@@ -129,17 +176,27 @@ function ReviewCard({
         {design && (
           <div className="review-band review-band-says">
             <span className="review-band-label">They say</span>
-            <p className="review-band-line">“{review.justification}”</p>
+            <div>
+              {/* Clamped by default. A justification written by an agent runs
+                  to several hundred words of implementation detail, and left
+                  open it dwarfs the two bands above it -- which are the ones
+                  a reviewer actually decides on. It's their argument, not the
+                  finding, so it earns less room until asked for. */}
+              <p className={`review-band-line${saidExpanded ? "" : " clamped"}`}>“{review.justification}”</p>
+              {review.justification.length > SAID_CLAMP_CHARS && (
+                <button type="button" className="review-expand" onClick={() => setSaidExpanded((v) => !v)} aria-expanded={saidExpanded}>
+                  {saidExpanded ? "Show less" : "Show all"}
+                </button>
+              )}
+            </div>
           </div>
         )}
 
-        {hasDetail && (
-          <button type="button" className="review-expand" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
-            {expanded ? "Hide detail" : "Show detail"}
-          </button>
-        )}
-
-        {expanded && design && (
+        {/* No nested "Show detail" any more. The card itself is the
+            disclosure now, and a second one inside it meant opening a card
+            still didn't show you the card -- which is the bloat this whole
+            change is removing. Everything below appears on open. */}
+        {design && (
           <dl className="review-detail">
             {design.creates.length > 0 && (
               <>
@@ -175,6 +232,7 @@ function ReviewCard({
           </div>
         )}
       </div>
+      )}
     </li>
   );
 }

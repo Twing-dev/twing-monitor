@@ -17,6 +17,16 @@ function renderWithAuth(canDecide = false, projectIds: string[] = ["proj-1"], pr
   );
 }
 
+/** The review card is collapsed to its headline by default, so the bands,
+ * the file lists and Approve/Reject all sit behind one click. Tests that
+ * assert on any of those open the first card first. */
+async function openFirstCard() {
+  const user = userEvent.setup();
+  const toggles = await screen.findAllByRole("button", { expanded: false });
+  await user.click(toggles[0]);
+  return user;
+}
+
 const PENDING_REVIEW = {
   id: "review-1",
   designId: "design-1",
@@ -77,6 +87,7 @@ describe("ReviewsView", () => {
       }),
     );
     renderWithAuth(true);
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("Overlaps an approved sibling design, same touched path")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Approve" }));
@@ -97,6 +108,7 @@ describe("ReviewsView", () => {
       }),
     );
     renderWithAuth(true);
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("Overlaps an approved sibling design, same touched path")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Reject" }));
@@ -128,6 +140,13 @@ describe("ReviewsView", () => {
 
     const memberCard = screen.getByText("Review in the member-role repo").closest("li")!;
     const adminCard = screen.getByText("Review in the admin-role repo").closest("li")!;
+
+    // Cards are collapsed by default, so open both -- the point of this
+    // test is that the two resolve differently, not that either is hidden.
+    const user = userEvent.setup();
+    await user.click(within(memberCard).getByRole("button", { expanded: false }));
+    await user.click(within(adminCard).getByRole("button", { expanded: false }));
+
     expect(within(memberCard).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     expect(within(adminCard).getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
@@ -184,6 +203,7 @@ describe("ReviewsView — enriched cards", () => {
   it("still shows the justification, but as their argument rather than the headline", async () => {
     stubEnriched();
     renderWithAuth();
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("They say")).toBeInTheDocument());
     expect(screen.getByText(/Overlaps an approved sibling design/)).toBeInTheDocument();
@@ -195,6 +215,7 @@ describe("ReviewsView — enriched cards", () => {
   it("names the rule that blocked it, in plain language", async () => {
     stubEnriched();
     renderWithAuth();
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("Blocked by")).toBeInTheDocument());
     expect(screen.getByText(/money paths need a second pair of eyes/)).toBeInTheDocument();
@@ -204,28 +225,98 @@ describe("ReviewsView — enriched cards", () => {
   it("names whose work it collides with", async () => {
     stubEnriched();
     renderWithAuth();
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("Collides with")).toBeInTheDocument());
     expect(screen.getByText("billing retry work")).toBeInTheDocument();
     expect(screen.getByText(/ayush@team\.dev/)).toBeInTheDocument();
   });
 
-  it("keeps file lists behind a toggle so the card stays scannable", async () => {
-    const user = userEvent.setup();
+  it("keeps file lists behind the card's own collapse, not a second toggle inside it", async () => {
     stubEnriched();
     renderWithAuth();
+    await openFirstCard();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /show detail/i })).toBeInTheDocument());
-    expect(screen.queryByText("Creates")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /show detail/i }));
+    // Opened by openFirstCard above -- everything is visible at once, with
+    // no second disclosure to find.
     expect(screen.getByText("Creates")).toBeInTheDocument();
     expect(screen.getByText("src/net/retry.ts")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show detail/i })).not.toBeInTheDocument();
   });
 
   // A conflicting design deleted since the review was raised: the server
   // sends the id with no summary. The card must still say something
   // collided rather than rendering an empty line.
+  it("reports a decision in the past tense, so the badge doesn't read as a button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [{ ...ENRICHED_REVIEW, decision: "approve" }] }), { status: 200 })),
+    );
+    renderWithAuth();
+    await openFirstCard();
+
+    await waitFor(() => expect(screen.getByText("approved", { selector: ".status-badge" })).toBeInTheDocument());
+    expect(screen.queryByText("approve", { selector: ".status-badge" })).not.toBeInTheDocument();
+  });
+
+  // Three review_required rules on one design printed the identical
+  // translation under each -- the common case, and pure noise.
+  it("states a shared rule type once, not once per rule", async () => {
+    const threeSameType = {
+      ...ENRICHED_REVIEW,
+      constraints: [
+        { id: "c-1", statement: "the hosted coordinator itself", type: "review_required" },
+        { id: "c-2", statement: "coordinator's core verdict logic", type: "review_required" },
+        { id: "c-3", statement: "the gate's own verdict/deny logic", type: "review_required" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [threeSameType] }), { status: 200 })));
+    renderWithAuth();
+    await openFirstCard();
+
+    await waitFor(() => expect(screen.getByText(/3 rules/)).toBeInTheDocument());
+    expect(screen.getAllByText(/a human must review changes here/)).toHaveLength(1);
+  });
+
+  it("keeps per-rule types when they genuinely differ", async () => {
+    const mixed = {
+      ...ENRICHED_REVIEW,
+      constraints: [
+        { id: "c-1", statement: "money paths need review", type: "review_required" },
+        { id: "c-2", statement: "one HTTP wrapper only", type: "canonical_abstraction" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [mixed] }), { status: 200 })));
+    renderWithAuth();
+    await openFirstCard();
+
+    await waitFor(() => expect(screen.getByText(/a human must review changes here/)).toBeInTheDocument());
+    expect(screen.getByText(/use the existing approach/)).toBeInTheDocument();
+  });
+
+  // The justification is the requester's argument, not the finding -- left
+  // unclamped it dwarfed the two bands a reviewer actually decides on.
+  it("clamps a long justification behind a Show all toggle", async () => {
+    const user = userEvent.setup();
+    const long = { ...ENRICHED_REVIEW, justification: "x".repeat(400) };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [long] }), { status: 200 })));
+    renderWithAuth();
+    await openFirstCard();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /show all/i }));
+    expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+  });
+
+  it("offers no toggle for a justification short enough to read as-is", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [ENRICHED_REVIEW] }), { status: 200 })));
+    renderWithAuth();
+    await openFirstCard();
+
+    await waitFor(() => expect(screen.getByText("They say")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /show all/i })).not.toBeInTheDocument();
+  });
+
   it("survives a conflicting design that no longer exists", async () => {
     vi.stubGlobal(
       "fetch",
@@ -240,6 +331,7 @@ describe("ReviewsView — enriched cards", () => {
       ),
     );
     renderWithAuth();
+    await openFirstCard();
 
     await waitFor(() => expect(screen.getByText("Collides with")).toBeInTheDocument());
     expect(screen.getByText(/design-gone/)).toBeInTheDocument();

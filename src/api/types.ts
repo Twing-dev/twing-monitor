@@ -246,7 +246,13 @@ export interface AlignmentThread {
   developerId: string;
   otherDeveloperId: string;
   designId?: string;
-  status: "open" | "closed";
+  /** Widened 2026-08-27 (tightening alignment threads item 4) to add
+   * `"dormant"` -- distinct from `"closed"`: a thread goes dormant when the
+   * design lifecycle behind it goes quiet on its own (inactivity), never as
+   * a deliberate party action, and it's explicitly reversible (a resumed
+   * design wakes its threads back to `"open"`; see
+   * packages/server/src/alignment-store.ts's `dormant`/`wake`). */
+  status: "open" | "closed" | "dormant";
   systemDescription: string;
   openedAt: number;
   closedAt?: number;

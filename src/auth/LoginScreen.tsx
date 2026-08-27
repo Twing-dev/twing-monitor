@@ -75,7 +75,8 @@ export function LoginScreen() {
           </button>
         </form>
         <p className="login-hint">
-          No token yet? Run <code>twing keygen --invite &lt;code&gt;</code> or <code>twing login --token &lt;pat&gt;</code> from the CLI.
+          No token yet? Run <code>twing init</code> in your repo, then <code>twing servers --show-token</code> to get the server URL and token to paste
+          above.
         </p>
       </div>
     </div>

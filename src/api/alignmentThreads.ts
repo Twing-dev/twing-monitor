@@ -1,7 +1,7 @@
 import type { AlignmentThread, AlignmentMessage } from "./types.js";
 import type { Fetcher } from "./client.js";
 
-export async function fetchAlignmentThreads(fetcher: Fetcher, projectId: string, status?: "open" | "closed"): Promise<AlignmentThread[]> {
+export async function fetchAlignmentThreads(fetcher: Fetcher, projectId: string, status?: "open" | "closed" | "dormant"): Promise<AlignmentThread[]> {
   const qs = new URLSearchParams({ projectId, ...(status ? { status } : {}) });
   const body = await fetcher<{ items: AlignmentThread[] }>(`/v1/alignment-threads?${qs}`);
   return body.items;

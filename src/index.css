@@ -17,6 +17,26 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* Opt-in light palette -- dark (above) stays the default for every viewer
+ * who hasn't explicitly toggled (ThemeToggle sets this attribute and
+ * persists the choice, see lib/theme.ts). */
+:root[data-theme="light"] {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-hover: #eef0f3;
+  --border: #dde1e7;
+  --text: #171a21;
+  --text-dim: #63687a;
+  --accent: #3b5fd9;
+  --accent-dim: #dde5fb;
+  --danger: #b3261e;
+  --danger-bg: #fbe9e7;
+  --good: #1e7d4f;
+  --good-bg: #e3f6ea;
+  --warning: #8a5b00;
+  --warning-bg: #fbf1d9;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -47,6 +67,30 @@ code {
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+/* --- Theme toggle --- */
+
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+}
+
+.theme-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* --- Login screen --- */
@@ -373,6 +417,15 @@ button {
   gap: 16px;
 }
 
+/* A single card shown standalone (landed on via a copy-link URL) instead
+ * of the full filtered list -- see DesignsView/ReviewsView/
+ * AlignmentThreadsView's own focused-page render paths. */
+.focus-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .filter-bar select {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -406,6 +459,14 @@ button {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+}
+
+/* Wraps just the toggle button + CopyLinkButton (not the expanded body) --
+ * anchors .card-copy-link's absolute positioning to the header row alone,
+ * so an expanded card (which can run much taller than its header) doesn't
+ * stretch the button down the middle of its whole body. */
+.design-card-header {
+  position: relative;
 }
 
 .design-card.expanded {
@@ -459,6 +520,38 @@ button {
   justify-content: flex-end;
   gap: 6px;
   flex-shrink: 0;
+}
+
+/* Reserves room so the toggle button's own right-aligned content
+ * (.card-badges) never sits under the overlaid .card-copy-link -- only
+ * applied where DesignsView/ReviewsView/AlignmentThreadsView opt in via
+ * this modifier class; MembersView/ConstraintsView reuse
+ * .design-card-toggle unmodified. */
+.design-card-toggle.has-copy-link {
+  padding-right: 50px;
+}
+
+.card-copy-link {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 12px;
+  margin: auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+}
+
+.card-copy-link:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* Precedes each member's own DesignDetail inside a grouped (groupId-linked)

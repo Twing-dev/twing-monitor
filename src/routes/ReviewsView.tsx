@@ -6,7 +6,9 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
+import { buildShareUrl } from "../lib/urlState.js";
 
 const STATUSES: ReviewStatus[] = ["pending", "decided", "all"];
 
@@ -52,35 +54,49 @@ function constraintTypeText(type: string): string | undefined {
   }
 }
 
+/** The header row shared by a card's collapsible list form and its
+ * standalone focused-page form. `expanded` hides the rule/collision count
+ * hints once the full detail (ReviewCardBody) is already showing them. */
+function ReviewCardHeaderContent({ review, expanded, repoBadge }: { review: PendingReview; expanded: boolean; repoBadge?: React.ReactNode }) {
+  const design = review.design;
+  const blockers = review.constraints ?? [];
+  const conflicts = review.conflicts ?? [];
+  return (
+    <>
+      <div className="card-top-row">
+        <span className="review-headline">{design?.summary ?? review.justification}</span>
+        <div className="card-badges">
+          {repoBadge}
+          {!expanded && blockers.length > 0 && <span className="card-hint">{blockers.length === 1 ? "1 rule" : `${blockers.length} rules`}</span>}
+          {!expanded && conflicts.length > 0 && <span className="card-hint">{conflicts.length === 1 ? "1 collision" : `${conflicts.length} collisions`}</span>}
+          <StatusBadge label={decisionLabel(review.decision)} tone={toneForDecision(review.decision)} />
+        </div>
+      </div>
+      <div className="card-meta">
+        {design?.developerId && <span>{design.developerId}</span>}
+        <span>{relativeTime(review.createdAt)}</span>
+      </div>
+    </>
+  );
+}
+
 /**
- * A review card answers, in this order: **what** is being built, **why** it
- * stopped, and **what the requester says** about it.
- *
- * It used to lead with `justification` and show nothing else -- so an admin
- * was shown the argument for letting something through without being shown
- * what it was, who wanted it, or what had blocked it. The question you're
- * actually being asked is "do I want this to happen?", and the card didn't
- * contain enough to answer it.
- *
- * Everything under `review.design` / `.constraints` / `.conflicts` is
- * server-assembled and optional (see the coordinator's review-enrich.ts), so
- * this degrades to the old justification-led rendering against a coordinator
- * that predates the enrichment rather than rendering a blank card.
+ * The expanded body shared by both render paths -- what is being built, why
+ * it stopped, and what the requester says, in that order (see the original
+ * doc comment this replaced: an admin needs enough to answer "do I want
+ * this to happen?", not just the argument for letting it through).
  */
-function ReviewCard({
+function ReviewCardBody({
   review,
   canDecide,
   busy,
-  repoBadge,
   onDecide,
 }: {
   review: PendingReview;
   canDecide: boolean;
   busy: boolean;
-  repoBadge?: React.ReactNode;
   onDecide: (id: string, decision: "approve" | "reject") => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [saidExpanded, setSaidExpanded] = useState(false);
   const design = review.design;
   const blockers = review.constraints ?? [];
@@ -98,142 +114,233 @@ function ReviewCard({
   const conflicts = review.conflicts ?? [];
 
   return (
-    <li className={`design-card${expanded ? " expanded" : ""}`}>
-      {/* Collapsed to a headline by default. A single expanded card fills a
-          viewport once the rules and the justification are real, so a list
-          of them can't be scanned at all -- you have to read one to reach
-          the next. The header alone answers "is this mine, is it urgent,
-          do I care", which is what a queue is for; everything needed to
-          actually decide is one click away. */}
-      <button
-        type="button"
-        className="design-card-toggle review-card-toggle"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div className="card-top-row">
-          <span className="review-headline">{design?.summary ?? review.justification}</span>
-          <div className="card-badges">
-            {repoBadge}
-            {!expanded && blockers.length > 0 && <span className="card-hint">{blockers.length === 1 ? "1 rule" : `${blockers.length} rules`}</span>}
-            {!expanded && conflicts.length > 0 && <span className="card-hint">{conflicts.length === 1 ? "1 collision" : `${conflicts.length} collisions`}</span>}
-            <StatusBadge label={decisionLabel(review.decision)} tone={toneForDecision(review.decision)} />
+    <div className="review-card-inner">
+      {blockers.length > 0 && (
+        <div className="review-band review-band-blocked">
+          <span className="review-band-label">Blocked by</span>
+          <div>
+            {oneBlockerTypeText && (
+              <p className="review-band-sub review-band-heading">
+                {blockers.length > 1 ? `${blockers.length} rules — ` : ""}
+                {oneBlockerTypeText}
+              </p>
+            )}
+            {blockers.map((c) => {
+              const typeText = constraintTypeText(c.type);
+              return (
+                <p key={c.id} className="review-band-line">
+                  “{c.statement}”
+                  {!oneBlockerTypeText && typeText && <span className="review-band-sub">{typeText}</span>}
+                </p>
+              );
+            })}
           </div>
         </div>
-
-        <div className="card-meta">
-          {design?.developerId && <span>{design.developerId}</span>}
-          <span>{relativeTime(review.createdAt)}</span>
-        </div>
-      </button>
-
-      {expanded && (
-      <div className="review-card-inner">
-
-        {blockers.length > 0 && (
-          <div className="review-band review-band-blocked">
-            <span className="review-band-label">Blocked by</span>
-            <div>
-              {oneBlockerTypeText && (
-                <p className="review-band-sub review-band-heading">
-                  {blockers.length > 1 ? `${blockers.length} rules — ` : ""}
-                  {oneBlockerTypeText}
-                </p>
-              )}
-              {blockers.map((c) => {
-                const typeText = constraintTypeText(c.type);
-                return (
-                  <p key={c.id} className="review-band-line">
-                    “{c.statement}”
-                    {!oneBlockerTypeText && typeText && <span className="review-band-sub">{typeText}</span>}
-                  </p>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {conflicts.length > 0 && (
-          <div className="review-band review-band-blocked">
-            <span className="review-band-label">Collides with</span>
-            <div>
-              {conflicts.map((c) => (
-                <p key={`${c.kind}-${c.designId}`} className="review-band-line">
-                  {c.summary ?? <span className="review-band-sub">design {c.designId}</span>}
-                  <span className="review-band-sub">
-                    {c.developerId ? `${c.developerId} · ` : ""}
-                    {c.kind === "overlap" ? "same files" : c.kind === "symbol_conflict" ? "same real edits" : "same work, judged by content"}
-                  </span>
-                </p>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Only worth a band of its own once there's something above it to
-            contrast against -- on a bare card the headline already is the
-            justification, and repeating it reads as a bug. */}
-        {design && (
-          <div className="review-band review-band-says">
-            <span className="review-band-label">They say</span>
-            <div>
-              {/* Clamped by default. A justification written by an agent runs
-                  to several hundred words of implementation detail, and left
-                  open it dwarfs the two bands above it -- which are the ones
-                  a reviewer actually decides on. It's their argument, not the
-                  finding, so it earns less room until asked for. */}
-              <p className={`review-band-line${saidExpanded ? "" : " clamped"}`}>“{review.justification}”</p>
-              {review.justification.length > SAID_CLAMP_CHARS && (
-                <button type="button" className="review-expand" onClick={() => setSaidExpanded((v) => !v)} aria-expanded={saidExpanded}>
-                  {saidExpanded ? "Show less" : "Show all"}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* No nested "Show detail" any more. The card itself is the
-            disclosure now, and a second one inside it meant opening a card
-            still didn't show you the card -- which is the bloat this whole
-            change is removing. Everything below appears on open. */}
-        {design && (
-          <dl className="review-detail">
-            {design.creates.length > 0 && (
-              <>
-                <dt>Creates</dt>
-                <dd>{design.creates.join(", ")}</dd>
-              </>
-            )}
-            {design.touches.length > 0 && (
-              <>
-                <dt>Touches</dt>
-                <dd>{design.touches.join(", ")}</dd>
-              </>
-            )}
-            {conflicts.some((c) => c.paths?.length) && (
-              <>
-                <dt>Overlapping</dt>
-                <dd>{conflicts.flatMap((c) => c.paths ?? []).join(", ")}</dd>
-              </>
-            )}
-            <dt>Plan</dt>
-            <dd>{review.designId}</dd>
-          </dl>
-        )}
-
-        {canDecide && !review.decision && (
-          <div className="review-actions">
-            <button type="button" className="resolve-button resolve-approve" disabled={busy} onClick={() => onDecide(review.id, "approve")}>
-              {busy ? "…" : "Approve"}
-            </button>
-            <button type="button" className="resolve-button resolve-reject" disabled={busy} onClick={() => onDecide(review.id, "reject")}>
-              Reject
-            </button>
-          </div>
-        )}
-      </div>
       )}
+
+      {conflicts.length > 0 && (
+        <div className="review-band review-band-blocked">
+          <span className="review-band-label">Collides with</span>
+          <div>
+            {conflicts.map((c) => (
+              <p key={`${c.kind}-${c.designId}`} className="review-band-line">
+                {c.summary ?? <span className="review-band-sub">design {c.designId}</span>}
+                <span className="review-band-sub">
+                  {c.developerId ? `${c.developerId} · ` : ""}
+                  {c.kind === "overlap" ? "same files" : c.kind === "symbol_conflict" ? "same real edits" : "same work, judged by content"}
+                </span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Only worth a band of its own once there's something above it to
+          contrast against -- on a bare card the headline already is the
+          justification, and repeating it reads as a bug. */}
+      {design && (
+        <div className="review-band review-band-says">
+          <span className="review-band-label">They say</span>
+          <div>
+            {/* Clamped by default. A justification written by an agent runs
+                to several hundred words of implementation detail, and left
+                open it dwarfs the two bands above it -- which are the ones
+                a reviewer actually decides on. It's their argument, not the
+                finding, so it earns less room until asked for. */}
+            <p className={`review-band-line${saidExpanded ? "" : " clamped"}`}>“{review.justification}”</p>
+            {review.justification.length > SAID_CLAMP_CHARS && (
+              <button type="button" className="review-expand" onClick={() => setSaidExpanded((v) => !v)} aria-expanded={saidExpanded}>
+                {saidExpanded ? "Show less" : "Show all"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* No nested "Show detail" any more. The card itself is the
+          disclosure now, and a second one inside it meant opening a card
+          still didn't show you the card -- which is the bloat this whole
+          change is removing. Everything below appears on open. */}
+      {design && (
+        <dl className="review-detail">
+          {design.creates.length > 0 && (
+            <>
+              <dt>Creates</dt>
+              <dd>{design.creates.join(", ")}</dd>
+            </>
+          )}
+          {design.touches.length > 0 && (
+            <>
+              <dt>Touches</dt>
+              <dd>{design.touches.join(", ")}</dd>
+            </>
+          )}
+          {conflicts.some((c) => c.paths?.length) && (
+            <>
+              <dt>Overlapping</dt>
+              <dd>{conflicts.flatMap((c) => c.paths ?? []).join(", ")}</dd>
+            </>
+          )}
+          <dt>Plan</dt>
+          <dd>{review.designId}</dd>
+        </dl>
+      )}
+
+      {canDecide && !review.decision && (
+        <div className="review-actions">
+          <button type="button" className="resolve-button resolve-approve" disabled={busy} onClick={() => onDecide(review.id, "approve")}>
+            {busy ? "…" : "Approve"}
+          </button>
+          <button type="button" className="resolve-button resolve-reject" disabled={busy} onClick={() => onDecide(review.id, "reject")}>
+            Reject
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewCard({
+  review,
+  canDecide,
+  busy,
+  repoBadge,
+  onDecide,
+}: {
+  review: PendingReview;
+  canDecide: boolean;
+  busy: boolean;
+  repoBadge?: React.ReactNode;
+  onDecide: (id: string, decision: "approve" | "reject") => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <li className={`design-card${expanded ? " expanded" : ""}`}>
+      <div className="design-card-header">
+        {/* Collapsed to a headline by default. A single expanded card fills a
+            viewport once the rules and the justification are real, so a list
+            of them can't be scanned at all -- you have to read one to reach
+            the next. The header alone answers "is this mine, is it urgent,
+            do I care", which is what a queue is for; everything needed to
+            actually decide is one click away. */}
+        <button
+          type="button"
+          className="design-card-toggle review-card-toggle has-copy-link"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ReviewCardHeaderContent review={review} expanded={expanded} repoBadge={repoBadge} />
+        </button>
+        <CopyLinkButton url={buildShareUrl(review.projectId, "reviews", review.id)} />
+      </div>
+      {expanded && <ReviewCardBody review={review} canDecide={canDecide} busy={busy} onDecide={onDecide} />}
     </li>
+  );
+}
+
+/** A copy-link URL (or any other external jump) names one specific review
+ * to look at -- show only that, not the whole filtered queue with it
+ * expanded somewhere inside, which for anything but the most recent review
+ * meant landing on the list and having to scroll to find it. Fetches
+ * "all" itself, independent of the list's own status filter, since a
+ * decided review needs to stay reachable here regardless. */
+function ReviewFocusedPage({
+  projectIds,
+  projectsById,
+  focusReviewId,
+  onClearFocus,
+}: {
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
+  focusReviewId: string;
+  onClearFocus?: () => void;
+}) {
+  const apiFetch = useApiFetch();
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const state = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "all"))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(","), refreshKey],
+  );
+
+  async function decide(id: string, decision: "approve" | "reject") {
+    setDecidingId(id);
+    setError(null);
+    try {
+      await decideReview(apiFetch, id, decision);
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDecidingId(null);
+    }
+  }
+
+  const showRepoBadge = projectIds.length > 1;
+
+  return (
+    <div className="list-view">
+      <AsyncSection
+        state={state}
+        isEmpty={() => false}
+        emptyMessage=""
+        render={(items) => {
+          const review = items.find((r) => r.id === focusReviewId);
+          return (
+            <div className="focus-page">
+              <button type="button" className="link-button back-link" onClick={onClearFocus}>
+                ← Back to all reviews
+              </button>
+              {error && (
+                <p className="resolve-error" role="alert">
+                  {error}
+                </p>
+              )}
+              {review ? (
+                <div className="design-card expanded">
+                  <div className="design-card-header">
+                    <div className="design-card-toggle review-card-toggle has-copy-link">
+                      <ReviewCardHeaderContent
+                        review={review}
+                        expanded
+                        repoBadge={showRepoBadge ? <RepoBadge project={projectsById[review.projectId] ?? { projectId: review.projectId }} /> : undefined}
+                      />
+                    </div>
+                    <CopyLinkButton url={buildShareUrl(review.projectId, "reviews", review.id)} />
+                  </div>
+                  <ReviewCardBody review={review} canDecide={projectsById[review.projectId]?.role === "admin"} busy={decidingId !== null} onDecide={decide} />
+                </div>
+              ) : (
+                <p className="empty-state">That review couldn't be found -- it may have been removed, or you may not have access.</p>
+              )}
+            </div>
+          );
+        }}
+      />
+    </div>
   );
 }
 
@@ -244,7 +351,17 @@ function ReviewCard({
  * boolean for the whole view (unlike the pre-aggregation version of this
  * component). Hiding the buttons for a `member` is purely UX either way;
  * the server is the real enforcement. */
-export function ReviewsView({ projectIds, projectsById }: { projectIds: string[]; projectsById: Record<string, ProjectSummary> }) {
+export function ReviewsView({
+  projectIds,
+  projectsById,
+  focusReviewId,
+  onClearFocus,
+}: {
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
+  focusReviewId?: string;
+  onClearFocus?: () => void;
+}) {
   const apiFetch = useApiFetch();
   const [status, setStatus] = useState<ReviewStatus>("pending");
   const [decidingId, setDecidingId] = useState<string | null>(null);
@@ -273,6 +390,10 @@ export function ReviewsView({ projectIds, projectsById }: { projectIds: string[]
   }
 
   const showRepoBadge = projectIds.length > 1;
+
+  if (focusReviewId) {
+    return <ReviewFocusedPage projectIds={projectIds} projectsById={projectsById} focusReviewId={focusReviewId} onClearFocus={onClearFocus} />;
+  }
 
   return (
     <div className="list-view">

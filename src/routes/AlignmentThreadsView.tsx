@@ -8,7 +8,9 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
+import { buildShareUrl } from "../lib/urlState.js";
 
 const STATUSES = ["open", "closed", "all"] as const;
 type StatusFilter = (typeof STATUSES)[number];
@@ -51,6 +53,27 @@ function categoryLabel(thread: { category?: AlignmentCategory; subKind?: Alignme
     default:
       return undefined;
   }
+}
+
+/** The header row shared by a card's collapsible list form and its
+ * standalone focused-page form. */
+function ThreadCardHeaderContent({ thread, showRepoBadge, projectsById }: { thread: AlignmentThread; showRepoBadge: boolean; projectsById: Record<string, ProjectSummary> }) {
+  return (
+    <>
+      <div className="card-top-row">
+        <span className="card-summary">{thread.summary ?? thread.systemDescription}</span>
+        {showRepoBadge && <RepoBadge project={projectsById[thread.projectId] ?? { projectId: thread.projectId }} />}
+        {categoryLabel(thread) && <StatusBadge label={categoryLabel(thread)!} tone="accent" />}
+        <StatusBadge label={thread.status} tone={toneForStatus(thread.status)} />
+      </div>
+      <div className="card-meta">
+        <span>
+          {thread.developerId} &amp; {thread.otherDeveloperId}
+        </span>
+        <span>{relativeTime(thread.lastActivityAt ?? thread.openedAt)}</span>
+      </div>
+    </>
+  );
 }
 
 function ThreadDetail({
@@ -208,14 +231,84 @@ function ThreadDetail({
   );
 }
 
+/** A copy-link URL names one specific thread to look at -- show only that,
+ * not the whole filtered list with it expanded somewhere inside. Fetches
+ * "all" itself, independent of the list's own status filter, since a
+ * closed thread needs to stay reachable here regardless. */
+function ThreadFocusedPage({
+  projectIds,
+  projectsById,
+  focusThreadId,
+  onOpenDesign,
+  onClearFocus,
+}: {
+  projectIds: string[];
+  projectsById: Record<string, ProjectSummary>;
+  focusThreadId: string;
+  onOpenDesign?: (designId: string) => void;
+  onClearFocus?: () => void;
+}) {
+  const apiFetch = useApiFetch();
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const state = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(","), refreshKey],
+  );
+  const designsState = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
+    [apiFetch, projectIds.join(",")],
+  );
+  const designsById: Record<string, DesignStatement> = designsState.status === "ready" ? Object.fromEntries(designsState.data.map((d) => [d.id, d])) : {};
+
+  const showRepoBadge = projectIds.length > 1;
+
+  return (
+    <div className="list-view">
+      <AsyncSection
+        state={state}
+        isEmpty={() => false}
+        emptyMessage=""
+        render={(items) => {
+          const thread = items.find((t) => t.id === focusThreadId);
+          return (
+            <div className="focus-page">
+              <button type="button" className="link-button back-link" onClick={onClearFocus}>
+                ← Back to all alignment threads
+              </button>
+              {thread ? (
+                <div className="design-card expanded">
+                  <div className="design-card-header">
+                    <div className="design-card-toggle has-copy-link">
+                      <ThreadCardHeaderContent thread={thread} showRepoBadge={showRepoBadge} projectsById={projectsById} />
+                    </div>
+                    <CopyLinkButton url={buildShareUrl(thread.projectId, "threads", thread.id)} />
+                  </div>
+                  <ThreadDetail thread={thread} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} />
+                </div>
+              ) : (
+                <p className="empty-state">That alignment thread couldn't be found -- it may have been removed, or you may not have access.</p>
+              )}
+            </div>
+          );
+        }}
+      />
+    </div>
+  );
+}
+
 export function AlignmentThreadsView({
   projectIds,
   projectsById,
   onOpenDesign,
+  focusThreadId,
+  onClearFocus,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
   onOpenDesign?: (designId: string) => void;
+  focusThreadId?: string;
+  onClearFocus?: () => void;
 }) {
   const apiFetch = useApiFetch();
   const [status, setStatus] = useState<StatusFilter>("open");
@@ -243,6 +336,18 @@ export function AlignmentThreadsView({
 
   const showRepoBadge = projectIds.length > 1;
 
+  if (focusThreadId) {
+    return (
+      <ThreadFocusedPage
+        projectIds={projectIds}
+        projectsById={projectsById}
+        focusThreadId={focusThreadId}
+        onOpenDesign={onOpenDesign}
+        onClearFocus={onClearFocus}
+      />
+    );
+  }
+
   return (
     <div className="list-view">
       <div className="filter-bar">
@@ -265,25 +370,17 @@ export function AlignmentThreadsView({
               const expanded = expandedId === t.id;
               return (
                 <li key={t.id} className={`design-card${expanded ? " expanded" : ""}`}>
-                  <button
-                    type="button"
-                    className="design-card-toggle"
-                    aria-expanded={expanded}
-                    onClick={() => setExpandedId(expanded ? null : t.id)}
-                  >
-                    <div className="card-top-row">
-                      <span className="card-summary">{t.summary ?? t.systemDescription}</span>
-                      {showRepoBadge && <RepoBadge project={projectsById[t.projectId] ?? { projectId: t.projectId }} />}
-                      {categoryLabel(t) && <StatusBadge label={categoryLabel(t)!} tone="accent" />}
-                      <StatusBadge label={t.status} tone={toneForStatus(t.status)} />
-                    </div>
-                    <div className="card-meta">
-                      <span>
-                        {t.developerId} &amp; {t.otherDeveloperId}
-                      </span>
-                      <span>{relativeTime(t.lastActivityAt ?? t.openedAt)}</span>
-                    </div>
-                  </button>
+                  <div className="design-card-header">
+                    <button
+                      type="button"
+                      className="design-card-toggle has-copy-link"
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedId(expanded ? null : t.id)}
+                    >
+                      <ThreadCardHeaderContent thread={t} showRepoBadge={showRepoBadge} projectsById={projectsById} />
+                    </button>
+                    <CopyLinkButton url={buildShareUrl(t.projectId, "threads", t.id)} />
+                  </div>
                   {expanded && (
                     <ThreadDetail thread={t} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} />
                   )}

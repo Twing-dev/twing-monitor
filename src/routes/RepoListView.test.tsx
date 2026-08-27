@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { RepoListView } from "./RepoListView.js";
+import { useProjectsList } from "../hooks/useProjectsList.js";
 import type { ProjectSummary } from "../api/types.js";
 
 const twoProjects: ProjectSummary[] = [
@@ -15,6 +16,17 @@ function stubProjectsFetch(items: ProjectSummary[]) {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items }), { status: 200 })));
 }
 
+function Harness({
+  onSelectProject,
+  onViewAggregate,
+}: {
+  onSelectProject: (project: ProjectSummary) => void;
+  onViewAggregate: (projects: ProjectSummary[]) => void;
+}) {
+  const state = useProjectsList();
+  return <RepoListView state={state} onSelectProject={onSelectProject} onViewAggregate={onViewAggregate} />;
+}
+
 function renderWithAuth(
   onSelectProject: (project: ProjectSummary) => void = () => {},
   onViewAggregate: (projects: ProjectSummary[]) => void = () => {},
@@ -22,7 +34,7 @@ function renderWithAuth(
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
-      <RepoListView onSelectProject={onSelectProject} onViewAggregate={onViewAggregate} />
+      <Harness onSelectProject={onSelectProject} onViewAggregate={onViewAggregate} />
     </ServerProvider>,
   );
 }

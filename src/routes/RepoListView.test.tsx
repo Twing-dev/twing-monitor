@@ -136,9 +136,20 @@ describe("RepoListView", () => {
     stubProjectsFetch(twoProjects);
     renderWithAuth();
 
+    // `selected` starts as an empty Set and is only populated by an effect
+    // that fires after the first "ready" render, so the checkboxes exist
+    // (unchecked) for one render before the intersected selection settles.
+    // `findByLabelText` alone resolves as soon as the element exists, not
+    // once it's settled -- gate on the button's accessible name first
+    // (only correct once `selected` has its final value), same pattern
+    // every other checked-state assertion in this file already uses,
+    // rather than racing a synchronous `.toBeChecked()` against the effect
+    // (flaky under load, not standalone -- found live in full-suite runs).
+    expect(await screen.findByRole("button", { name: "View 1 repo" })).toBeInTheDocument();
+
     // proj-1 was still valid, so only it stays selected; proj-stale has no
     // checkbox to apply to, and proj-2 (never in the stored set) stays off.
-    expect(await screen.findByLabelText(/include acme\/widgets/i)).toBeChecked();
+    expect(screen.getByLabelText(/include acme\/widgets/i)).toBeChecked();
     expect(screen.getByLabelText(/include proj-2/i)).not.toBeChecked();
   });
 

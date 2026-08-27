@@ -1,40 +1,59 @@
+/* Palette and type match twing.dev's own design tokens (pulled from its
+ * shipped stylesheet, 2026-08-27 -- --accent/--good/--warning below are
+ * its --accent/--live-text/--amber-deep, same hues in both themes). The
+ * marketing site itself is light-only; --danger has no twing.dev source
+ * to copy (it never needed an error color) and --bg/--surface/--border
+ * below are a dark counterpart invented to match its ink family
+ * (#211f2e/#37324a) rather than a literal token, since twing.dev doesn't
+ * ship one. This replaced an earlier attempt at bringing over the
+ * homepage's illustrated mascot characters (rejected live, felt forced
+ * once tried in dense list rows -- see git history) -- font and color are
+ * the part of "the same theme" that actually carried over. */
 :root {
-  --bg: #0b0d12;
-  --surface: #14171f;
-  --surface-hover: #191d27;
-  --border: #262b38;
-  --text: #e6e8ee;
-  --text-dim: #8b90a0;
-  --accent: #5b8cff;
-  --accent-dim: #2a3a63;
-  --danger: #ef6f6f;
-  --danger-bg: #3a1f22;
-  --good: #6fd19a;
-  --good-bg: #17301f;
-  --warning: #e8b04b;
-  --warning-bg: #362a13;
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #1c1a24;
+  --surface: #262330;
+  --surface-hover: #2d2a3a;
+  --border: #3a3648;
+  --text: #f0eef5;
+  --text-dim: #b0abc0;
+  --accent: #ff5c7a;
+  --accent-dim: #4a2530;
+  --danger: #ff6f6a;
+  --danger-bg: #3a2020;
+  --good: #7dd0ac;
+  --good-bg: #1f3a2c;
+  --warning: #ffb020;
+  --warning-bg: #3d2f10;
+  --font-display: "Quicksand", ui-rounded, "SF Pro Rounded", var(--font-body);
+  --font-body: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
 }
 
 /* Opt-in light palette -- dark (above) stays the default for every viewer
  * who hasn't explicitly toggled (ThemeToggle sets this attribute and
- * persists the choice, see lib/theme.ts). */
+ * persists the choice, see lib/theme.ts). This one *is* copied straight
+ * from twing.dev's own :root -- --bg/--surface/--surface-hover/--border/
+ * --text/--text-dim/--accent/--accent-dim/--good/--good-bg/--warning/
+ * --warning-bg below are its --bg/--bg-raised/--bg-inset/--border/--ink/
+ * --ink-soft/--accent/--accent-soft-bg/--live-text/--live-bg/--amber-deep/
+ * --amber-soft-bg, unchanged. --danger/--danger-bg are the same invented
+ * (not sourced) warm red as the dark theme above, just lightened to sit on
+ * a cream background instead of a dark one. */
 :root[data-theme="light"] {
-  --bg: #f4f5f7;
+  --bg: #fffdf8;
   --surface: #ffffff;
-  --surface-hover: #eef0f3;
-  --border: #dde1e7;
-  --text: #171a21;
-  --text-dim: #63687a;
-  --accent: #3b5fd9;
-  --accent-dim: #dde5fb;
-  --danger: #b3261e;
-  --danger-bg: #fbe9e7;
-  --good: #1e7d4f;
-  --good-bg: #e3f6ea;
-  --warning: #8a5b00;
-  --warning-bg: #fbf1d9;
+  --surface-hover: #fff6e9;
+  --border: #efe8da;
+  --text: #211f2e;
+  --text-dim: #5b5868;
+  --accent: #ff5c7a;
+  --accent-dim: #ffe3e9;
+  --danger: #d9483f;
+  --danger-bg: #fbe4e1;
+  --good: #1e8f63;
+  --good-bg: #e1f5ea;
+  --warning: #d98e0a;
+  --warning-bg: #fff1d6;
 }
 
 * {
@@ -53,6 +72,15 @@ body {
   color: var(--text);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Matches twing.dev's own h1,h2,h3 rule exactly (font-family only --
+ * this app's own sizing/weight/margin per heading stays as it already
+ * was, this isn't a full layout re-skin). */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
 }
 
 code {

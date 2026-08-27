@@ -6,7 +6,6 @@ import { RepoListView } from "./routes/RepoListView.js";
 import { RepoDetailLayout } from "./routes/RepoDetailLayout.js";
 import { useProjectsList } from "./hooks/useProjectsList.js";
 import { parseUrlState, pushUrlState, replaceUrlState } from "./lib/urlState.js";
-import { ThemeToggle } from "./components/ThemeToggle.js";
 import type { ProjectSummary } from "./api/types.js";
 
 function AuthGate() {
@@ -92,7 +91,6 @@ function AuthGate() {
 export default function App() {
   return (
     <ServerProvider>
-      <ThemeToggle />
       <AuthGate />
     </ServerProvider>
   );

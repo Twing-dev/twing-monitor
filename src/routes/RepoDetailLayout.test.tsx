@@ -85,7 +85,13 @@ describe("RepoDetailLayout", () => {
     // before its "View design ->" link is reachable.
     const groupHeader = await screen.findByRole("button", { name: /a design owned by someone else, currently flagged/i, expanded: false });
     await user.click(groupHeader);
-    const link = await screen.findByRole("button", { name: /view design/i });
+    // The link now reads "-> <summary>" rather than a bare "View design ->"
+    // -- design_flagged's own designsById fallback resolves the summary
+    // even when (as this test's fixture deliberately does) the event's own
+    // payload doesn't carry one. Matched on the leading arrow specifically
+    // to disambiguate from the group header above, whose own accessible
+    // name also now contains the same summary text.
+    const link = await screen.findByRole("button", { name: /^→/ });
     await user.click(link);
 
     // Switched to the Designs tab automatically (no manual click needed).

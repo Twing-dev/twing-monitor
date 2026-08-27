@@ -231,6 +231,70 @@ describe("ActivityView", () => {
     expect(onOpenDesign).toHaveBeenCalledWith("design-9");
   });
 
+  it("a design_closed event carries no summary of its own (design-store.ts never stamps one into the payload) -- falls back to a live designsById lookup rather than a bare 'View design ->'", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/activity?")) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: "evt-1", projectId: "proj-1", developerId: "alice@example.com", kind: "design_closed", relatedId: "design-9", ts: Date.now() }],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/v1/designs?")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "design-9",
+                  projectId: "proj-1",
+                  developerId: "alice@example.com",
+                  sessionId: "sess-1",
+                  status: "closed",
+                  createdAt: Date.now(),
+                  summary: "Add retry backoff",
+                  creates: [],
+                  touches: ["src/x.ts"],
+                  dependsOn: [],
+                  ttlMs: 3_600_000,
+                  scopeVersion: 1,
+                  lastActivityAt: Date.now(),
+                  justifiedConstraintIds: [],
+                  justifiedOverlaps: [],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/v1/alignment-threads?")) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const onOpenDesign = vi.fn();
+    renderWithAuth({ onOpenDesign });
+
+    // Ungrouped, not the collapsed group header -- that already shows the
+    // summary regardless (resolved via the group's own member list), so
+    // uncheck grouping to exercise the per-row fallback in ActivityRow
+    // directly, the same code path a group's expanded event list uses too.
+    const toggle = await screen.findByRole("checkbox", { name: /group by design/i });
+    await user.click(toggle);
+
+    await waitFor(() => expect(screen.getByText("Design closed")).toBeInTheDocument());
+    expect(screen.getByText("Design")).toBeInTheDocument();
+    expect(screen.getByText("Add retry backoff")).toBeInTheDocument();
+    const link = screen.getByRole("button", { name: "→ Add retry backoff" });
+    await user.click(link);
+    expect(onOpenDesign).toHaveBeenCalledWith("design-9");
+  });
+
   it("defaults the kind filter to the curated high-value set", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
     renderWithAuth();

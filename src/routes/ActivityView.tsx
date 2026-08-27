@@ -47,6 +47,7 @@ export interface ActivityViewProps {
  * design link/field and renders its details. */
 function ActivityRow({
   event,
+  designsById,
   designsBySession,
   projectsById,
   showRepoBadge,
@@ -55,6 +56,7 @@ function ActivityRow({
   onFilterDeveloper,
 }: {
   event: ActivityEvent;
+  designsById: Record<string, DesignStatement>;
   designsBySession: Record<string, DesignStatement>;
   projectsById: Record<string, ProjectSummary>;
   showRepoBadge: boolean;
@@ -65,12 +67,23 @@ function ActivityRow({
   const formatted = formatActivityEvent(event);
 
   // The event's own payload already named a design (and its summary) for
-  // every design_* kind -- only fall back to the session-based best-effort
+  // register/check/flag -- only fall back to the session-based best-effort
   // match (claim_recorded/call_edge_recorded, which never carry a designId
   // of their own) when it didn't.
   const sessionDesign = !formatted.designId && event.sessionId ? designsBySession[event.sessionId] : undefined;
   const designId = formatted.designId ?? sessionDesign?.id;
-  const designSummary = formatted.designSummary ?? sessionDesign?.summary;
+  // closed/expired/dormant/resumed/stale_sibling_suggested/resolved all
+  // name a designId (formatted.designId, above) but their events carry no
+  // summary of their own -- design-store.ts's close()/expire()/etc. never
+  // stamp one into the payload, and never will retroactively for rows
+  // already written (this log is append-only, see activity-log.ts). Fall
+  // back to a live lookup against the design as it stands *now* rather
+  // than what the event said at write time -- same spirit as the session
+  // fallback above, just keyed by id instead of session. Without this,
+  // every one of these kinds rendered as a bare, context-free "View
+  // design ->" link, indistinguishable from every other closed/expired
+  // row in the list.
+  const designSummary = formatted.designSummary ?? sessionDesign?.summary ?? (designId ? designsById[designId]?.summary : undefined);
 
   // "Design registered" already shows the summary under its own "Summary"
   // field -- don't repeat it as a second "Design" row.
@@ -132,6 +145,7 @@ function DesignGroupRow({
   group,
   expanded,
   onToggle,
+  designsById,
   designsBySession,
   projectsById,
   showRepoBadge,
@@ -142,6 +156,7 @@ function DesignGroupRow({
   group: DesignGroup;
   expanded: boolean;
   onToggle: () => void;
+  designsById: Record<string, DesignStatement>;
   designsBySession: Record<string, DesignStatement>;
   projectsById: Record<string, ProjectSummary>;
   showRepoBadge: boolean;
@@ -184,6 +199,7 @@ function DesignGroupRow({
             <ActivityRow
               key={event.id}
               event={event}
+              designsById={designsById}
               designsBySession={designsBySession}
               projectsById={projectsById}
               showRepoBadge={showRepoBadge}
@@ -387,6 +403,7 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
                   group={entry.group}
                   expanded={expandedGroupKeys.has(entry.group.key)}
                   onToggle={() => toggleGroup(entry.group.key)}
+                  designsById={designsById}
                   designsBySession={designsBySession}
                   projectsById={projectsById}
                   showRepoBadge={showRepoBadge}
@@ -398,6 +415,7 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
                 <ActivityRow
                   key={entry.event.id}
                   event={entry.event}
+                  designsById={designsById}
                   designsBySession={designsBySession}
                   projectsById={projectsById}
                   showRepoBadge={showRepoBadge}

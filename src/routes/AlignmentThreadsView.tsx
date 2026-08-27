@@ -10,10 +10,16 @@ import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { relativeTime } from "../lib/time.js";
 
-const STATUSES = ["open", "closed", "all"] as const;
+const STATUSES = ["open", "dormant", "closed", "all"] as const;
 type StatusFilter = (typeof STATUSES)[number];
 
-function toneForStatus(status: "open" | "closed"): BadgeTone {
+/** `"dormant"` (2026-08-27, tightening alignment threads item 4) shares
+ * `"closed"`'s calm/no-action-needed tone rather than getting a distinct
+ * one of its own -- there's no "paused"-flavored tone in `BadgeTone`, and
+ * the label text itself ("dormant" vs "closed") is what actually
+ * distinguishes them; a louder tone here would misleadingly suggest
+ * dormancy needs attention the way `"open"` does. */
+function toneForStatus(status: "open" | "closed" | "dormant"): BadgeTone {
   return status === "open" ? "warning" : "neutral";
 }
 

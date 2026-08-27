@@ -360,4 +360,38 @@ describe("AlignmentThreadsView", () => {
     expect(screen.getByText("proj-1", { selector: ".repo-badge" })).toBeInTheDocument();
     expect(screen.getByText("proj-2", { selector: ".repo-badge" })).toBeInTheDocument();
   });
+
+  // Tightening alignment threads, item 4 (2026-08-27): the new "dormant"
+  // status -- a thread whose parties have both gone quiet, distinct from
+  // "closed" (deliberate) even though it shares the same calm badge tone.
+  it("a dormant thread shows a 'dormant' status badge and no reply form, same as a closed one", async () => {
+    const dormantThread = { ...CLAIMS_PATH_THREAD_NO_DESIGN, status: "dormant" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        if (url.includes("/v1/alignment-threads/thread-1")) return new Response(JSON.stringify({ thread: dormantThread, messages: [] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [dormantThread] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
+    expect(screen.getByText("dormant", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("open", { selector: ".status-badge" })).not.toBeInTheDocument();
+
+    await userEvent.setup().click(card);
+    expect(screen.queryByRole("button", { name: "Close thread" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send reply" })).not.toBeInTheDocument();
+  });
+
+  it("the status filter offers dormant alongside open/closed/all", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+    renderWithAuth();
+
+    const select = await screen.findByLabelText("Filter by status");
+    const optionValues = Array.from(select.querySelectorAll("option")).map((o) => (o as HTMLOptionElement).value);
+    expect(optionValues).toEqual(["open", "dormant", "closed", "all"]);
+  });
 });

@@ -34,7 +34,7 @@ describe("groupActivityByDesign", () => {
     const d = design();
     const registered = event({ kind: "design_registered", relatedId: "design-1", payload: { summary: "Add retry backoff" } });
     const entries = groupActivityByDesign([registered], { "design-1": d }, {}, {});
-    expect(entries).toEqual([{ type: "group", group: { design: d, events: [registered], lastActivityAt: 1000, developerIds: [] } }]);
+    expect(entries).toEqual([{ type: "group", group: { key: "design-1", members: [d], events: [registered], lastActivityAt: 1000, developerIds: [] } }]);
   });
 
   it("groups a claim_recorded event via the session -> design fallback, since it carries no designId of its own", () => {
@@ -42,7 +42,7 @@ describe("groupActivityByDesign", () => {
     const claim = event({ id: "evt-claim", kind: "claim_recorded", sessionId: "sess-1", developerId: "alice@example.com", relatedId: "src/x.ts::f", payload: { symbolId: "src/x.ts::f", kind: "write", stage: "firm" } });
     const entries = groupActivityByDesign([claim], { "design-1": d }, { "sess-1": d }, {});
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [claim], lastActivityAt: 1000, developerIds: ["alice@example.com"] } });
+    expect(entries[0]).toEqual({ type: "group", group: { key: "design-1", members: [d], events: [claim], lastActivityAt: 1000, developerIds: ["alice@example.com"] } });
   });
 
   it("a claim from a different session than any known design's stays ungrouped", () => {
@@ -58,7 +58,7 @@ describe("groupActivityByDesign", () => {
     const opened = event({ id: "evt-opened", kind: "alignment_thread_opened", relatedId: "thread-1", ts: 900 });
     const entries = groupActivityByDesign([finding, opened], { "design-1": d }, {}, { "thread-1": "design-1" });
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({ type: "group", group: { design: d, events: [finding, opened], lastActivityAt: 1000, developerIds: [] } });
+    expect(entries[0]).toEqual({ type: "group", group: { key: "design-1", members: [d], events: [finding, opened], lastActivityAt: 1000, developerIds: [] } });
   });
 
   it("collects every distinct developerId across a group's events, most-recently-active first, deduped and skipping events with none", () => {
@@ -99,9 +99,46 @@ describe("groupActivityByDesign", () => {
     // Already newest-first, as /v1/activity returns it.
     const entries = groupActivityByDesign([newestForD, otherDesignEvent, olderForD], { "design-1": d, "design-2": other }, {}, {});
 
-    expect(entries.map((e) => (e.type === "group" ? e.group.design.id : e.event.id))).toEqual(["design-1", "design-2"]);
+    expect(entries.map((e) => (e.type === "group" ? e.group.key : e.event.id))).toEqual(["design-1", "design-2"]);
     const groupD = entries[0].type === "group" ? entries[0].group : undefined;
     expect(groupD?.lastActivityAt).toBe(3000);
     expect(groupD?.events.map((e) => e.id)).toEqual(["evt-newest", "evt-older"]);
+  });
+
+  it("collapses a groupId-linked chain of designs into a single row, matching the Designs tab's own dedup key -- the bug this was written to fix", () => {
+    // Three separately-registered designs sharing one groupId, e.g. a
+    // re-theme design plus two `--group`-linked follow-up designs, exactly
+    // the shape this session's own real prod data hit (5 designs, 2
+    // groupId chains, but "group by design" showed 5 rows before this fix).
+    const root = design({ id: "root", groupId: "root", summary: "Re-theme", lastActivityAt: 1000 });
+    const follow1 = design({ id: "follow-1", groupId: "root", summary: "Restore mascot", lastActivityAt: 2000 });
+    const follow2 = design({ id: "follow-2", groupId: "root", summary: "Drop dark mode", lastActivityAt: 3000 });
+    const designsById = { root, "follow-1": follow1, "follow-2": follow2 };
+
+    const rootRegistered = event({ id: "evt-root", kind: "design_registered", relatedId: "root", ts: 1000, payload: { summary: "Re-theme" } });
+    const follow1Registered = event({ id: "evt-follow-1", kind: "design_registered", relatedId: "follow-1", ts: 2000, payload: { summary: "Restore mascot" } });
+    const follow2Registered = event({ id: "evt-follow-2", kind: "design_registered", relatedId: "follow-2", ts: 3000, payload: { summary: "Drop dark mode" } });
+
+    // Newest-first, as /v1/activity returns it.
+    const entries = groupActivityByDesign([follow2Registered, follow1Registered, rootRegistered], designsById, {}, {});
+
+    expect(entries).toHaveLength(1);
+    const group = entries[0].type === "group" ? entries[0].group : undefined;
+    expect(group?.key).toBe("root");
+    expect(group?.events.map((e) => e.id)).toEqual(["evt-follow-2", "evt-follow-1", "evt-root"]);
+    // members[0] is the most-recently-active member regardless of the
+    // order designsById happened to be built in.
+    expect(group?.members.map((m) => m.id)).toEqual(["follow-2", "follow-1", "root"]);
+  });
+
+  it("keeps two designs with no shared groupId as separate rows", () => {
+    const a = design({ id: "design-a", groupId: "design-a", summary: "First" });
+    const b = design({ id: "design-b", groupId: "design-b", summary: "Second" });
+    const eventA = event({ id: "evt-a", kind: "design_registered", relatedId: "design-a", payload: { summary: "First" } });
+    const eventB = event({ id: "evt-b", kind: "design_registered", relatedId: "design-b", payload: { summary: "Second" } });
+
+    const entries = groupActivityByDesign([eventA, eventB], { "design-a": a, "design-b": b }, {}, {});
+
+    expect(entries.map((e) => (e.type === "group" ? e.group.key : undefined))).toEqual(["design-a", "design-b"]);
   });
 });

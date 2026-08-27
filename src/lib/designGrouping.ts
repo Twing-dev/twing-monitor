@@ -1,8 +1,25 @@
 import type { ActivityEvent, DesignStatement } from "../api/types.js";
 import { formatActivityEvent } from "./activityFormat.js";
+import { dedupeDesignsByGroup } from "./aggregate.js";
 
 export interface DesignGroup {
-  design: DesignStatement;
+  /** `design.groupId ?? design.id` for whichever design an event resolved
+   * to -- the exact dedup key `aggregate.ts`'s `dedupeDesignsByGroup` uses
+   * for the Designs tab's own cards, reused here so a `--group`-linked
+   * chain of designs (a continuation registered as its own design rather
+   * than amended onto the original -- see twing-cli's own convention for
+   * when to do which) collapses to one row in the Activity feed too,
+   * instead of one row per member the way this used to key by raw
+   * `design.id` alone. */
+  key: string;
+  /** Every design belonging to the group, newest-active-first (mirrors
+   * `aggregate.ts`'s `DesignGroup.members`) -- the *whole* group as
+   * resolved from `designsById`, not just whichever members this
+   * particular page of events happened to reference, so the header stays
+   * stable across pagination/filtering the same way the Designs tab's
+   * cards do. `members[0]` is what the header/toggle treats as the
+   * group's representative, same convention DesignsView uses. */
+  members: DesignStatement[];
   events: ActivityEvent[];
   lastActivityAt: number;
   /** Every distinct `developerId` among the group's events (an
@@ -17,12 +34,17 @@ export interface DesignGroup {
 export type ActivityEntry = { type: "group"; group: DesignGroup } | { type: "event"; event: ActivityEvent };
 
 /**
- * Buckets activity events by the design each relates to, for the Activity
- * feed's "group by design" view (default view -- see ActivityView.tsx).
- * Deliberately reuses the exact two best-effort joins ActivityView already
- * computed per-row for its "View design" link, rather than inventing a
- * stricter, separate notion of "belongs to this design": grouping is just
- * applying that same resolution across the whole list.
+ * Buckets activity events by the design *group* each relates to, for the
+ * Activity feed's "group by design" view (default view -- see
+ * ActivityView.tsx). Deliberately reuses the exact two best-effort joins
+ * ActivityView already computed per-row for its "View design" link, rather
+ * than inventing a stricter, separate notion of "belongs to this design":
+ * grouping is just applying that same resolution across the whole list,
+ * then collapsing by `groupId` the same way the Designs tab already does
+ * (`aggregate.ts`'s `dedupeDesignsByGroup`) so the two tabs' notion of "one
+ * logical unit of work" agree -- before this, a `--group`-linked chain of
+ * (say) 3 designs read as 1 card on the Designs tab but 3 separate rows
+ * here, which is exactly the discrepancy this was written to close.
  *
  *  - design_* and review_* kinds already carry a resolved `designId` from
  *    `formatActivityEvent` (relatedId/payload -- see activityFormat.ts).
@@ -47,6 +69,13 @@ export type ActivityEntry = { type: "group"; group: DesignGroup } | { type: "eve
  * returns it) -- entries are emitted in first-occurrence order, which for
  * a group is therefore always its own most recent event, so the result
  * needs no separate sort to stay in "most recent activity first" order.
+ * `designsById`'s own order, by contrast, is *not* assumed sorted (a
+ * caller merging several projects' design fetches interleaves already-
+ * sorted lists, which isn't itself sorted -- the same caveat
+ * `dedupeDesignsByGroup`'s own doc comment flags) -- resorted locally by
+ * `lastActivityAt` before grouping so `members[0]` is reliably the group's
+ * most-recently-active design regardless of what order the caller built
+ * `designsById` in.
  */
 export function groupActivityByDesign(
   events: ActivityEvent[],
@@ -54,6 +83,15 @@ export function groupActivityByDesign(
   designsBySession: Record<string, DesignStatement>,
   threadDesignById: Record<string, string>,
 ): ActivityEntry[] {
+  const sortedDesigns = Object.values(designsById).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  const designGroups = dedupeDesignsByGroup(sortedDesigns);
+  const groupKeyByDesignId = new Map<string, string>();
+  const membersByGroupKey = new Map<string, DesignStatement[]>();
+  for (const g of designGroups) {
+    membersByGroupKey.set(g.key, g.members);
+    for (const m of g.members) groupKeyByDesignId.set(m.id, g.key);
+  }
+
   const groups = new Map<string, DesignGroup>();
   const developerIds = new Map<string, Set<string>>();
   const entries: ActivityEntry[] = [];
@@ -66,27 +104,27 @@ export function groupActivityByDesign(
       formatted.designId ??
       (formatted.threadId ? threadDesignById[formatted.threadId] : undefined) ??
       (sessionFallbackKinds.has(event.kind) && event.sessionId ? designsBySession[event.sessionId]?.id : undefined);
-    const design = designId ? designsById[designId] : undefined;
+    const groupKey = designId ? groupKeyByDesignId.get(designId) : undefined;
 
-    if (!design) {
+    if (!groupKey) {
       entries.push({ type: "event", event });
       continue;
     }
 
-    let group = groups.get(design.id);
+    let group = groups.get(groupKey);
     if (!group) {
-      group = { design, events: [], lastActivityAt: event.ts, developerIds: [] };
-      groups.set(design.id, group);
-      developerIds.set(design.id, new Set());
+      group = { key: groupKey, members: membersByGroupKey.get(groupKey) ?? [], events: [], lastActivityAt: event.ts, developerIds: [] };
+      groups.set(groupKey, group);
+      developerIds.set(groupKey, new Set());
       entries.push({ type: "group", group });
     }
     group.events.push(event);
     if (event.ts > group.lastActivityAt) group.lastActivityAt = event.ts;
-    if (event.developerId) developerIds.get(design.id)!.add(event.developerId);
+    if (event.developerId) developerIds.get(groupKey)!.add(event.developerId);
   }
 
   for (const group of groups.values()) {
-    group.developerIds = Array.from(developerIds.get(group.design.id) ?? []);
+    group.developerIds = Array.from(developerIds.get(group.key) ?? []);
   }
 
   return entries;

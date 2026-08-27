@@ -15,7 +15,7 @@ import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
-import { dedupeDesignsByGroup, type DesignGroup } from "../lib/aggregate.js";
+import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { buildShareUrl } from "../lib/urlState.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
@@ -77,21 +77,6 @@ function latestCheckByDesign(events: ActivityEvent[]): Map<string, { verdict: st
  * so old rows keep matching too. */
 function findSemanticOverlapThread(threads: AlignmentThread[], designId: string): AlignmentThread | undefined {
   return threads.find((t) => resolveAlignmentBucket(t.category) === "llm_divergence" && (t.designId === designId || t.initiatingDesignId === designId));
-}
-
-/** First occurrence per key, order preserved -- used to collapse a grouped
- * card's badge row to one badge per distinct repo/status rather than one
- * per member (see the `card-badges` doc comment above its use). */
-function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
-  const seen = new Set<K>();
-  const result: T[] = [];
-  for (const item of items) {
-    const k = key(item);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    result.push(item);
-  }
-  return result;
 }
 
 function designFlags(

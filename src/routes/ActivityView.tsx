@@ -7,6 +7,7 @@ import type { ActivityEvent, DesignStatement, ProjectSummary } from "../api/type
 import { relativeTime } from "../lib/time.js";
 import { formatActivityEvent, type ActivityDetailField } from "../lib/activityFormat.js";
 import { groupActivityByDesign, type ActivityEntry, type DesignGroup } from "../lib/designGrouping.js";
+import { uniqueBy } from "../lib/aggregate.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
@@ -148,14 +149,24 @@ function DesignGroupRow({
   onOpenTab?: (tab: "threads" | "constraints") => void;
   onFilterDeveloper: (developerId: string) => void;
 }) {
+  // The group's most-recently-active member represents it in the header --
+  // same convention DesignsView's cards use for a groupId-linked chain.
+  // Repo/status badges cover every distinct value across all members (not
+  // just the primary), same as DesignsView's card header, since a group
+  // can mix statuses (e.g. an open continuation of an already-closed
+  // design) or, cross-repo, projects.
+  const primary = group.members[0];
   return (
     <li className="activity-group">
       <div className="activity-group-header">
         <button type="button" className="activity-group-toggle" onClick={onToggle} aria-expanded={expanded}>
           <span className="activity-group-caret">{expanded ? "▾" : "▸"}</span>
-          <span className="activity-group-summary">{group.design.summary || "(no summary)"}</span>
-          {showRepoBadge && <RepoBadge project={projectsById[group.design.projectId] ?? { projectId: group.design.projectId }} />}
-          <StatusBadge label={group.design.status} tone={toneForDesignStatus(group.design.status)} />
+          <span className="activity-group-summary">{primary?.summary || "(no summary)"}</span>
+          {showRepoBadge &&
+            uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+          {uniqueBy(group.members, (m) => m.status).map((m) => (
+            <StatusBadge key={m.status} label={m.status} tone={toneForDesignStatus(m.status)} />
+          ))}
           <span className="activity-group-count">{group.events.length}</span>
         </button>
         <span className="activity-meta">
@@ -206,7 +217,10 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
   const [kindFilter, setKindFilter] = useState(KIND_GROUPS[0].value);
   const [developerFilter, setDeveloperFilter] = useState<string | undefined>(undefined);
   const [groupByDesign, setGroupByDesign] = useState(true);
-  const [expandedDesignIds, setExpandedDesignIds] = useState<Set<string>>(new Set());
+  // Keyed by DesignGroup.key (design.groupId ?? design.id), not a raw
+  // design id -- a group can span several designs (a --group-linked
+  // chain), and expand/collapse is per group, not per member.
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
   const [pages, setPages] = useState<Record<string, ProjectPage>>({});
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -321,11 +335,11 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
     }
   }
 
-  function toggleGroup(designId: string) {
-    setExpandedDesignIds((prev) => {
+  function toggleGroup(groupKey: string) {
+    setExpandedGroupKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(designId)) next.delete(designId);
-      else next.add(designId);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
       return next;
     });
   }
@@ -369,10 +383,10 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
             {entries.map((entry) =>
               entry.type === "group" ? (
                 <DesignGroupRow
-                  key={`design-${entry.group.design.id}`}
+                  key={`design-${entry.group.key}`}
                   group={entry.group}
-                  expanded={expandedDesignIds.has(entry.group.design.id)}
-                  onToggle={() => toggleGroup(entry.group.design.id)}
+                  expanded={expandedGroupKeys.has(entry.group.key)}
+                  onToggle={() => toggleGroup(entry.group.key)}
                   designsBySession={designsBySession}
                   projectsById={projectsById}
                   showRepoBadge={showRepoBadge}

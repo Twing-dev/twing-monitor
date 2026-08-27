@@ -102,3 +102,19 @@ export function dedupeMembersByDeveloper(members: ProjectMember[]): DeveloperGro
 
   return Array.from(groups.values()).sort((a, b) => a.developerId.localeCompare(b.developerId));
 }
+
+/** First occurrence per key, order preserved -- shared by any grouped-card
+ * header that needs one badge per distinct repo/status among a group's
+ * members rather than one per member (DesignsView's design cards,
+ * ActivityView's design-grouped activity rows). */
+export function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
+  const seen = new Set<K>();
+  const result: T[] = [];
+  for (const item of items) {
+    const k = key(item);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    result.push(item);
+  }
+  return result;
+}

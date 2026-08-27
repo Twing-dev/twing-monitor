@@ -3,6 +3,7 @@ import type { ProjectSummary } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import type { ProjectsLoadState } from "../hooks/useProjectsList.js";
+import { Mascot } from "../components/Mascot.js";
 
 function relativeTime(ms: number): string {
   const diffMs = Date.now() - ms;
@@ -116,9 +117,12 @@ export function RepoListView({
       )}
 
       {state.status === "ready" && state.items.length === 0 && (
-        <p className="empty-state">
-          No repos yet. Run <code>twing init</code> in a project to found or join one on this coordinator.
-        </p>
+        <div className="empty-state empty-state-figure">
+          <Mascot color="#7dd0ac" size={56} />
+          <p>
+            No repos yet. Run <code>twing init</code> in a project to found or join one on this coordinator.
+          </p>
+        </div>
       )}
 
       {state.status === "ready" && state.items.length > 0 && (

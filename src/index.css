@@ -263,6 +263,22 @@ button {
   color: var(--danger);
 }
 
+/* The one "genuinely nothing here yet" case (AsyncSection's isEmpty branch)
+ * gets a small Mascot alongside the message -- the many bare
+ * <p className="empty-state"> loading/error/not-found call sites elsewhere
+ * don't use this modifier and keep their original left-aligned single line. */
+.empty-state-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.empty-state-figure p {
+  margin: 0;
+}
+
 .repo-list {
   list-style: none;
   margin: 0;

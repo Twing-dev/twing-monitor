@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { AsyncState } from "../hooks/useAsyncData.js";
+import { Mascot } from "./Mascot.js";
 
 /** Uniform loading/error/empty/ready handling for every list view --
  * factored out of the load/error/empty markup `RepoListView` hand-rolled
@@ -24,6 +25,13 @@ export function AsyncSection<T>({
       </p>
     );
   }
-  if (isEmpty(state.data)) return <p className="empty-state">{emptyMessage}</p>;
+  if (isEmpty(state.data)) {
+    return (
+      <div className="empty-state empty-state-figure">
+        <Mascot />
+        <p>{emptyMessage}</p>
+      </div>
+    );
+  }
   return <>{render(state.data)}</>;
 }

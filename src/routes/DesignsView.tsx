@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchDesigns } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
@@ -11,10 +11,12 @@ import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
+import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
-import { dedupeDesignsByGroup } from "../lib/aggregate.js";
+import { dedupeDesignsByGroup, type DesignGroup } from "../lib/aggregate.js";
+import { buildShareUrl } from "../lib/urlState.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
 type StatusFilter = (typeof STATUSES)[number];
@@ -92,15 +94,146 @@ function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
   return result;
 }
 
+function designFlags(
+  group: DesignGroup,
+  latestChecks: Map<string, { verdict: string }>,
+  openThreads: AlignmentThread[],
+): { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean } {
+  // Only surface this for a member still "open" -- "flagged" already
+  // carries an amber badge of its own, and doubling up on it here would
+  // just be noise. A grouped card can mix statuses across its members, so
+  // this looks at every member, not just the primary one.
+  const anyUnresolvedWarning = group.members.some((m) => {
+    const check = latestChecks.get(m.id);
+    return m.status === "open" && check?.verdict === "file_overlap";
+  });
+  const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, m.id));
+  return { anyUnresolvedWarning, anySemanticOverlap };
+}
+
+/** The header row shared by a card's collapsible list form and its
+ * standalone focused-page form -- only the wrapping element (button vs.
+ * static div) differs between the two, see DesignsView's two render
+ * paths below. */
+function DesignCardHeaderContent({
+  primary,
+  members,
+  showRepoBadge,
+  projectsById,
+  anyUnresolvedWarning,
+  anySemanticOverlap,
+}: {
+  primary: DesignStatement;
+  members: DesignStatement[];
+  showRepoBadge: boolean;
+  projectsById: Record<string, ProjectSummary>;
+  anyUnresolvedWarning: boolean;
+  anySemanticOverlap: boolean;
+}) {
+  return (
+    <>
+      <div className="card-top-row">
+        <span className="card-summary">{primary.summary}</span>
+        <div className="card-badges">
+          {anyUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
+          {anySemanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
+          {/* One badge per distinct repo/status, not per member -- a group can
+              have more members than repos (two designs linked in the same
+              project) or more members than distinct statuses (a uniformly
+              closed group), and a badge per member in either case just repeats
+              the same label back-to-back rather than adding information. */}
+          {showRepoBadge &&
+            uniqueBy(members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+          {uniqueBy(members, (m) => m.status).map((m) => (
+            <StatusBadge key={m.status} label={m.status} tone={toneForDesignStatus(m.status)} />
+          ))}
+        </div>
+      </div>
+      <div className="card-meta">
+        <span>{primary.developerId}</span>
+        <span>{relativeTime(primary.lastActivityAt)}</span>
+        {primary.creates.length + primary.touches.length > 0 && (
+          <span>
+            {primary.creates.length} created, {primary.touches.length} touched
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** The expanded body shared by both render paths -- summary bullets plus one
+ * DesignDetail per group member. */
+function DesignCardBody({
+  primary,
+  members,
+  showRepoBadge,
+  projectsById,
+  openThreads,
+  designsById,
+  onResolved,
+  onOpenDesign,
+  onOpenTab,
+}: {
+  primary: DesignStatement;
+  members: DesignStatement[];
+  showRepoBadge: boolean;
+  projectsById: Record<string, ProjectSummary>;
+  openThreads: AlignmentThread[];
+  designsById: Record<string, DesignStatement>;
+  onResolved: () => void;
+  onOpenDesign: (designId: string) => void;
+  onOpenTab?: (tab: "threads") => void;
+}) {
+  return (
+    <>
+      {/* The clamped line in the header above is the card's title; this is
+          the summary in full, one bullet per sentence -- a real extracted
+          plan describes four or five separate things in one block, and as
+          prose you can't tell where one ends. Rendered once for the group
+          rather than per member: a groupId-linked group shares one summary
+          by design (only `summary` and closing propagate across a group),
+          so per-member would repeat the same text. Skipped for an
+          already-single-sentence summary, which would just repeat the
+          title. */}
+      {toBullets(primary.summary).length > 0 && (
+        <ul className="summary-bullets">
+          {toBullets(primary.summary).map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {members.map((member) => {
+        const semanticThread = findSemanticOverlapThread(openThreads, member.id);
+        const semanticOverlap: SemanticOverlap | undefined = semanticThread
+          ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
+          : undefined;
+        return (
+          <div key={member.id}>
+            {showRepoBadge && (
+              <div className="repo-badge-row">
+                <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+              </div>
+            )}
+            <DesignDetail design={member} onResolved={onResolved} semanticOverlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function DesignsView({
   projectIds,
   projectsById,
   focusDesignId,
+  onClearFocus,
   onOpenTab,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
+  onClearFocus?: () => void;
   onOpenTab?: (tab: "threads") => void;
 }) {
   const apiFetch = useApiFetch();
@@ -113,18 +246,6 @@ export function DesignsView({
   // design_checked fetch (a fresh check may have run) need to reflect it,
   // and neither has any other way to know a mutation happened elsewhere.
   const [refreshKey, setRefreshKey] = useState(0);
-
-  // A link from ActivityView ("View design ->") or a card's own semantic-
-  // overlap note (jumpToDesign, below) names a specific design regardless
-  // of its current status or who owns it -- force both filters open so
-  // it's guaranteed visible, and expand it directly rather than making the
-  // viewer hunt for the right card.
-  useEffect(() => {
-    if (!focusDesignId) return;
-    setStatus("all");
-    setMineOnly(false);
-    setExpandedId(focusDesignId);
-  }, [focusDesignId]);
 
   function jumpToDesign(designId: string) {
     setStatus("all");
@@ -163,7 +284,9 @@ export function DesignsView({
   // Every status, not just the current filter -- a semantic overlap's
   // counterpart design may not itself match the active status/mine-only
   // filter, and jumpToDesign needs its id to resolve to something real
-  // regardless.
+  // regardless. Also doubles as the focused-page's own data source below
+  // (a pasted link names a design regardless of the current filter, or of
+  // any filter at all).
   const allDesignsState = useAsyncData(
     () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
     [apiFetch, projectIds.join(","), refreshKey],
@@ -171,6 +294,70 @@ export function DesignsView({
   const designsById: Record<string, DesignStatement> = allDesignsState.status === "ready" ? Object.fromEntries(allDesignsState.data.map((d) => [d.id, d])) : {};
 
   const showRepoBadge = projectIds.length > 1;
+
+  // A copy-link URL (or a jump from another tab) names one specific design
+  // to look at -- show only that, not the whole filtered list with it
+  // expanded somewhere inside, which for anyone but the most recently
+  // active design meant landing on the list and having to scroll to find
+  // it. Independent of `status`/`mineOnly` entirely, since this bypasses
+  // the filtered list -- source is `allDesignsState`, every status.
+  if (focusDesignId) {
+    return (
+      <div className="list-view">
+        <AsyncSection
+          state={allDesignsState}
+          isEmpty={() => false}
+          emptyMessage=""
+          render={(items) => {
+            const group = dedupeDesignsByGroup(items).find((g) => g.members.some((m) => m.id === focusDesignId));
+            return (
+              <div className="focus-page">
+                <button type="button" className="link-button back-link" onClick={onClearFocus}>
+                  ← Back to all designs
+                </button>
+                {group ? (
+                  (() => {
+                    const primary = group.members[0];
+                    const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
+                    return (
+                      <div className="design-card expanded">
+                        <div className="design-card-header">
+                          <div className="design-card-toggle has-copy-link">
+                            <DesignCardHeaderContent
+                              primary={primary}
+                              members={group.members}
+                              showRepoBadge={showRepoBadge}
+                              projectsById={projectsById}
+                              anyUnresolvedWarning={anyUnresolvedWarning}
+                              anySemanticOverlap={anySemanticOverlap}
+                            />
+                          </div>
+                          <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
+                        </div>
+                        <DesignCardBody
+                          primary={primary}
+                          members={group.members}
+                          showRepoBadge={showRepoBadge}
+                          projectsById={projectsById}
+                          openThreads={openThreads}
+                          designsById={designsById}
+                          onResolved={() => setRefreshKey((k) => k + 1)}
+                          onOpenDesign={jumpToDesign}
+                          onOpenTab={onOpenTab}
+                        />
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <p className="empty-state">That design couldn't be found -- it may have been removed, or you may not have access.</p>
+                )}
+              </div>
+            );
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="list-view">
@@ -199,93 +386,40 @@ export function DesignsView({
               {groups.map((group) => {
                 const primary = group.members[0];
                 const expanded = group.members.some((m) => m.id === expandedId);
-                // Only surface this for a member still "open" -- "flagged"
-                // already carries an amber badge of its own, and doubling
-                // up on it here would just be noise. A grouped card can mix
-                // statuses across its members, so this looks at every
-                // member, not just the primary one.
-                const anyUnresolvedWarning = group.members.some((m) => {
-                  const check = latestChecks.get(m.id);
-                  return m.status === "open" && check?.verdict === "file_overlap";
-                });
-                const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, m.id));
+                const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
                 return (
                   <li key={group.key} className={`design-card${expanded ? " expanded" : ""}`}>
-                    <button
-                      type="button"
-                      className="design-card-toggle"
-                      aria-expanded={expanded}
-                      onClick={() => setExpandedId(expanded ? null : primary.id)}
-                    >
-                      <div className="card-top-row">
-                        <span className="card-summary">{primary.summary}</span>
-                        <div className="card-badges">
-                          {anyUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
-                          {anySemanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
-                          {/* One badge per distinct repo/status, not per member -- a group can
-                              have more members than repos (two designs linked in the same
-                              project) or more members than distinct statuses (a uniformly
-                              closed group), and a badge per member in either case just repeats
-                              the same label back-to-back rather than adding information. */}
-                          {showRepoBadge &&
-                            uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
-                          {uniqueBy(group.members, (m) => m.status).map((m) => (
-                            <StatusBadge key={m.status} label={m.status} tone={toneForDesignStatus(m.status)} />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="card-meta">
-                        <span>{primary.developerId}</span>
-                        <span>{relativeTime(primary.lastActivityAt)}</span>
-                        {primary.creates.length + primary.touches.length > 0 && (
-                          <span>
-                            {primary.creates.length} created, {primary.touches.length} touched
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                    {/* The clamped line in the button above is the card's
-                        title; this is the summary in full, one bullet per
-                        sentence -- a real extracted plan describes four or
-                        five separate things in one block, and as prose you
-                        can't tell where one ends. Rendered once for the
-                        group rather than per member: a groupId-linked group
-                        shares one summary by design (only `summary` and
-                        closing propagate across a group), so per-member
-                        would repeat the same text. Sits outside the toggle
-                        button deliberately -- a <ul> inside one isn't valid
-                        HTML. Skipped for an already-single-sentence
-                        summary, which would just repeat the title. */}
-                    {expanded && toBullets(primary.summary).length > 0 && (
-                      <ul className="summary-bullets">
-                        {toBullets(primary.summary).map((line, i) => (
-                          <li key={i}>{line}</li>
-                        ))}
-                      </ul>
+                    <div className="design-card-header">
+                      <button
+                        type="button"
+                        className="design-card-toggle has-copy-link"
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedId(expanded ? null : primary.id)}
+                      >
+                        <DesignCardHeaderContent
+                          primary={primary}
+                          members={group.members}
+                          showRepoBadge={showRepoBadge}
+                          projectsById={projectsById}
+                          anyUnresolvedWarning={anyUnresolvedWarning}
+                          anySemanticOverlap={anySemanticOverlap}
+                        />
+                      </button>
+                      <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
+                    </div>
+                    {expanded && (
+                      <DesignCardBody
+                        primary={primary}
+                        members={group.members}
+                        showRepoBadge={showRepoBadge}
+                        projectsById={projectsById}
+                        openThreads={openThreads}
+                        designsById={designsById}
+                        onResolved={() => setRefreshKey((k) => k + 1)}
+                        onOpenDesign={jumpToDesign}
+                        onOpenTab={onOpenTab}
+                      />
                     )}
-                    {expanded &&
-                      group.members.map((member) => {
-                        const semanticThread = findSemanticOverlapThread(openThreads, member.id);
-                        const semanticOverlap: SemanticOverlap | undefined = semanticThread
-                          ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
-                          : undefined;
-                        return (
-                          <div key={member.id}>
-                            {showRepoBadge && (
-                              <div className="repo-badge-row">
-                                <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                              </div>
-                            )}
-                            <DesignDetail
-                              design={member}
-                              onResolved={() => setRefreshKey((k) => k + 1)}
-                              semanticOverlap={semanticOverlap}
-                              onOpenDesign={jumpToDesign}
-                              onOpenTab={onOpenTab}
-                            />
-                          </div>
-                        );
-                      })}
                   </li>
                 );
               })}

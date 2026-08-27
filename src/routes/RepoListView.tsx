@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { useApiFetch } from "../api/client.js";
 import type { ProjectSummary } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
 import { repoLabel } from "../lib/repoLabel.js";
-
-type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: ProjectSummary[] };
+import type { ProjectsLoadState } from "../hooks/useProjectsList.js";
 
 function relativeTime(ms: number): string {
   const diffMs = Date.now() - ms;
@@ -50,40 +48,28 @@ function saveStoredSelection(selected: Set<string>): void {
  * and treats a single repo as the `N=1` case of the same view.
  */
 export function RepoListView({
+  state,
   onSelectProject,
   onViewAggregate,
 }: {
+  state: ProjectsLoadState;
   onSelectProject: (project: ProjectSummary) => void;
   onViewAggregate: (projects: ProjectSummary[]) => void;
 }) {
-  const apiFetch = useApiFetch();
   const { auth, logout } = useAuth();
-  const [state, setState] = useState<LoadState>({ status: "loading" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    apiFetch<{ items: ProjectSummary[] }>("/v1/projects")
-      .then((body) => {
-        if (cancelled) return;
-        setState({ status: "ready", items: body.items });
-        // Default: every repo checked. A stored selection only ever
-        // narrows that default, and only for ids that are still real
-        // (dropping a since-removed/inaccessible repo id rather than
-        // carrying it forward forever).
-        const stored = loadStoredSelection();
-        const liveIds = new Set(body.items.map((p) => p.projectId));
-        const restored = stored ? new Set(Array.from(stored).filter((id) => liveIds.has(id))) : null;
-        setSelected(restored && restored.size > 0 ? restored : liveIds);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiFetch]);
+    if (state.status !== "ready") return;
+    // Default: every repo checked. A stored selection only ever narrows
+    // that default, and only for ids that are still real (dropping a
+    // since-removed/inaccessible repo id rather than carrying it forward
+    // forever).
+    const stored = loadStoredSelection();
+    const liveIds = new Set(state.items.map((p) => p.projectId));
+    const restored = stored ? new Set(Array.from(stored).filter((id) => liveIds.has(id))) : null;
+    setSelected(restored && restored.size > 0 ? restored : liveIds);
+  }, [state]);
 
   function toggle(projectId: string) {
     setSelected((prev) => {

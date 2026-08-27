@@ -1,17 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
 import { useApiFetch } from "../api/client.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { fetchReviews } from "../api/reviews.js";
 import { repoLabel } from "../lib/repoLabel.js";
+import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
 import { DesignsView } from "./DesignsView.js";
 import { ReviewsView } from "./ReviewsView.js";
 import { ActivityView } from "./ActivityView.js";
 import { AlignmentThreadsView } from "./AlignmentThreadsView.js";
 import { MembersView } from "./MembersView.js";
 import { ConstraintsView } from "./ConstraintsView.js";
-
-type TabId = "designs" | "reviews" | "activity" | "threads" | "members" | "constraints";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "designs", label: "Designs" },
@@ -32,18 +31,74 @@ const TABS: { id: TabId; label: string }[] = [
  */
 export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummary[]; onBack: () => void }) {
   const apiFetch = useApiFetch();
-  const [tab, setTab] = useState<TabId>("designs");
-  // Set by ActivityView's "View design ->" link -- DesignsView consumes it
-  // to force ?status=all (a flagged/closed design wouldn't otherwise be
-  // visible under the default "open" filter) and auto-expand that card.
-  const [focusDesignId, setFocusDesignId] = useState<string | undefined>(undefined);
+  const [tab, setTab] = useState<TabId>(() => parseUrlState().tab);
+  // Set by ActivityView's "View design ->" link, a card's own copy-link
+  // URL, or a semantic-overlap jump -- DesignsView consumes it to force
+  // ?status=all (a flagged/closed design wouldn't otherwise be visible
+  // under the default "open" filter) and auto-expand that card.
+  const [focusDesignId, setFocusDesignId] = useState<string | undefined>(() => {
+    const u = parseUrlState();
+    return u.tab === "designs" ? u.focusId : undefined;
+  });
+  // Same idea, for a review card's own copy-link URL.
+  const [focusReviewId, setFocusReviewId] = useState<string | undefined>(() => {
+    const u = parseUrlState();
+    return u.tab === "reviews" ? u.focusId : undefined;
+  });
+  // Same idea, for an alignment-thread card's own copy-link URL.
+  const [focusThreadId, setFocusThreadId] = useState<string | undefined>(() => {
+    const u = parseUrlState();
+    return u.tab === "threads" ? u.focusId : undefined;
+  });
+
+  const projectIds = projects.map((p) => p.projectId);
+
+  function focusIdForTab(t: TabId): string | undefined {
+    if (t === "designs") return focusDesignId;
+    if (t === "reviews") return focusReviewId;
+    if (t === "threads") return focusThreadId;
+    return undefined;
+  }
 
   function openDesign(designId: string) {
     setFocusDesignId(designId);
     setTab("designs");
+    pushUrlState({ repoIds: projectIds, tab: "designs", focusId: designId });
   }
 
-  const projectIds = projects.map((p) => p.projectId);
+  function openTab(next: TabId) {
+    setTab(next);
+    pushUrlState({ repoIds: projectIds, tab: next, focusId: focusIdForTab(next) });
+  }
+
+  // A dedicated single-card page (DesignsView/ReviewsView/
+  // AlignmentThreadsView, when their own focusXId prop is set) offers this
+  // as its "back to the full list" link -- drops the focus for the
+  // *current* tab only and returns to normal browsing.
+  function clearFocus() {
+    if (tab === "designs") setFocusDesignId(undefined);
+    else if (tab === "reviews") setFocusReviewId(undefined);
+    else if (tab === "threads") setFocusThreadId(undefined);
+    pushUrlState({ repoIds: projectIds, tab });
+  }
+
+  // Browser back/forward within this repo's tabs/focus. A change in which
+  // repo(s) are selected instead remounts this whole component (App.tsx
+  // keys RepoDetailLayout by the repo-id set), so that case never reaches
+  // here.
+  useEffect(() => {
+    function onPopState() {
+      const url = parseUrlState();
+      if (url.repoIds.join(",") !== projectIds.join(",")) return;
+      setTab(url.tab);
+      setFocusDesignId(url.tab === "designs" ? url.focusId : undefined);
+      setFocusReviewId(url.tab === "reviews" ? url.focusId : undefined);
+      setFocusThreadId(url.tab === "threads" ? url.focusId : undefined);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectIds.join(",")]);
   // A pending review means someone is blocked right now, waiting on a
   // human -- and nothing in twing tells that human. There's no email,
   // webhook or digest anywhere, so an admin only finds out by opening this
@@ -94,7 +149,7 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
             role="tab"
             aria-selected={tab === t.id}
             className={`tab-button${tab === t.id ? " active" : ""}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => openTab(t.id)}
           >
             {t.label}
             {t.id === "reviews" && pendingCount > 0 && (
@@ -107,10 +162,10 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
       </nav>
 
       <div className="tab-panel">
-        {tab === "designs" && <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onOpenTab={setTab} />}
-        {tab === "reviews" && <ReviewsView projectIds={projectIds} projectsById={projectsById} />}
-        {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={setTab} />}
-        {tab === "threads" && <AlignmentThreadsView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} />}
+        {tab === "designs" && <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} />}
+        {tab === "reviews" && <ReviewsView projectIds={projectIds} projectsById={projectsById} focusReviewId={focusReviewId} onClearFocus={clearFocus} />}
+        {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={openTab} />}
+        {tab === "threads" && <AlignmentThreadsView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} focusThreadId={focusThreadId} onClearFocus={clearFocus} />}
         {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
         {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
       </div>

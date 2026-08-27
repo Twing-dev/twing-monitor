@@ -4,6 +4,7 @@ import { fetchDesigns } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import type { ActivityEvent, AlignmentThread, DesignStatement, ProjectSummary } from "../api/types.js";
+import { resolveAlignmentBucket } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "../components/AsyncSection.js";
@@ -39,24 +40,41 @@ function latestCheckByDesign(events: ActivityEvent[]): Map<string, { verdict: st
   return byDesign;
 }
 
-/** The async Bedrock semantic comparator (`design-semantic-check.ts`) is a
- * separate pipeline from `runDesignChecks` entirely -- it never touches
- * `status`/`design_checked`, only opens an alignment thread (§7), so
- * without this a design with a live, unresolved semantic duplication looks
- * identical to a clean one anywhere in the Designs tab, only visible by
- * separately checking Alignment threads.
+/** The async Bedrock semantic comparator (`design-semantic-check.ts`) does
+ * flag the design it flags (`designs.flag(current.id, "llm_divergence",
+ * ...)`, `runSemanticComparatorPass`, packages/server/src/app.ts) -- but
+ * only the *initiating* side; the referenced design's own `status` never
+ * changes, and either side's `status` reverts to `"open"` on a self-approve
+ * resolve while the alignment thread itself stays open until someone
+ * closes it (resolving and closing are deliberately separate actions). So
+ * without this, a resolved-but-not-yet-closed conflict -- or the
+ * referenced side of a live one -- looks identical to a clean design
+ * anywhere in the Designs tab, only visible by separately checking
+ * Alignment threads.
  *
- * A thread can also originate from the claims path (`design_divergence`,
- * `POST /v1/claims`) instead, where `symbolId` is a real code symbol, not a
- * design -- this only ever matches the semantic-conflict shape, where
- * `symbolId` is repurposed to hold the *initiating* design's own id (see
- * `runSemanticComparatorPass`, packages/server/src/app.ts, and
- * AlignmentThreadsView's `ThreadDetail` doc comment for the full
- * reasoning). Checking `designsById[t.symbolId]` is what tells the two
- * origins apart -- a design id is a `crypto.randomUUID()`, a real symbolId
- * always looks like `path::Name` (`symbol-id.ts`), so they never collide. */
-function findSemanticOverlapThread(threads: AlignmentThread[], designsById: Record<string, DesignStatement>, designId: string): AlignmentThread | undefined {
-  return threads.find((t) => (t.designId === designId || t.symbolId === designId) && Boolean(designsById[t.symbolId]));
+ * Matches `initiatingDesignId`/`designId` symmetrically, same as `app.ts`
+ * does server-side (either id can land in either slot depending on which
+ * side you're looking up) -- fixed 2026-08-26. Previously matched via
+ * `(t.designId === designId || t.symbolId === designId) &&
+ * designsById[t.symbolId]`, relying on `symbolId` being repurposed to hold
+ * the initiating design's own id. That convention was already dead by this
+ * point: `runSemanticComparatorPass` always passes `symbolIds: []`, and
+ * `AlignmentThreadStore.findOrCreate` stores `symbolId: symbolIds[0] ?? ""`
+ * -- so `thread.symbolId` was unconditionally `""` on every real
+ * `llm_divergence` thread, and no design has an empty-string id. The
+ * `&& designsById[t.symbolId]` clause was therefore unconditionally false,
+ * which made the *whole* predicate false regardless of the `||` before it
+ * -- this never matched for *either* side in production, not merely the
+ * initiator: the "semantic overlap" badge and `DesignDetail`'s
+ * `SemanticOverlapNote` silently never rendered for anyone. (The one test
+ * that exercised this, `DesignsView.test.tsx`, passed anyway because its
+ * fixture hand-set `symbolId` to a real design id -- unrepresentative of
+ * what the server actually ever writes; fixed alongside this.)
+ * `resolveAlignmentBucket` (api/types.ts) normalizes a possibly-legacy
+ * pre-2026-08-26 `category` string the same way AlignmentThreadsView does,
+ * so old rows keep matching too. */
+function findSemanticOverlapThread(threads: AlignmentThread[], designId: string): AlignmentThread | undefined {
+  return threads.find((t) => resolveAlignmentBucket(t.category) === "llm_divergence" && (t.designId === designId || t.initiatingDesignId === designId));
 }
 
 /** First occurrence per key, order preserved -- used to collapse a grouped
@@ -145,8 +163,7 @@ export function DesignsView({
   // Every status, not just the current filter -- a semantic overlap's
   // counterpart design may not itself match the active status/mine-only
   // filter, and jumpToDesign needs its id to resolve to something real
-  // regardless. Also doubles as the origin-detection lookup
-  // findSemanticOverlapThread needs (see its own doc comment).
+  // regardless.
   const allDesignsState = useAsyncData(
     () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
     [apiFetch, projectIds.join(","), refreshKey],
@@ -191,7 +208,7 @@ export function DesignsView({
                   const check = latestChecks.get(m.id);
                   return m.status === "open" && check?.verdict === "file_overlap";
                 });
-                const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, designsById, m.id));
+                const anySemanticOverlap = group.members.some((m) => findSemanticOverlapThread(openThreads, m.id));
                 return (
                   <li key={group.key} className={`design-card${expanded ? " expanded" : ""}`}>
                     <button
@@ -248,9 +265,9 @@ export function DesignsView({
                     )}
                     {expanded &&
                       group.members.map((member) => {
-                        const semanticThread = findSemanticOverlapThread(openThreads, designsById, member.id);
+                        const semanticThread = findSemanticOverlapThread(openThreads, member.id);
                         const semanticOverlap: SemanticOverlap | undefined = semanticThread
-                          ? { thread: semanticThread, counterpart: designsById[semanticThread.designId === member.id ? semanticThread.symbolId : semanticThread.designId!] }
+                          ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
                           : undefined;
                         return (
                           <div key={member.id}>

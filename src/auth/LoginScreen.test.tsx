@@ -49,4 +49,12 @@ describe("LoginScreen", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/rejected/i));
     expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-out");
   });
+
+  // Public "observe twing getting built" demo (2026-08-28)
+  it("offers a plain link to /observe, not a sign-in action", () => {
+    renderLogin();
+
+    const link = screen.getByRole("link", { name: /observe twing getting built/i });
+    expect(link).toHaveAttribute("href", "/observe");
+  });
 });

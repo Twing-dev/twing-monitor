@@ -159,6 +159,7 @@ function DesignCardBody({
   onResolved,
   onOpenDesign,
   onOpenTab,
+  readOnly,
 }: {
   primary: DesignStatement;
   members: DesignStatement[];
@@ -169,6 +170,7 @@ function DesignCardBody({
   onResolved: () => void;
   onOpenDesign: (designId: string) => void;
   onOpenTab?: (tab: "threads") => void;
+  readOnly?: boolean;
 }) {
   return (
     <>
@@ -200,7 +202,7 @@ function DesignCardBody({
                 <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
               </div>
             )}
-            <DesignDetail design={member} onResolved={onResolved} semanticOverlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />
+            <DesignDetail design={member} onResolved={onResolved} semanticOverlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} readOnly={readOnly} />
           </div>
         );
       })}
@@ -214,12 +216,14 @@ export function DesignsView({
   focusDesignId,
   onClearFocus,
   onOpenTab,
+  readOnly,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
   onClearFocus?: () => void;
   onOpenTab?: (tab: "threads") => void;
+  readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
   const { auth } = useAuth();
@@ -329,6 +333,7 @@ export function DesignsView({
                           onResolved={() => setRefreshKey((k) => k + 1)}
                           onOpenDesign={jumpToDesign}
                           onOpenTab={onOpenTab}
+                          readOnly={readOnly}
                         />
                       </div>
                     );
@@ -403,6 +408,7 @@ export function DesignsView({
                         onResolved={() => setRefreshKey((k) => k + 1)}
                         onOpenDesign={jumpToDesign}
                         onOpenTab={onOpenTab}
+                        readOnly={readOnly}
                       />
                     )}
                   </li>

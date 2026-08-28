@@ -324,6 +324,42 @@ describe("AlignmentThreadsView", () => {
     expect(screen.queryByRole("button", { name: "Close thread" })).not.toBeInTheDocument();
   });
 
+  // Public "observe twing getting built" demo (2026-08-28): the public-viewer
+  // identity can view every thread in its one project (canViewThread's
+  // isPublicViewer carve-out, app.ts) without being a party to any of them
+  // -- readOnly hides the reply/close UI explicitly rather than relying on
+  // "is it still open" alone, since the server would reject the POST anyway
+  // but the form would otherwise still render.
+  it("readOnly hides the reply form and Close thread button on an open thread, even though it still renders past messages", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_NO_DESIGN] }), { status: 200 });
+        if (url.includes("/v1/alignment-threads/thread-1")) {
+          return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_NO_DESIGN, messages: [{ authorId: "twing", message: "auto-opened", ts: Date.now() }] }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+    render(
+      <ServerProvider>
+        <AlignmentThreadsView projectIds={["proj-1"]} projectsById={{}} readOnly />
+      </ServerProvider>,
+    );
+
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
+    await user.click(card);
+
+    expect(await screen.findByText("auto-opened")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send reply" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close thread" })).not.toBeInTheDocument();
+  });
+
   it("merges threads from multiple repos and labels each card with a RepoBadge, absent for a single-repo view", async () => {
     const threadIn = (projectId: string, id: string) => ({
       id,

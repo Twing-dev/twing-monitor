@@ -164,7 +164,7 @@ interface LatestCheckPayload {
  * conflict/constraint ids this needs). Renders nothing once the design
  * isn't `"flagged"` -- `file_overlap` never needed resolving in the first
  * place. */
-function ResolveActions({ design, onResolved }: { design: DesignStatement; onResolved: () => void }) {
+function ResolveActions({ design, onResolved, readOnly }: { design: DesignStatement; onResolved: () => void; readOnly?: boolean }) {
   const apiFetch = useApiFetch();
   // This component's own refresh signal, separate from the parent list's:
   // an "adopted" resolve changes `design.status`, which the parent's own
@@ -208,6 +208,12 @@ function ResolveActions({ design, onResolved }: { design: DesignStatement; onRes
       </div>
     );
   }
+
+  // Public "observe twing getting built" demo (2026-08-28): the server
+  // already rejects any POST from this identity regardless of what renders
+  // here (the publicProjectId auth branch is GET-only by construction) --
+  // this is purely the UX nicety of not showing a form a visitor can't use.
+  if (readOnly) return null;
 
   async function adopt(conflictingDesignId: string) {
     setSubmitting("adopt");
@@ -302,12 +308,14 @@ export function DesignDetail({
   semanticOverlap,
   onOpenDesign,
   onOpenTab,
+  readOnly,
 }: {
   design: DesignStatement;
   onResolved: () => void;
   semanticOverlap?: SemanticOverlap;
   onOpenDesign?: (designId: string) => void;
   onOpenTab?: (tab: "threads") => void;
+  readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
   const claimsState = useAsyncData(() => fetchClaims(apiFetch, design.projectId, design.sessionId), [apiFetch, design.projectId, design.sessionId]);
@@ -316,7 +324,7 @@ export function DesignDetail({
     <div className="design-detail">
       <LatestCheckOutcome design={design} />
       {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />}
-      <ResolveActions design={design} onResolved={onResolved} />
+      <ResolveActions design={design} onResolved={onResolved} readOnly={readOnly} />
 
       {design.rawPlanExcerpt && (
         <div className="detail-field">

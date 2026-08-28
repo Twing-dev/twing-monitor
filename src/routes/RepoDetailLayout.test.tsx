@@ -123,4 +123,42 @@ describe("RepoDetailLayout", () => {
     // No single-repo role badge when aggregating multiple repos.
     expect(screen.queryByText("admin")).not.toBeInTheDocument();
   });
+
+  // Public "observe twing getting built" demo (2026-08-28)
+  describe("readOnly", () => {
+    it("drops the Reviews tab entirely and never fetches /v1/reviews at all", async () => {
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+      render(
+        <ServerProvider>
+          <RepoDetailLayout projects={[project]} readOnly />
+        </ServerProvider>,
+      );
+
+      await screen.findByRole("tab", { name: "Designs" });
+      expect(screen.queryByRole("tab", { name: "Reviews" })).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/reviews"))).toBe(false);
+    });
+
+    it("hides the '← All repos' back link when onBack is absent (ObserveApp's own case -- there's nowhere to go back to)", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+      saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+      render(
+        <ServerProvider>
+          <RepoDetailLayout projects={[project]} readOnly />
+        </ServerProvider>,
+      );
+
+      await screen.findByRole("tab", { name: "Designs" });
+      expect(screen.queryByRole("button", { name: "← All repos" })).not.toBeInTheDocument();
+    });
+
+    it("still shows the back link when onBack is given, readOnly or not", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+      renderLayout();
+
+      expect(await screen.findByRole("button", { name: "← All repos" })).toBeInTheDocument();
+    });
+  });
 });

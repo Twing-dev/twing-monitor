@@ -29,7 +29,25 @@ const TABS: { id: TabId; label: string }[] = [
  * single-repo/aggregate pair that can drift apart. Only this layout's own
  * header branches on the count.
  */
-export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummary[]; onBack: () => void }) {
+export function RepoDetailLayout({
+  projects,
+  onBack,
+  readOnly,
+}: {
+  projects: ProjectSummary[];
+  /** Optional only for the public "observe twing getting built" demo
+   * (2026-08-28, `ObserveApp`) -- it skips `RepoListView` entirely (there's
+   * only ever one project to show), so there's nowhere for "← All repos"
+   * to go back to; the header hides the back link when this is absent. */
+  onBack?: () => void;
+  /** Set only by `ObserveApp`. Drops the Reviews tab (its GET route 404s
+   * for this identity server-side, see app.ts's isPublicViewer guard) and
+   * threads through to hide mutating UI in the tabs that stay -- the
+   * server already rejects every POST/PATCH from this identity regardless
+   * (the publicProjectId auth branch is GET-only by construction), so this
+   * is purely the UX nicety of not showing dead-end forms/buttons. */
+  readOnly?: boolean;
+}) {
   const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>(() => parseUrlState().tab);
   // Set by ActivityView's "View design ->" link, a card's own copy-link
@@ -108,21 +126,28 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
   // itself shows in the aggregated view. Deliberately not gated on role --
   // a member can't decide a review, but knowing the queue is backing up is
   // still worth seeing.
-  const pending = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(",")],
-  );
+  // Skipped entirely when readOnly: GET /v1/reviews 404s for the public
+  // viewer identity (app.ts), and there's no Reviews tab to badge-count for
+  // anyway -- no point making a fetch that can only ever fail.
+  const pending = useAsyncData(() => (readOnly ? Promise.resolve([]) : Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat())), [
+    apiFetch,
+    projectIds.join(","),
+    readOnly,
+  ]);
   const pendingCount = pending.status === "ready" ? pending.data.length : 0;
   const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
   const single = projects.length === 1 ? projects[0] : undefined;
+  const tabs = readOnly ? TABS.filter((t) => t.id !== "reviews") : TABS;
 
   return (
     <div className="repo-detail-view">
       <header className="view-header">
         <div>
-          <button type="button" className="link-button back-link" onClick={onBack}>
-            ← All repos
-          </button>
+          {onBack && (
+            <button type="button" className="link-button back-link" onClick={onBack}>
+              ← All repos
+            </button>
+          )}
           {single ? (
             <h1>{repoLabel(single)}</h1>
           ) : (
@@ -142,7 +167,7 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
       </header>
 
       <nav className="tab-bar" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -162,10 +187,25 @@ export function RepoDetailLayout({ projects, onBack }: { projects: ProjectSummar
       </nav>
 
       <div className="tab-panel">
-        {tab === "designs" && <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} />}
-        {tab === "reviews" && <ReviewsView projectIds={projectIds} projectsById={projectsById} focusReviewId={focusReviewId} onClearFocus={clearFocus} />}
+        {tab === "designs" && (
+          <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} readOnly={readOnly} />
+        )}
+        {/* readOnly also guards this render, not just the tab bar -- tab
+            state can only reach "reviews" via a restored/pasted URL
+            (parseUrlState), and the server 404s the fetch anyway, but this
+            avoids ReviewsView ever mounting against a route it can't use. */}
+        {tab === "reviews" && !readOnly && <ReviewsView projectIds={projectIds} projectsById={projectsById} focusReviewId={focusReviewId} onClearFocus={clearFocus} />}
         {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={openTab} />}
-        {tab === "threads" && <AlignmentThreadsView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} focusThreadId={focusThreadId} onClearFocus={clearFocus} />}
+        {tab === "threads" && (
+          <AlignmentThreadsView
+            projectIds={projectIds}
+            projectsById={projectsById}
+            onOpenDesign={openDesign}
+            focusThreadId={focusThreadId}
+            onClearFocus={clearFocus}
+            readOnly={readOnly}
+          />
+        )}
         {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
         {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
       </div>

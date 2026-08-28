@@ -78,6 +78,13 @@ export function LoginScreen() {
           No token yet? Run <code>twing init</code> in your repo, then <code>twing servers --show-token</code> to get the server URL and token to paste
           above.
         </p>
+        {/* Public "observe twing getting built" demo (2026-08-28): a plain
+            link, not a button/action -- /observe is its own unauthenticated
+            route (App.tsx's pathname branch), reached by a normal
+            navigation, not a client-side view switch the way sign-in is. */}
+        <p className="login-hint">
+          Just curious? <a href="/observe">Observe twing getting built</a> -- no sign-in needed.
+        </p>
       </div>
     </div>
   );

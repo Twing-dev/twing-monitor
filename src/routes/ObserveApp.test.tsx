@@ -52,11 +52,27 @@ describe("ObserveApp", () => {
     expect(raw && JSON.parse(raw).activeServerUrl).toBe("https://real.example");
   });
 
-  it("shows an empty state, not a crash, when the coordinator has no public project configured (TWING_PUBLIC_PROJECT_ID pointing nowhere)", async () => {
+  it("shows an empty state, not a crash, when the coordinator has no public project configured (TWING_PUBLIC_PROJECT_IDS pointing nowhere)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
 
     render(<ObserveApp />);
 
     expect(await screen.findByText(/no public demo project is configured/i)).toBeInTheDocument();
+  });
+
+  // TWING_PUBLIC_PROJECT_IDS generalization (2026-08-28): more than one
+  // publicly-viewable project (e.g. twing-cli and twing-monitor's own repos
+  // both) renders as RepoDetailLayout's existing multi-repo aggregate view
+  // -- no separate picker built for this page, just handing it every
+  // project GET /v1/projects returns for this identity.
+  it("shows every public project at once as the multi-repo aggregate view when more than one is configured", async () => {
+    const other = { projectId: "proj-2", orgId: "", role: "member" as const };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [project, other] }), { status: 200 })));
+
+    render(<ObserveApp />);
+
+    expect(await screen.findByRole("heading", { name: "2 repos" })).toBeInTheDocument();
+    expect(screen.getByText("proj-1")).toBeInTheDocument();
+    expect(screen.getByText("proj-2")).toBeInTheDocument();
   });
 });

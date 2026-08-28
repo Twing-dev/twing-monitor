@@ -87,11 +87,13 @@ function ThreadDetail({
   designsById,
   onOpenDesign,
   onChanged,
+  readOnly,
 }: {
   thread: AlignmentThread;
   designsById: Record<string, DesignStatement>;
   onOpenDesign?: (designId: string) => void;
   onChanged: () => void;
+  readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
@@ -201,12 +203,18 @@ function ThreadDetail({
         />
       </div>
 
-      {/* Every thread this view can render is one the signed-in developer is
-          already a party to -- GET /v1/alignment-threads filters to
-          isThreadParty server-side before this list ever exists -- so
-          there's no separate "can I act" gate needed here, only "is it
-          still open." */}
-      {thread.status === "open" && (
+      {/* Every thread a signed-in developer's own view can render is one
+          they're already a party to -- GET /v1/alignment-threads filters to
+          canViewThread server-side before this list ever exists. The one
+          exception is the public "observe twing getting built" demo
+          (2026-08-28): that identity can view every thread in its one
+          project (canViewThread's isPublicViewer carve-out) without being a
+          party to any of them, so `readOnly` gates this form explicitly
+          rather than relying on "is it still open" alone -- the server
+          would reject the POST regardless (isThreadParty, unchanged, still
+          fails it), this is just the UX nicety of not showing a dead-end
+          form. */}
+      {thread.status === "open" && !readOnly && (
         <div className="detail-field resolve-actions">
           <h3>Reply</h3>
           <form className="resolve-justify-form" onSubmit={sendReply}>
@@ -247,12 +255,14 @@ function ThreadFocusedPage({
   focusThreadId,
   onOpenDesign,
   onClearFocus,
+  readOnly,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
   focusThreadId: string;
   onOpenDesign?: (designId: string) => void;
   onClearFocus?: () => void;
+  readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -290,7 +300,7 @@ function ThreadFocusedPage({
                     </div>
                     <CopyLinkButton url={buildShareUrl(thread.projectId, "threads", thread.id)} />
                   </div>
-                  <ThreadDetail thread={thread} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} />
+                  <ThreadDetail thread={thread} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} readOnly={readOnly} />
                 </div>
               ) : (
                 <p className="empty-state">That alignment thread couldn't be found -- it may have been removed, or you may not have access.</p>
@@ -309,12 +319,14 @@ export function AlignmentThreadsView({
   onOpenDesign,
   focusThreadId,
   onClearFocus,
+  readOnly,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
   onOpenDesign?: (designId: string) => void;
   focusThreadId?: string;
   onClearFocus?: () => void;
+  readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
   const [status, setStatus] = useState<StatusFilter>("open");
@@ -350,6 +362,7 @@ export function AlignmentThreadsView({
         focusThreadId={focusThreadId}
         onOpenDesign={onOpenDesign}
         onClearFocus={onClearFocus}
+        readOnly={readOnly}
       />
     );
   }
@@ -388,7 +401,7 @@ export function AlignmentThreadsView({
                     <CopyLinkButton url={buildShareUrl(t.projectId, "threads", t.id)} />
                   </div>
                   {expanded && (
-                    <ThreadDetail thread={t} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} />
+                    <ThreadDetail thread={t} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} readOnly={readOnly} />
                   )}
                 </li>
               );

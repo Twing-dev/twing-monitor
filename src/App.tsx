@@ -4,6 +4,7 @@ import { useAuth } from "./auth/useAuth.js";
 import { LoginScreen } from "./auth/LoginScreen.js";
 import { RepoListView } from "./routes/RepoListView.js";
 import { RepoDetailLayout } from "./routes/RepoDetailLayout.js";
+import { ObserveApp } from "./routes/ObserveApp.js";
 import { useProjectsList } from "./hooks/useProjectsList.js";
 import { parseUrlState, pushUrlState, replaceUrlState } from "./lib/urlState.js";
 import type { ProjectSummary } from "./api/types.js";
@@ -89,6 +90,17 @@ function AuthGate() {
 }
 
 export default function App() {
+  // Public "observe twing getting built" demo (2026-08-28): checked before
+  // ServerProvider ever mounts, not inside AuthGate -- a real admin's
+  // cached session (ServerProvider's own localStorage-backed state) is
+  // never initialized at all on this path, let alone read or overwritten.
+  // No router: this app has never had one (urlState.ts only tracks
+  // repo/tab selection within an already-authenticated view), so a plain
+  // pathname check matches the rest of this codebase's style rather than
+  // pulling in a new dependency for one static route.
+  if (window.location.pathname === "/observe") {
+    return <ObserveApp />;
+  }
   return (
     <ServerProvider>
       <AuthGate />

@@ -64,6 +64,53 @@ describe("DesignsView", () => {
     expect(screen.getByText("open", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
+  // Pagination (monitor UI load-time fix, 2026-08-29): GET /v1/designs now
+  // returns {items, nextBefore} instead of the whole project's history --
+  // mirrors ActivityView's own "load-older" test.
+  it("shows a 'Load older' button when a next page exists, and appends the next page on click", async () => {
+    const user = userEvent.setup();
+    const design = (id: string, summary: string) => ({
+      id,
+      projectId: "proj-1",
+      developerId: "alice@example.com",
+      sessionId: "sess-1",
+      status: "open",
+      createdAt: Date.now(),
+      summary,
+      creates: [],
+      touches: [],
+      dependsOn: [],
+      ttlMs: 3_600_000,
+      scopeVersion: 1,
+      lastActivityAt: Date.now(),
+      justifiedConstraintIds: [],
+      justifiedOverlaps: [],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (!url.pathname.endsWith("/v1/designs")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        const before = url.searchParams.get("before");
+        if (!before) return new Response(JSON.stringify({ items: [design("design-new", "The newer design")], nextBefore: 500 }), { status: 200 });
+        return new Response(JSON.stringify({ items: [design("design-old", "The older design")] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("The newer design")).toBeInTheDocument());
+    expect(screen.queryByText("The older design")).not.toBeInTheDocument();
+
+    const loadOlder = screen.getByRole("button", { name: "Load older" });
+    await user.click(loadOlder);
+
+    await waitFor(() => expect(screen.getByText("The older design")).toBeInTheDocument());
+    expect(screen.getByText("The newer design")).toBeInTheDocument();
+    // The older page carried no nextBefore -- the button drops away once
+    // every project's cursor is exhausted.
+    expect(screen.queryByRole("button", { name: "Load older" })).not.toBeInTheDocument();
+  });
+
   it("expands a card on click to show the full plan text, scope, and the session's claims", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -578,6 +625,13 @@ describe("DesignsView", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: [ERIN_DESIGN, FRANK_DESIGN] }), { status: 200 });
+        // DesignCardBody's semantic-overlap counterpart lookup resolves via
+        // the on-demand GET /v1/designs/:id fetch (useOnDemandDesigns,
+        // 2026-08-29), even when the counterpart is itself already on the
+        // current page -- the hook always fetches by id, it doesn't cross-
+        // reference the list it was given.
+        if (url.includes("/v1/designs/design-erin-1")) return new Response(JSON.stringify({ design: ERIN_DESIGN, groupMembers: [] }), { status: 200 });
+        if (url.includes("/v1/designs/design-frank-1")) return new Response(JSON.stringify({ design: FRANK_DESIGN, groupMembers: [] }), { status: 200 });
         if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [SEMANTIC_THREAD] }), { status: 200 });
         if (url.includes("/v1/activity?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
         if (url.includes("/v1/claims?")) return new Response(JSON.stringify({ items: [] }), { status: 200 });

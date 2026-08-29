@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from "react";
-import { useApiFetch } from "../api/client.js";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useApiFetch, ApiError } from "../api/client.js";
 import { fetchAlignmentThreads, fetchAlignmentThread, postAlignmentMessage, closeAlignmentThread } from "../api/alignmentThreads.js";
-import { fetchDesigns } from "../api/designs.js";
 import type { AlignmentThread, AlignmentCategory, AlignmentSubKind, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
+import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
@@ -245,10 +245,12 @@ function ThreadDetail({
   );
 }
 
-/** A copy-link URL names one specific thread to look at -- show only that,
- * not the whole filtered list with it expanded somewhere inside. Fetches
- * "all" itself, independent of the list's own status filter, since a
- * closed thread needs to stay reachable here regardless. */
+/** A copy-link URL names one specific thread to look at -- resolved
+ * directly by id (`fetchAlignmentThread`, the route already existed) rather
+ * than fetching every thread in the project to find it by scanning
+ * (monitor UI load-time fix, 2026-08-29). A 404 resolves to `undefined`
+ * (not an error), same convention DesignsView's own focus page uses, so the
+ * "couldn't be found" copy below renders the same way it always has. */
 function ThreadFocusedPage({
   projectIds,
   projectsById,
@@ -268,50 +270,68 @@ function ThreadFocusedPage({
   const [refreshKey, setRefreshKey] = useState(0);
 
   const state = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(","), refreshKey],
+    () =>
+      fetchAlignmentThread(apiFetch, focusThreadId).catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) return undefined;
+        throw err;
+      }),
+    [apiFetch, focusThreadId, refreshKey],
   );
-  const designsState = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(",")],
-  );
-  const designsById: Record<string, DesignStatement> = designsState.status === "ready" ? Object.fromEntries(designsState.data.map((d) => [d.id, d])) : {};
+
+  // Bounded lookup (see ThreadDetail's own doc comment for why this is
+  // needed at all) -- just the two designs this one thread actually names,
+  // not every design in the project.
+  const neededIds = useMemo(() => {
+    if (state.status !== "ready" || !state.data) return [];
+    const ids: string[] = [];
+    if (state.data.thread.initiatingDesignId) ids.push(state.data.thread.initiatingDesignId);
+    if (state.data.thread.designId) ids.push(state.data.thread.designId);
+    return ids;
+  }, [state]);
+  const designsById = useOnDemandDesigns(apiFetch, neededIds);
 
   const showRepoBadge = projectIds.length > 1;
 
   return (
     <div className="list-view">
-      <AsyncSection
-        state={state}
-        isEmpty={() => false}
-        emptyMessage=""
-        render={(items) => {
-          const thread = items.find((t) => t.id === focusThreadId);
-          return (
-            <div className="focus-page">
-              <button type="button" className="link-button back-link" onClick={onClearFocus}>
-                ← Back to all alignment threads
-              </button>
-              {thread ? (
-                <div className="design-card expanded">
-                  <div className="design-card-header">
-                    <div className="design-card-toggle has-copy-link">
-                      <ThreadCardHeaderContent thread={thread} showRepoBadge={showRepoBadge} projectsById={projectsById} />
-                    </div>
-                    <CopyLinkButton url={buildShareUrl(thread.projectId, "threads", thread.id)} />
-                  </div>
-                  <ThreadDetail thread={thread} designsById={designsById} onOpenDesign={onOpenDesign} onChanged={() => setRefreshKey((k) => k + 1)} readOnly={readOnly} />
+      {state.status === "loading" && <p className="empty-state">Loading…</p>}
+      {state.status === "error" && (
+        <p className="empty-state error" role="alert">
+          Couldn't load: {state.message}
+        </p>
+      )}
+      {state.status === "ready" && (
+        <div className="focus-page">
+          <button type="button" className="link-button back-link" onClick={onClearFocus}>
+            ← Back to all alignment threads
+          </button>
+          {state.data ? (
+            <div className="design-card expanded">
+              <div className="design-card-header">
+                <div className="design-card-toggle has-copy-link">
+                  <ThreadCardHeaderContent thread={state.data.thread} showRepoBadge={showRepoBadge} projectsById={projectsById} />
                 </div>
-              ) : (
-                <p className="empty-state">That alignment thread couldn't be found -- it may have been removed, or you may not have access.</p>
-              )}
+                <CopyLinkButton url={buildShareUrl(state.data.thread.projectId, "threads", state.data.thread.id)} />
+              </div>
+              <ThreadDetail
+                thread={state.data.thread}
+                designsById={designsById}
+                onOpenDesign={onOpenDesign}
+                onChanged={() => setRefreshKey((k) => k + 1)}
+                readOnly={readOnly}
+              />
             </div>
-          );
-        }}
-      />
+          ) : (
+            <p className="empty-state">That alignment thread couldn't be found -- it may have been removed, or you may not have access.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+type ProjectPage = { items: AlignmentThread[]; nextBefore?: number };
+type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 
 export function AlignmentThreadsView({
   projectIds,
@@ -334,23 +354,80 @@ export function AlignmentThreadsView({
   // Bumped when a card's own ThreadDetail closes its thread -- the list's
   // status badge/filter both need to reflect that.
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pages, setPages] = useState<Record<string, ProjectPage>>({});
+  const [listState, setListState] = useState<LoadState>({ status: "loading" });
 
-  const state = useAsyncData(
-    () =>
-      Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, status === "all" ? undefined : status))).then((lists) =>
-        lists.flat().sort((a, b) => (b.lastActivityAt ?? b.openedAt) - (a.lastActivityAt ?? a.openedAt)),
-      ),
-    [apiFetch, projectIds.join(","), status, refreshKey],
+  const projectIdsKey = projectIds.join(",");
+
+  // Paginated (monitor UI load-time fix, 2026-08-29): same per-project
+  // page/cursor shape ActivityView/DesignsView already use. A status
+  // filter change resets to page 1 by construction -- it's a dependency of
+  // `loadFirstPage`, which always replaces `pages` wholesale.
+  const loadFirstPage = useCallback(() => {
+    let cancelled = false;
+    setListState({ status: "loading" });
+    Promise.all(
+      projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, { status: status === "all" ? undefined : status }).then((page) => [pid, page] as const)),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
+        setListState({ status: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFetch, projectIdsKey, status, refreshKey]);
+
+  useEffect(() => loadFirstPage(), [loadFirstPage]);
+
+  async function loadMore() {
+    const toFetch = projectIds.filter((pid) => pages[pid]?.nextBefore !== undefined);
+    if (toFetch.length === 0) return;
+    try {
+      const results = await Promise.all(
+        toFetch.map((pid) =>
+          fetchAlignmentThreads(apiFetch, pid, { status: status === "all" ? undefined : status, before: pages[pid].nextBefore }).then((page) => [pid, page] as const),
+        ),
+      );
+      setPages((prev) => {
+        const next = { ...prev };
+        for (const [pid, page] of results) {
+          next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        }
+        return next;
+      });
+    } catch (err) {
+      setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Flattened, most-recently-active-first across every project's own
+  // (independently sorted) page -- interleaving several sorted lists isn't
+  // itself sorted, so this re-sorts on every merge.
+  const items = useMemo(
+    () => Object.values(pages).flatMap((p) => p.items).sort((a, b) => (b.lastActivityAt ?? b.openedAt) - (a.lastActivityAt ?? a.openedAt)),
+    [pages],
   );
+  const hasMore = Object.values(pages).some((p) => p.nextBefore !== undefined);
+
   // See ThreadDetail's own doc comment for why this is needed at all --
-  // fetched once per project (every status) rather than per-thread, same
-  // "avoid an N-fan-out of lookups" reasoning as ActivityView's own
-  // session->design map.
-  const designsState = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(",")],
-  );
-  const designsById: Record<string, DesignStatement> = designsState.status === "ready" ? Object.fromEntries(designsState.data.map((d) => [d.id, d])) : {};
+  // bounded to just the currently-expanded card's two linked designs,
+  // rather than every design in every selected project.
+  const expandedThread = items.find((t) => t.id === expandedId);
+  const neededIds = useMemo(() => {
+    if (!expandedThread) return [];
+    const ids: string[] = [];
+    if (expandedThread.initiatingDesignId) ids.push(expandedThread.initiatingDesignId);
+    if (expandedThread.designId) ids.push(expandedThread.designId);
+    return ids;
+  }, [expandedThread]);
+  const designsById = useOnDemandDesigns(apiFetch, neededIds);
 
   const showRepoBadge = projectIds.length > 1;
 
@@ -379,11 +456,15 @@ export function AlignmentThreadsView({
         </select>
       </div>
 
-      <AsyncSection
-        state={state}
-        isEmpty={(items) => items.length === 0}
-        emptyMessage="No alignment threads match this filter."
-        render={(items) => (
+      {listState.status === "loading" && <p className="empty-state">Loading…</p>}
+      {listState.status === "error" && (
+        <p className="empty-state error" role="alert">
+          Couldn't load: {listState.message}
+        </p>
+      )}
+      {listState.status === "ready" && items.length === 0 && <p className="empty-state">No alignment threads match this filter.</p>}
+      {listState.status === "ready" && items.length > 0 && (
+        <>
           <ul className="card-list">
             {items.map((t) => {
               const expanded = expandedId === t.id;
@@ -407,8 +488,13 @@ export function AlignmentThreadsView({
               );
             })}
           </ul>
-        )}
-      />
+          {hasMore && (
+            <button type="button" className="load-more-button" onClick={loadMore}>
+              Load older
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

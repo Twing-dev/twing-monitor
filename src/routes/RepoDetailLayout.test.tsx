@@ -20,6 +20,13 @@ function renderLayout(projects: ProjectSummary[] = [project]) {
 describe("RepoDetailLayout", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    // A "View design ->" click pushes `?focus=<id>` onto jsdom's shared
+    // window.location (urlState.ts's pushUrlState) -- without resetting it,
+    // the next test's fresh RepoDetailLayout instance still picks it up on
+    // mount and tries to resolve that id via the focus page's own
+    // GET /v1/designs/:id fetch, which that test's own fetch mock was never
+    // written to expect.
+    window.history.replaceState(null, "", "/");
   });
 
   it("clicking 'View design ->' on an Activity row switches to the Designs tab with that design expanded", async () => {
@@ -46,31 +53,30 @@ describe("RepoDetailLayout", () => {
             { status: 200 },
           );
         }
+        const design42 = {
+          id: "design-42",
+          projectId: "proj-1",
+          developerId: "bob@example.com",
+          sessionId: "sess-1",
+          status: "flagged",
+          createdAt: Date.now(),
+          summary: "A design owned by someone else, currently flagged",
+          creates: [],
+          touches: ["src/x.ts"],
+          dependsOn: [],
+          ttlMs: 3_600_000,
+          scopeVersion: 1,
+          lastActivityAt: Date.now(),
+          justifiedConstraintIds: [],
+          justifiedOverlaps: [],
+        };
         if (url.includes("/v1/designs?")) {
-          return new Response(
-            JSON.stringify({
-              items: [
-                {
-                  id: "design-42",
-                  projectId: "proj-1",
-                  developerId: "bob@example.com",
-                  sessionId: "sess-1",
-                  status: "flagged",
-                  createdAt: Date.now(),
-                  summary: "A design owned by someone else, currently flagged",
-                  creates: [],
-                  touches: ["src/x.ts"],
-                  dependsOn: [],
-                  ttlMs: 3_600_000,
-                  scopeVersion: 1,
-                  lastActivityAt: Date.now(),
-                  justifiedConstraintIds: [],
-                  justifiedOverlaps: [],
-                },
-              ],
-            }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ items: [design42] }), { status: 200 });
+        }
+        // The focus page's own single-item lookup (GET /v1/designs/:id,
+        // 2026-08-29) -- distinct from the list route above.
+        if (url.includes("/v1/designs/design-42")) {
+          return new Response(JSON.stringify({ design: design42, groupMembers: [] }), { status: 200 });
         }
         if (url.includes("/v1/claims") || url.includes("/v1/alignment-threads")) {
           return new Response(JSON.stringify({ items: [] }), { status: 200 });

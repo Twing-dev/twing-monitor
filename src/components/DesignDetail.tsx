@@ -197,7 +197,7 @@ function ResolveActions({ design, onResolved, readOnly }: { design: DesignStatem
   if (checkState.status !== "ready" || reviewsState.status !== "ready") return null;
 
   const payload = (checkState.data.items[0]?.payload ?? {}) as LatestCheckPayload;
-  const pendingReview = reviewsState.data.find((r) => r.designId === design.id);
+  const pendingReview = reviewsState.data.items.find((r) => r.designId === design.id);
 
   if (pendingReview) {
     return (

@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { useApiFetch } from "../api/client.js";
-import { fetchReviews, decideReview, type ReviewStatus } from "../api/reviews.js";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useApiFetch, ApiError } from "../api/client.js";
+import { fetchReviews, fetchReviewById, decideReview, type ReviewStatus } from "../api/reviews.js";
 import type { ProjectSummary, PendingReview } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
-import { AsyncSection } from "../components/AsyncSection.js";
 import { StatusBadge, type BadgeTone } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { CopyLinkButton } from "../components/CopyLinkButton.js";
@@ -260,11 +259,13 @@ function ReviewCard({
 }
 
 /** A copy-link URL (or any other external jump) names one specific review
- * to look at -- show only that, not the whole filtered queue with it
- * expanded somewhere inside, which for anything but the most recent review
- * meant landing on the list and having to scroll to find it. Fetches
- * "all" itself, independent of the list's own status filter, since a
- * decided review needs to stay reachable here regardless. */
+ * to look at -- resolved directly by id (`GET /v1/reviews/:id`, monitor UI
+ * load-time fix 2026-08-29) rather than fetching every review in the
+ * project to find it by scanning, which for anything but the most recent
+ * review meant landing on the list and having to scroll to find it. A 404
+ * resolves to `undefined` (not an error), same convention the other two
+ * focus pages use, so the "couldn't be found" copy below renders the same
+ * way it always has. */
 function ReviewFocusedPage({
   projectIds,
   projectsById,
@@ -282,8 +283,12 @@ function ReviewFocusedPage({
   const [refreshKey, setRefreshKey] = useState(0);
 
   const state = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "all"))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(","), refreshKey],
+    () =>
+      fetchReviewById(apiFetch, focusReviewId).catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) return undefined;
+        throw err;
+      }),
+    [apiFetch, focusReviewId, refreshKey],
   );
 
   async function decide(id: string, decision: "approve" | "reject") {
@@ -300,46 +305,45 @@ function ReviewFocusedPage({
   }
 
   const showRepoBadge = projectIds.length > 1;
+  const review = state.status === "ready" ? state.data?.item : undefined;
 
   return (
     <div className="list-view">
-      <AsyncSection
-        state={state}
-        isEmpty={() => false}
-        emptyMessage=""
-        render={(items) => {
-          const review = items.find((r) => r.id === focusReviewId);
-          return (
-            <div className="focus-page">
-              <button type="button" className="link-button back-link" onClick={onClearFocus}>
-                ← Back to all reviews
-              </button>
-              {error && (
-                <p className="resolve-error" role="alert">
-                  {error}
-                </p>
-              )}
-              {review ? (
-                <div className="design-card expanded">
-                  <div className="design-card-header">
-                    <div className="design-card-toggle review-card-toggle has-copy-link">
-                      <ReviewCardHeaderContent
-                        review={review}
-                        expanded
-                        repoBadge={showRepoBadge ? <RepoBadge project={projectsById[review.projectId] ?? { projectId: review.projectId }} /> : undefined}
-                      />
-                    </div>
-                    <CopyLinkButton url={buildShareUrl(review.projectId, "reviews", review.id)} />
-                  </div>
-                  <ReviewCardBody review={review} canDecide={projectsById[review.projectId]?.role === "admin"} busy={decidingId !== null} onDecide={decide} />
+      {state.status === "loading" && <p className="empty-state">Loading…</p>}
+      {state.status === "error" && (
+        <p className="empty-state error" role="alert">
+          Couldn't load: {state.message}
+        </p>
+      )}
+      {state.status === "ready" && (
+        <div className="focus-page">
+          <button type="button" className="link-button back-link" onClick={onClearFocus}>
+            ← Back to all reviews
+          </button>
+          {error && (
+            <p className="resolve-error" role="alert">
+              {error}
+            </p>
+          )}
+          {review ? (
+            <div className="design-card expanded">
+              <div className="design-card-header">
+                <div className="design-card-toggle review-card-toggle has-copy-link">
+                  <ReviewCardHeaderContent
+                    review={review}
+                    expanded
+                    repoBadge={showRepoBadge ? <RepoBadge project={projectsById[review.projectId] ?? { projectId: review.projectId }} /> : undefined}
+                  />
                 </div>
-              ) : (
-                <p className="empty-state">That review couldn't be found -- it may have been removed, or you may not have access.</p>
-              )}
+                <CopyLinkButton url={buildShareUrl(review.projectId, "reviews", review.id)} />
+              </div>
+              <ReviewCardBody review={review} canDecide={projectsById[review.projectId]?.role === "admin"} busy={decidingId !== null} onDecide={decide} />
             </div>
-          );
-        }}
-      />
+          ) : (
+            <p className="empty-state">That review couldn't be found -- it may have been removed, or you may not have access.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -351,6 +355,9 @@ function ReviewFocusedPage({
  * boolean for the whole view (unlike the pre-aggregation version of this
  * component). Hiding the buttons for a `member` is purely UX either way;
  * the server is the real enforcement. */
+type ProjectPage = { items: PendingReview[]; nextBefore?: number };
+type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
+
 export function ReviewsView({
   projectIds,
   projectsById,
@@ -368,13 +375,59 @@ export function ReviewsView({
   const [error, setError] = useState<string | null>(null);
   // Bumped after a successful decide -- a decided review needs to drop out
   // of the "pending" filter (or pick up its new badge under "decided"/
-  // "all"), and useAsyncData has no refetch of its own.
+  // "all").
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pages, setPages] = useState<Record<string, ProjectPage>>({});
+  const [listState, setListState] = useState<LoadState>({ status: "loading" });
 
-  const state = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, status))).then((lists) => lists.flat().sort((a, b) => b.createdAt - a.createdAt)),
-    [apiFetch, projectIds.join(","), status, refreshKey],
-  );
+  const projectIdsKey = projectIds.join(",");
+
+  // Paginated (monitor UI load-time fix, 2026-08-29): same per-project
+  // page/cursor shape ActivityView/DesignsView/AlignmentThreadsView all
+  // use. A status filter change resets to page 1 by construction -- it's a
+  // dependency of `loadFirstPage`, which always replaces `pages` wholesale.
+  const loadFirstPage = useCallback(() => {
+    let cancelled = false;
+    setListState({ status: "loading" });
+    Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, status).then((page) => [pid, page] as const)))
+      .then((results) => {
+        if (cancelled) return;
+        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
+        setListState({ status: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFetch, projectIdsKey, status, refreshKey]);
+
+  useEffect(() => loadFirstPage(), [loadFirstPage]);
+
+  async function loadMore() {
+    const toFetch = projectIds.filter((pid) => pages[pid]?.nextBefore !== undefined);
+    if (toFetch.length === 0) return;
+    try {
+      const results = await Promise.all(
+        toFetch.map((pid) => fetchReviews(apiFetch, pid, status, { before: pages[pid].nextBefore }).then((page) => [pid, page] as const)),
+      );
+      setPages((prev) => {
+        const next = { ...prev };
+        for (const [pid, page] of results) {
+          next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        }
+        return next;
+      });
+    } catch (err) {
+      setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const items = useMemo(() => Object.values(pages).flatMap((p) => p.items).sort((a, b) => b.createdAt - a.createdAt), [pages]);
+  const hasMore = Object.values(pages).some((p) => p.nextBefore !== undefined);
 
   async function decide(id: string, decision: "approve" | "reject") {
     setDecidingId(id);
@@ -413,11 +466,17 @@ export function ReviewsView({
         </p>
       )}
 
-      <AsyncSection
-        state={state}
-        isEmpty={(items) => items.length === 0}
-        emptyMessage={status === "pending" ? "Nothing pending review." : "No reviews match this filter."}
-        render={(items) => (
+      {listState.status === "loading" && <p className="empty-state">Loading…</p>}
+      {listState.status === "error" && (
+        <p className="empty-state error" role="alert">
+          Couldn't load: {listState.message}
+        </p>
+      )}
+      {listState.status === "ready" && items.length === 0 && (
+        <p className="empty-state">{status === "pending" ? "Nothing pending review." : "No reviews match this filter."}</p>
+      )}
+      {listState.status === "ready" && items.length > 0 && (
+        <>
           <ul className="card-list">
             {items.map((r) => (
               <ReviewCard
@@ -430,8 +489,13 @@ export function ReviewsView({
               />
             ))}
           </ul>
-        )}
-      />
+          {hasMore && (
+            <button type="button" className="load-more-button" onClick={loadMore}>
+              Load older
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

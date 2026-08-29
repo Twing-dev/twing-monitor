@@ -60,6 +60,54 @@ describe("ObserveApp", () => {
     expect(await screen.findByText(/no public demo project is configured/i)).toBeInTheDocument();
   });
 
+  // Pagination (monitor UI load-time fix, 2026-08-29): /observe mounts the
+  // same DesignsView/AlignmentThreadsView every authenticated dashboard
+  // does -- confirms that inheritance explicitly rather than assuming it,
+  // per this change's own plan.
+  it("shows a 'Load older' button on the Designs tab when the server returns a next page, same as the authenticated dashboard", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/projects")) return new Response(JSON.stringify({ items: [project] }), { status: 200 });
+        if (url.includes("/v1/designs")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "design-1",
+                  projectId: "proj-1",
+                  developerId: "erin@example.com",
+                  sessionId: "s1",
+                  status: "open",
+                  createdAt: Date.now(),
+                  summary: "A public design",
+                  creates: [],
+                  touches: [],
+                  dependsOn: [],
+                  ttlMs: 1,
+                  scopeVersion: 1,
+                  lastActivityAt: Date.now(),
+                  justifiedConstraintIds: [],
+                  justifiedOverlaps: [],
+                },
+              ],
+              nextBefore: 500,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+
+    render(<ObserveApp />);
+
+    expect(await screen.findByRole("tab", { name: "Designs" })).toBeInTheDocument();
+    expect(await screen.findByText("A public design")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load older" })).toBeInTheDocument();
+  });
+
   // TWING_PUBLIC_PROJECT_IDS generalization (2026-08-28): more than one
   // publicly-viewable project (e.g. twing-cli and twing-monitor's own repos
   // both) renders as RepoDetailLayout's existing multi-repo aggregate view

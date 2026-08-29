@@ -254,19 +254,26 @@ export function ActivityView({ projectIds, projectsById, onOpenDesign, onOpenTab
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid)))
-      .then((lists) => {
-        if (!cancelled) setDesigns(lists.flat());
+    // Both fetches below are now paginated server-side (2026-08-29) -- a
+    // fixed `{limit: 100}` (the server's own page-size cap) keeps this a
+    // single round trip per project instead of looping "load more" to
+    // reconstruct the old unbounded fetch, at the cost of an activity row
+    // referencing a design/thread older than the 100 most recently active
+    // ones falling back to "no design reference" -- consistent with this
+    // being a best-effort join to begin with, not a broken feed.
+    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, { limit: 100 })))
+      .then((pages) => {
+        if (!cancelled) setDesigns(pages.flatMap((p) => p.items));
       })
       .catch(() => {
         // Best-effort only -- a failed lookup just means rows fall back to
         // showing no design reference, not a broken activity feed.
       });
-    Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid)))
-      .then((lists) => {
+    Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, { limit: 100 })))
+      .then((pages) => {
         if (cancelled) return;
         const byId: Record<string, string> = {};
-        for (const t of lists.flat()) if (t.designId) byId[t.id] = t.designId;
+        for (const t of pages.flatMap((p) => p.items)) if (t.designId) byId[t.id] = t.designId;
         setThreadDesignById(byId);
       })
       .catch(() => {

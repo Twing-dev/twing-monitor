@@ -1,10 +1,38 @@
 import type { DesignStatement } from "./types.js";
 import type { Fetcher } from "./client.js";
 
-export async function fetchDesigns(fetcher: Fetcher, projectId: string, status?: string): Promise<DesignStatement[]> {
-  const qs = new URLSearchParams({ projectId, ...(status ? { status } : {}) });
-  const body = await fetcher<{ items: DesignStatement[] }>(`/v1/designs?${qs}`);
-  return body.items;
+export interface DesignsPage {
+  items: DesignStatement[];
+  nextBefore?: number;
+}
+
+/** Paginated (monitor UI load-time fix, 2026-08-29): GET /v1/designs used to
+ * return every design ever registered for a project. Mirrors
+ * api/activity.ts's fetchActivity/ActivityPage shape exactly --
+ * `{before, limit}` in, `{items, nextBefore}` out. `developerId` is new
+ * here: lets DesignsView's "mine only" toggle filter server-side, which
+ * pagination requires for correctness (a client-side filter over one page
+ * can wrongly look empty while more matching rows sit on later pages). */
+export async function fetchDesigns(
+  fetcher: Fetcher,
+  projectId: string,
+  options: { status?: string; sessionId?: string; developerId?: string; before?: number; limit?: number } = {},
+): Promise<DesignsPage> {
+  const qs = new URLSearchParams({ projectId });
+  if (options.status) qs.set("status", options.status);
+  if (options.sessionId) qs.set("sessionId", options.sessionId);
+  if (options.developerId) qs.set("developerId", options.developerId);
+  if (options.before !== undefined) qs.set("before", String(options.before));
+  if (options.limit !== undefined) qs.set("limit", String(options.limit));
+  return fetcher<DesignsPage>(`/v1/designs?${qs}`);
+}
+
+/** GET /v1/designs/:id (monitor UI load-time fix, 2026-08-29) -- resolves
+ * one design by id without pulling the whole project's design history.
+ * `groupMembers` is every other design sharing this one's `groupId` the
+ * caller is authorized to see (server-side filtered, may span projects). */
+export async function fetchDesignById(fetcher: Fetcher, id: string): Promise<{ design: DesignStatement; groupMembers: DesignStatement[] }> {
+  return fetcher<{ design: DesignStatement; groupMembers: DesignStatement[] }>(`/v1/designs/${id}`);
 }
 
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body

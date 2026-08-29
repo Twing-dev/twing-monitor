@@ -55,6 +55,34 @@ describe("ReviewsView", () => {
     expect(screen.getByText("pending", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
+  // Pagination (monitor UI load-time fix, 2026-08-29): GET /v1/reviews now
+  // returns {items, nextBefore} instead of the whole project's history --
+  // mirrors ActivityView's/DesignsView's own "load-older" test.
+  it("shows a 'Load older' button when a next page exists, and appends the next page on click", async () => {
+    const user = userEvent.setup();
+    const review = (id: string, justification: string) => ({ id, designId: `design-${id}`, projectId: "proj-1", justification, createdAt: Date.now() });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (!url.pathname.endsWith("/v1/reviews")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        const before = url.searchParams.get("before");
+        if (!before) return new Response(JSON.stringify({ items: [review("r-new", "The newer review")], nextBefore: 500 }), { status: 200 });
+        return new Response(JSON.stringify({ items: [review("r-old", "The older review")] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("The newer review")).toBeInTheDocument());
+    expect(screen.queryByText("The older review")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load older" }));
+
+    await waitFor(() => expect(screen.getByText("The older review")).toBeInTheDocument());
+    expect(screen.getByText("The newer review")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older" })).not.toBeInTheDocument();
+  });
+
   // §17.10: deciding a review is admin-gated server-side -- the UI must not
   // even offer the buttons to a plain member, who'd just get a 403.
   it("does not show Approve/Reject to a non-admin (canDecide: false)", async () => {

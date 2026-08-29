@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApiFetch } from "../api/client.js";
-import { fetchDesigns } from "../api/designs.js";
+import { ApiError } from "../api/client.js";
+import { fetchDesigns, fetchDesignById } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import type { ActivityEvent, AlignmentThread, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
-import { AsyncSection } from "../components/AsyncSection.js";
+import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
@@ -77,6 +78,21 @@ function latestCheckByDesign(events: ActivityEvent[]): Map<string, { verdict: st
  * so old rows keep matching too. */
 function findSemanticOverlapThread(threads: AlignmentThread[], designId: string): AlignmentThread | undefined {
   return threads.find((t) => resolveAlignmentBucket(t.category) === "llm_divergence" && (t.designId === designId || t.initiatingDesignId === designId));
+}
+
+/** The counterpart-design ids a set of members' open semantic-overlap
+ * threads actually reference -- what `useOnDemandDesigns` below fetches,
+ * bounded to whatever's currently on screen (a page of cards, or a single
+ * focused design) rather than the whole project's design history. */
+function counterpartIdsForOverlaps(members: DesignStatement[], openThreads: AlignmentThread[]): string[] {
+  const ids: string[] = [];
+  for (const member of members) {
+    const thread = findSemanticOverlapThread(openThreads, member.id);
+    if (!thread) continue;
+    const counterpartId = thread.initiatingDesignId === member.id ? thread.designId : thread.initiatingDesignId;
+    if (counterpartId) ids.push(counterpartId);
+  }
+  return ids;
 }
 
 function designFlags(
@@ -210,6 +226,9 @@ function DesignCardBody({
   );
 }
 
+type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
+type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
+
 export function DesignsView({
   projectIds,
   projectsById,
@@ -235,6 +254,8 @@ export function DesignsView({
   // design_checked fetch (a fresh check may have run) need to reflect it,
   // and neither has any other way to know a mutation happened elsewhere.
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pages, setPages] = useState<Record<string, ProjectPage>>({});
+  const [listState, setListState] = useState<LoadState>({ status: "loading" });
 
   function jumpToDesign(designId: string) {
     setStatus("all");
@@ -242,109 +263,176 @@ export function DesignsView({
     setExpandedId(designId);
   }
 
-  // Every fetch below fans out across `projectIds` and merges -- a single
-  // repo is just the `projectIds.length === 1` case of the same
-  // `Promise.all`. Per-project results are individually sorted
-  // newest-first; interleaving several already-sorted lists isn't itself
-  // sorted, so each merge re-sorts before use.
-  const state = useAsyncData(
-    () =>
-      Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, status === "all" ? undefined : status))).then((lists) =>
-        lists.flat().sort((a, b) => b.lastActivityAt - a.lastActivityAt),
-      ),
-    [apiFetch, projectIds.join(","), status, refreshKey],
-  );
+  const projectIdsKey = projectIds.join(",");
+  // "Mine only" moved server-side (2026-08-29, alongside pagination): a
+  // client-side post-filter over one page can wrongly look empty while more
+  // matching rows sit on later pages. `auth` is always defined here (the
+  // public /observe route uses a real, if synthetic, `developerId:
+  // "public-viewer"` identity -- ObserveContext.tsx -- rather than leaving
+  // `auth` unset), so checking "mine only" there filters to that identity
+  // and correctly shows nothing, same as the pre-pagination client-side
+  // filter did.
+  const developerId = mineOnly ? auth?.developerId : undefined;
+
+  // Paginated (monitor UI load-time fix, 2026-08-29): fans out across every
+  // selected repo, keeping one page/cursor per project -- same shape
+  // ActivityView already established for the same reason. Per-project
+  // results are individually newest-first; interleaving several
+  // already-sorted lists isn't itself sorted, so the merge below re-sorts.
+  const loadFirstPage = useCallback(() => {
+    let cancelled = false;
+    setListState({ status: "loading" });
+    Promise.all(
+      projectIds.map((pid) => fetchDesigns(apiFetch, pid, { status: status === "all" ? undefined : status, developerId }).then((page) => [pid, page] as const)),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
+        setListState({ status: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFetch, projectIdsKey, status, developerId, refreshKey]);
+
+  useEffect(() => loadFirstPage(), [loadFirstPage]);
+
+  async function loadMore() {
+    const toFetch = projectIds.filter((pid) => pages[pid]?.nextBefore !== undefined);
+    if (toFetch.length === 0) return;
+    try {
+      const results = await Promise.all(
+        toFetch.map((pid) =>
+          fetchDesigns(apiFetch, pid, { status: status === "all" ? undefined : status, developerId, before: pages[pid].nextBefore }).then((page) => [pid, page] as const),
+        ),
+      );
+      setPages((prev) => {
+        const next = { ...prev };
+        for (const [pid, page] of results) {
+          next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        }
+        return next;
+      });
+    } catch (err) {
+      setListState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const items = useMemo(() => Object.values(pages).flatMap((p) => p.items).sort((a, b) => b.lastActivityAt - a.lastActivityAt), [pages]);
+  const hasMore = Object.values(pages).some((p) => p.nextBefore !== undefined);
+  const groups = useMemo(() => dedupeDesignsByGroup(items), [items]);
+
   const checksState = useAsyncData(
     () =>
       Promise.all(projectIds.map((pid) => fetchActivity(apiFetch, pid, { kinds: ["design_checked"], limit: 200 }))).then((pages) =>
         pages.flatMap((p) => p.items).sort((a, b) => b.ts - a.ts),
       ),
-    [apiFetch, projectIds.join(","), refreshKey],
+    [apiFetch, projectIdsKey, refreshKey],
   );
   // Bonus, list-wide context -- same "don't block the primary render on it"
   // stance as DesignDetail's own LatestCheckOutcome: an empty map just means
   // no card gets a conflict chip, not a loading/error state of its own.
   const latestChecks = checksState.status === "ready" ? latestCheckByDesign(checksState.data) : new Map<string, { verdict: string }>();
   const openThreadsState = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, "open"))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(","), refreshKey],
+    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, { status: "open" }))).then((pages) => pages.flatMap((p) => p.items)),
+    [apiFetch, projectIdsKey, refreshKey],
   );
   const openThreads = openThreadsState.status === "ready" ? openThreadsState.data : [];
-  // Every status, not just the current filter -- a semantic overlap's
-  // counterpart design may not itself match the active status/mine-only
-  // filter, and jumpToDesign needs its id to resolve to something real
-  // regardless. Also doubles as the focused-page's own data source below
-  // (a pasted link names a design regardless of the current filter, or of
-  // any filter at all).
-  const allDesignsState = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid))).then((lists) => lists.flat()),
-    [apiFetch, projectIds.join(","), refreshKey],
-  );
-  const designsById: Record<string, DesignStatement> = allDesignsState.status === "ready" ? Object.fromEntries(allDesignsState.data.map((d) => [d.id, d])) : {};
 
   const showRepoBadge = projectIds.length > 1;
 
   // A copy-link URL (or a jump from another tab) names one specific design
-  // to look at -- show only that, not the whole filtered list with it
-  // expanded somewhere inside, which for anyone but the most recently
-  // active design meant landing on the list and having to scroll to find
-  // it. Independent of `status`/`mineOnly` entirely, since this bypasses
-  // the filtered list -- source is `allDesignsState`, every status.
+  // to look at -- fetched directly by id (`GET /v1/designs/:id`,
+  // 2026-08-29) rather than pulled out of the whole project's unbounded
+  // design list, which for anyone but the most recently active design
+  // meant landing on the list and having to scroll to find it. A 404
+  // resolves to `undefined` (not an error) so the "couldn't be found" copy
+  // below still renders the same way it always has.
+  const focusState = useAsyncData(
+    () =>
+      !focusDesignId
+        ? Promise.resolve(undefined)
+        : fetchDesignById(apiFetch, focusDesignId).catch((err: unknown) => {
+            if (err instanceof ApiError && err.status === 404) return undefined;
+            throw err;
+          }),
+    [apiFetch, focusDesignId, refreshKey],
+  );
+  const focusGroupMembers = useMemo(() => {
+    if (focusState.status !== "ready" || !focusState.data) return undefined;
+    const { design, groupMembers } = focusState.data;
+    return [design, ...groupMembers].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }, [focusState]);
+
+  // Bounded on-demand fetch of exactly the counterpart designs referenced
+  // by a semantic-overlap thread for whatever's actually on screen right
+  // now (the focused design's siblings, or the current page's cards) --
+  // replaces the old unbounded "fetch every design in the project."
+  const neededCounterpartIds = useMemo(
+    () => counterpartIdsForOverlaps(focusDesignId ? (focusGroupMembers ?? []) : groups.flatMap((g) => g.members), openThreads),
+    [focusDesignId, focusGroupMembers, groups, openThreads],
+  );
+  const designsById = useOnDemandDesigns(apiFetch, neededCounterpartIds);
+
   if (focusDesignId) {
     return (
       <div className="list-view">
-        <AsyncSection
-          state={allDesignsState}
-          isEmpty={() => false}
-          emptyMessage=""
-          render={(items) => {
-            const group = dedupeDesignsByGroup(items).find((g) => g.members.some((m) => m.id === focusDesignId));
-            return (
-              <div className="focus-page">
-                <button type="button" className="link-button back-link" onClick={onClearFocus}>
-                  ← Back to all designs
-                </button>
-                {group ? (
-                  (() => {
-                    const primary = group.members[0];
-                    const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
-                    return (
-                      <div className="design-card expanded">
-                        <div className="design-card-header">
-                          <div className="design-card-toggle has-copy-link">
-                            <DesignCardHeaderContent
-                              primary={primary}
-                              members={group.members}
-                              showRepoBadge={showRepoBadge}
-                              projectsById={projectsById}
-                              anyUnresolvedWarning={anyUnresolvedWarning}
-                              anySemanticOverlap={anySemanticOverlap}
-                            />
-                          </div>
-                          <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
-                        </div>
-                        <DesignCardBody
+        {focusState.status === "loading" && <p className="empty-state">Loading…</p>}
+        {focusState.status === "error" && (
+          <p className="empty-state error" role="alert">
+            Couldn't load: {focusState.message}
+          </p>
+        )}
+        {focusState.status === "ready" && (
+          <div className="focus-page">
+            <button type="button" className="link-button back-link" onClick={onClearFocus}>
+              ← Back to all designs
+            </button>
+            {focusGroupMembers ? (
+              (() => {
+                const primary = focusGroupMembers[0];
+                const group: DesignGroup = { key: primary.groupId ?? primary.id, members: focusGroupMembers, lastActivityAt: primary.lastActivityAt };
+                const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
+                return (
+                  <div className="design-card expanded">
+                    <div className="design-card-header">
+                      <div className="design-card-toggle has-copy-link">
+                        <DesignCardHeaderContent
                           primary={primary}
                           members={group.members}
                           showRepoBadge={showRepoBadge}
                           projectsById={projectsById}
-                          openThreads={openThreads}
-                          designsById={designsById}
-                          onResolved={() => setRefreshKey((k) => k + 1)}
-                          onOpenDesign={jumpToDesign}
-                          onOpenTab={onOpenTab}
-                          readOnly={readOnly}
+                          anyUnresolvedWarning={anyUnresolvedWarning}
+                          anySemanticOverlap={anySemanticOverlap}
                         />
                       </div>
-                    );
-                  })()
-                ) : (
-                  <p className="empty-state">That design couldn't be found -- it may have been removed, or you may not have access.</p>
-                )}
-              </div>
-            );
-          }}
-        />
+                      <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
+                    </div>
+                    <DesignCardBody
+                      primary={primary}
+                      members={group.members}
+                      showRepoBadge={showRepoBadge}
+                      projectsById={projectsById}
+                      openThreads={openThreads}
+                      designsById={designsById}
+                      onResolved={() => setRefreshKey((k) => k + 1)}
+                      onOpenDesign={jumpToDesign}
+                      onOpenTab={onOpenTab}
+                      readOnly={readOnly}
+                    />
+                  </div>
+                );
+              })()
+            ) : (
+              <p className="empty-state">That design couldn't be found -- it may have been removed, or you may not have access.</p>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -365,59 +453,65 @@ export function DesignsView({
         </label>
       </div>
 
-      <AsyncSection
-        state={state}
-        isEmpty={(items) => items.filter((d) => !mineOnly || d.developerId === auth?.developerId).length === 0}
-        emptyMessage="No designs match this filter."
-        render={(items) => {
-          const groups = dedupeDesignsByGroup(items.filter((d) => !mineOnly || d.developerId === auth?.developerId));
-          return (
-            <ul className="card-list">
-              {groups.map((group) => {
-                const primary = group.members[0];
-                const expanded = group.members.some((m) => m.id === expandedId);
-                const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
-                return (
-                  <li key={group.key} className={`design-card${expanded ? " expanded" : ""}`}>
-                    <div className="design-card-header">
-                      <button
-                        type="button"
-                        className="design-card-toggle has-copy-link"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedId(expanded ? null : primary.id)}
-                      >
-                        <DesignCardHeaderContent
-                          primary={primary}
-                          members={group.members}
-                          showRepoBadge={showRepoBadge}
-                          projectsById={projectsById}
-                          anyUnresolvedWarning={anyUnresolvedWarning}
-                          anySemanticOverlap={anySemanticOverlap}
-                        />
-                      </button>
-                      <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
-                    </div>
-                    {expanded && (
-                      <DesignCardBody
+      {listState.status === "loading" && <p className="empty-state">Loading…</p>}
+      {listState.status === "error" && (
+        <p className="empty-state error" role="alert">
+          Couldn't load: {listState.message}
+        </p>
+      )}
+      {listState.status === "ready" && groups.length === 0 && <p className="empty-state">No designs match this filter.</p>}
+      {listState.status === "ready" && groups.length > 0 && (
+        <>
+          <ul className="card-list">
+            {groups.map((group) => {
+              const primary = group.members[0];
+              const expanded = group.members.some((m) => m.id === expandedId);
+              const { anyUnresolvedWarning, anySemanticOverlap } = designFlags(group, latestChecks, openThreads);
+              return (
+                <li key={group.key} className={`design-card${expanded ? " expanded" : ""}`}>
+                  <div className="design-card-header">
+                    <button
+                      type="button"
+                      className="design-card-toggle has-copy-link"
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedId(expanded ? null : primary.id)}
+                    >
+                      <DesignCardHeaderContent
                         primary={primary}
                         members={group.members}
                         showRepoBadge={showRepoBadge}
                         projectsById={projectsById}
-                        openThreads={openThreads}
-                        designsById={designsById}
-                        onResolved={() => setRefreshKey((k) => k + 1)}
-                        onOpenDesign={jumpToDesign}
-                        onOpenTab={onOpenTab}
-                        readOnly={readOnly}
+                        anyUnresolvedWarning={anyUnresolvedWarning}
+                        anySemanticOverlap={anySemanticOverlap}
                       />
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          );
-        }}
-      />
+                    </button>
+                    <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
+                  </div>
+                  {expanded && (
+                    <DesignCardBody
+                      primary={primary}
+                      members={group.members}
+                      showRepoBadge={showRepoBadge}
+                      projectsById={projectsById}
+                      openThreads={openThreads}
+                      designsById={designsById}
+                      onResolved={() => setRefreshKey((k) => k + 1)}
+                      onOpenDesign={jumpToDesign}
+                      onOpenTab={onOpenTab}
+                      readOnly={readOnly}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {hasMore && (
+            <button type="button" className="load-more-button" onClick={loadMore}>
+              Load older
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -89,6 +89,15 @@ const LEGACY_THREAD = {
   lastActivityAt: Date.now(),
 };
 
+// ThreadDetail's initiatingDesign/otherDesign links resolve via the
+// on-demand GET /v1/designs/:id fetch now (useOnDemandDesigns,
+// 2026-08-29), not the bulk list -- this is the mock response for that
+// route, distinct from `/v1/designs?` (the list) below.
+function designByIdResponse(id: string): Response {
+  const design = DESIGNS_ITEMS.find((d) => d.id === id);
+  return design ? new Response(JSON.stringify({ design, groupMembers: [] }), { status: 200 }) : new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+}
+
 const DESIGNS_ITEMS = [
   { id: "design-alice-1", projectId: "proj-1", developerId: "alice@example.com", sessionId: "s1", status: "open", createdAt: Date.now(), summary: "Add API-key rate limiter", creates: [], touches: [], dependsOn: [], ttlMs: 1, scopeVersion: 1, lastActivityAt: Date.now(), justifiedConstraintIds: [], justifiedOverlaps: [] },
   { id: "design-bob-1", projectId: "proj-1", developerId: "bob@example.com", sessionId: "s2", status: "open", createdAt: Date.now(), summary: "Add exponential backoff to RetryPolicy", creates: [], touches: [], dependsOn: [], ttlMs: 1, scopeVersion: 1, lastActivityAt: Date.now(), justifiedConstraintIds: [], justifiedOverlaps: [] },
@@ -164,6 +173,45 @@ describe("AlignmentThreadsView", () => {
     expect(screen.queryByText("Duplication", { selector: ".status-badge" })).not.toBeInTheDocument();
   });
 
+  // Pagination (monitor UI load-time fix, 2026-08-29): GET /v1/alignment-threads
+  // now returns {items, nextBefore} instead of the whole project's history --
+  // mirrors ActivityView's/DesignsView's own "load-older" test.
+  it("shows a 'Load older' button when a next page exists, and appends the next page on click", async () => {
+    const user = userEvent.setup();
+    const thread = (id: string, systemDescription: string) => ({
+      id,
+      projectId: "proj-1",
+      symbolId: "",
+      symbolIds: [],
+      developerId: "alice@example.com",
+      otherDeveloperId: "bob@example.com",
+      status: "open" as const,
+      systemDescription,
+      openedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (!url.pathname.endsWith("/v1/alignment-threads")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        const before = url.searchParams.get("before");
+        if (!before) return new Response(JSON.stringify({ items: [thread("t-new", "The newer thread")], nextBefore: 500 }), { status: 200 });
+        return new Response(JSON.stringify({ items: [thread("t-old", "The older thread")] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("The newer thread")).toBeInTheDocument());
+    expect(screen.queryByText("The older thread")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load older" }));
+
+    await waitFor(() => expect(screen.getByText("The older thread")).toBeInTheDocument());
+    expect(screen.getByText("The newer thread")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older" })).not.toBeInTheDocument();
+  });
+
   it("a claims-path thread with no design behind the initiating edit shows an honest note, links only the other party's design, and lists the overlapping file", async () => {
     const user = userEvent.setup();
     const onOpenDesign = vi.fn();
@@ -172,6 +220,8 @@ describe("AlignmentThreadsView", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        const designIdMatch = url.match(/\/v1\/designs\/([^/?]+)$/);
+        if (designIdMatch) return designByIdResponse(designIdMatch[1]);
         if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_NO_DESIGN] }), { status: 200 });
         if (url.includes("/v1/alignment-threads/thread-1")) {
           return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_NO_DESIGN, messages: [] }), { status: 200 });
@@ -203,6 +253,8 @@ describe("AlignmentThreadsView", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        const designIdMatch = url.match(/\/v1\/designs\/([^/?]+)$/);
+        if (designIdMatch) return designByIdResponse(designIdMatch[1]);
         if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [CLAIMS_PATH_THREAD_WITH_DESIGN] }), { status: 200 });
         if (url.includes("/v1/alignment-threads/thread-3")) {
           return new Response(JSON.stringify({ thread: CLAIMS_PATH_THREAD_WITH_DESIGN, messages: [] }), { status: 200 });
@@ -232,6 +284,8 @@ describe("AlignmentThreadsView", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: DESIGNS_ITEMS }), { status: 200 });
+        const designIdMatch = url.match(/\/v1\/designs\/([^/?]+)$/);
+        if (designIdMatch) return designByIdResponse(designIdMatch[1]);
         if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: [SEMANTIC_PATH_THREAD] }), { status: 200 });
         if (url.includes("/v1/alignment-threads/thread-2")) {
           return new Response(JSON.stringify({ thread: SEMANTIC_PATH_THREAD, messages: [] }), { status: 200 });

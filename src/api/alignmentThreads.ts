@@ -1,10 +1,24 @@
 import type { AlignmentThread, AlignmentMessage } from "./types.js";
 import type { Fetcher } from "./client.js";
 
-export async function fetchAlignmentThreads(fetcher: Fetcher, projectId: string, status?: "open" | "closed" | "dormant"): Promise<AlignmentThread[]> {
-  const qs = new URLSearchParams({ projectId, ...(status ? { status } : {}) });
-  const body = await fetcher<{ items: AlignmentThread[] }>(`/v1/alignment-threads?${qs}`);
-  return body.items;
+export interface AlignmentThreadsPage {
+  items: AlignmentThread[];
+  nextBefore?: number;
+}
+
+/** Paginated (monitor UI load-time fix, 2026-08-29): mirrors
+ * api/activity.ts's fetchActivity/ActivityPage shape. `nextBefore` cursors
+ * on the server's COALESCE(lastActivityAt, openedAt) ordering. */
+export async function fetchAlignmentThreads(
+  fetcher: Fetcher,
+  projectId: string,
+  options: { status?: "open" | "closed" | "dormant"; before?: number; limit?: number } = {},
+): Promise<AlignmentThreadsPage> {
+  const qs = new URLSearchParams({ projectId });
+  if (options.status) qs.set("status", options.status);
+  if (options.before !== undefined) qs.set("before", String(options.before));
+  if (options.limit !== undefined) qs.set("limit", String(options.limit));
+  return fetcher<AlignmentThreadsPage>(`/v1/alignment-threads?${qs}`);
 }
 
 export async function fetchAlignmentThread(fetcher: Fetcher, threadId: string): Promise<{ thread: AlignmentThread; messages: AlignmentMessage[] }> {

@@ -154,6 +154,18 @@ button {
   cursor: default;
 }
 
+.login-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  cursor: pointer;
+}
+
+.login-checkbox input {
+  margin: 0;
+}
+
 .login-error {
   margin: 8px 0 0;
   padding: 10px 12px;

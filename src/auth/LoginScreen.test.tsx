@@ -57,4 +57,37 @@ describe("LoginScreen", () => {
     const link = screen.getByRole("link", { name: /observe twing getting built/i });
     expect(link).toHaveAttribute("href", "/observe");
   });
+
+  // §17 Phase 4: "this server has no auth" toggle
+  it("no-auth mode: a Developer ID (no PAT) signs in via a self-declared header", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ developerId: "alice@example.com", orgs: [], projects: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderLogin();
+
+    await user.click(screen.getByRole("checkbox", { name: /this server has no auth/i }));
+    await user.type(screen.getByLabelText("Developer ID"), "alice@example.com");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(screen.getByTestId("auth-state")).not.toHaveTextContent("signed-out"));
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url.endsWith("/v1/auth/whoami")).toBe(true);
+    const headers = new Headers(init.headers);
+    expect(headers.get("x-twing-developer-id")).toBe("alice@example.com");
+    expect(headers.get("authorization")).toBeNull();
+  });
+
+  it("no-auth mode: a 401 means the server actually needs a PAT, distinct from a rejected-token error", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })));
+    renderLogin();
+
+    await user.click(screen.getByRole("checkbox", { name: /this server has no auth/i }));
+    await user.type(screen.getByLabelText("Developer ID"), "alice@example.com");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/doesn't look like it's running in no-auth mode/i));
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/rejected/i);
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("signed-out");
+  });
 });

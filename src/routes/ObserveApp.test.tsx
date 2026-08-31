@@ -17,12 +17,14 @@ describe("ObserveApp", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/v1/projects")) {
-        // ObserveContext's fixed authToken: "" -- the same "no real token"
-        // wire shape apiFetch always sends as a plain empty bearer value.
-        // (Headers trims the trailing space off "Bearer " per the Fetch
-        // spec, so the stored value reads as the bare word.)
+        // ObserveContext's fixed authToken: "" -- apiFetch (§17 Phase 4)
+        // omits the authorization header entirely for an empty token rather
+        // than sending an empty bearer value. The coordinator's
+        // public-viewer branch treats a missing header identically to an
+        // empty one either way (both strip to token === ""), so this is
+        // still the same "no real token" identity server-side.
         const headers = new Headers(init?.headers);
-        expect(headers.get("authorization")).toBe("Bearer");
+        expect(headers.get("authorization")).toBeNull();
         return new Response(JSON.stringify({ items: [project] }), { status: 200 });
       }
       return new Response(JSON.stringify({ items: [] }), { status: 200 });

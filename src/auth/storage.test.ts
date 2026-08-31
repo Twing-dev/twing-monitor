@@ -26,4 +26,9 @@ describe("auth/storage", () => {
     localStorage.setItem("twing-monitor:auth", "not json");
     expect(loadStoredAuth()).toBeNull();
   });
+
+  it("an empty-string authToken (a no-auth-mode session) still counts as signed in", () => {
+    saveAuth("https://coordination-server.twing.dev", "", "alice@example.com");
+    expect(loadStoredAuth()).toEqual({ serverUrl: "https://coordination-server.twing.dev", authToken: "", developerId: "alice@example.com" });
+  });
 });

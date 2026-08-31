@@ -16,7 +16,30 @@ describe("apiFetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://example.com/v1/projects");
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer my-token");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer my-token");
+  });
+
+  // §17 Phase 4: `--no-auth` coordinators
+  it("omits the authorization header entirely when authToken is empty, rather than sending an empty bearer", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("https://example.com", "", "/v1/projects");
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new Headers(init.headers).get("authorization")).toBeNull();
+  });
+
+  it("attaches x-twing-developer-id when a developerId is passed, alongside a real token too", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("https://example.com", "my-token", "/v1/projects", {}, "alice@example.com");
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(headers.get("x-twing-developer-id")).toBe("alice@example.com");
+    expect(headers.get("authorization")).toBe("Bearer my-token");
   });
 
   it("throws ApiError carrying the status and the server's own error field", async () => {

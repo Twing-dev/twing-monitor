@@ -40,8 +40,12 @@ export function loadStoredAuth(): StoredAuth | null {
   const parsed = readRaw();
   if (!parsed?.activeServerUrl) return null;
   const entry = parsed.servers?.[parsed.activeServerUrl];
-  if (!entry?.authToken) return null;
-  return { serverUrl: parsed.activeServerUrl, authToken: entry.authToken, developerId: entry.developerId };
+  // Checking the entry's existence, not `authToken`'s truthiness -- a
+  // no-auth-mode session (LoginScreen's "this server has no auth" toggle)
+  // stores `authToken: ""` with a self-declared `developerId` instead, and
+  // that's a real signed-in session, not a signed-out one.
+  if (!entry) return null;
+  return { serverUrl: parsed.activeServerUrl, authToken: entry.authToken ?? "", developerId: entry.developerId };
 }
 
 /** Persists across browser restarts (localStorage, not sessionStorage) --

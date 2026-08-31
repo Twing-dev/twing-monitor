@@ -12,6 +12,16 @@ export function LoginScreen() {
   const { login } = useAuth();
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [token, setToken] = useState("");
+  // §17 Phase 4: a coordinator started with `twing serve --no-auth` has no
+  // PATs at all -- every request instead carries a self-declared
+  // `X-Twing-Developer-Id` header (no verification, attribution only; see
+  // apiFetch's `developerId` param). Explicit and unchecked by default,
+  // never auto-detected/probed for -- mirrors `twing init --no-auth`'s own
+  // philosophy (`@twing/core`'s `ServerAuth.noAuth`), since there's no
+  // endpoint here that could tell "requires a PAT" apart from "doesn't"
+  // without just trying one and seeing what comes back.
+  const [noAuth, setNoAuth] = useState(false);
+  const [developerId, setDeveloperId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -19,7 +29,8 @@ export function LoginScreen() {
     e.preventDefault();
     const url = normalizeServerUrl(serverUrl);
     const pat = token.trim();
-    if (!url || !pat) return;
+    const devId = developerId.trim();
+    if (!url || (noAuth ? !devId : !pat)) return;
 
     setChecking(true);
     setError(null);
@@ -28,11 +39,20 @@ export function LoginScreen() {
       // saving a bad token would otherwise land the user on RepoListView's
       // own 401 error state instead of a clear "that didn't work" message
       // right here. Also doubles as how developerId gets captured (storage.ts)
-      // -- one round trip, not a separate whoami call downstream.
-      const identity = await apiFetch<{ developerId: string }>(url, pat, "/v1/auth/whoami");
-      login(url, pat, identity.developerId);
+      // -- one round trip, not a separate whoami call downstream. In
+      // no-auth mode this doubles as confirmation the server actually *is*
+      // running without auth (see the 401 branch below) -- the self-declared
+      // devId travels as a header, never as `pat`, which stays "".
+      const identity = await apiFetch<{ developerId: string }>(url, noAuth ? "" : pat, "/v1/auth/whoami", {}, noAuth ? devId : undefined);
+      login(url, noAuth ? "" : pat, identity.developerId);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      if (err instanceof ApiError && err.status === 401 && noAuth) {
+        // The server didn't accept the (missing) bearer token -- meaning it
+        // isn't actually running in no-auth mode, unlike what the checkbox
+        // above claims. Distinct from the "rejected PAT" message below: no
+        // token was even sent, so nothing was "rejected" by content.
+        setError("This server requires a personal access token -- it doesn't look like it's running in no-auth mode. Uncheck the box above and paste your PAT instead.");
+      } else if (err instanceof ApiError && err.status === 401) {
         setError("That token was rejected. Check you copied the whole PAT, and that it's for this server.");
       } else if (err instanceof ApiError) {
         setError(`Server responded with an error: ${err.message}`);
@@ -44,6 +64,16 @@ export function LoginScreen() {
     }
   }
 
+  function handleNoAuthToggle(next: boolean) {
+    // Switching modes clears both the error and whichever field is about to
+    // be hidden -- a stale PAT/devId from the other mode shouldn't silently
+    // ride along into the next submit attempt.
+    setNoAuth(next);
+    setError(null);
+    if (next) setToken("");
+    else setDeveloperId("");
+  }
+
   return (
     <div className="login-screen">
       <div className="login-card">
@@ -53,16 +83,38 @@ export function LoginScreen() {
           <label htmlFor="server-url">Coordinator URL</label>
           <input id="server-url" type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} spellCheck={false} autoCapitalize="off" />
 
-          <label htmlFor="pat">Personal access token</label>
-          <input
-            id="pat"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="paste your PAT"
-            spellCheck={false}
-            autoCapitalize="off"
-          />
+          {noAuth ? (
+            <>
+              <label htmlFor="developer-id">Developer ID</label>
+              <input
+                id="developer-id"
+                type="text"
+                value={developerId}
+                onChange={(e) => setDeveloperId(e.target.value)}
+                placeholder="you@example.com -- self-declared, not verified"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </>
+          ) : (
+            <>
+              <label htmlFor="pat">Personal access token</label>
+              <input
+                id="pat"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="paste your PAT"
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+            </>
+          )}
+
+          <label className="login-checkbox">
+            <input type="checkbox" checked={noAuth} onChange={(e) => handleNoAuthToggle(e.target.checked)} />
+            This server has no auth
+          </label>
 
           {error && (
             <p className="login-error" role="alert">
@@ -70,7 +122,7 @@ export function LoginScreen() {
             </p>
           )}
 
-          <button type="submit" disabled={checking || !token.trim() || !serverUrl.trim()}>
+          <button type="submit" disabled={checking || !serverUrl.trim() || (noAuth ? !developerId.trim() : !token.trim())}>
             {checking ? "Signing in…" : "Sign in"}
           </button>
         </form>

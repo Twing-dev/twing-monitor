@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { apiFetch, ApiError } from "../api/client.js";
 import { useAuth } from "./useAuth.js";
+import { startDeviceFlow, completeDeviceFlow, type DeviceCode } from "./githubSignIn.js";
 
 const DEFAULT_SERVER_URL = import.meta.env.VITE_DEFAULT_SERVER_URL ?? "https://coordination-server.twing.dev";
 
@@ -24,6 +25,37 @@ export function LoginScreen() {
   const [developerId, setDeveloperId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  // The GitHub device flow, once started: the code to type and where. Null
+  // until someone asks for it, so the default view stays a plain sign-in.
+  const [device, setDevice] = useState<DeviceCode | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // A flow the user walked away from must stop polling; otherwise an
+  // unmounted screen keeps talking to GitHub for the full fifteen minutes.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  async function handleGithubSignIn() {
+    const url = normalizeServerUrl(serverUrl);
+    if (!url) return;
+    setChecking(true);
+    setError(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const started = await startDeviceFlow(url);
+      setDevice(started);
+      const { token: pat, developerId: id } = await completeDeviceFlow(url, started, controller.signal);
+      login(url, pat, id);
+    } catch (err) {
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "GitHub sign-in failed");
+    } finally {
+      if (!controller.signal.aborted) {
+        setChecking(false);
+        setDevice(null);
+      }
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -78,7 +110,36 @@ export function LoginScreen() {
     <div className="login-screen">
       <div className="login-card">
         <h1>twing-monitor</h1>
-        <p className="login-subtitle">Sign in with a personal access token to see your repos, designs, activity, and reviews.</p>
+        <p className="login-subtitle">Sign in to see your repos, designs, activity, and reviews.</p>
+
+        {/* GitHub first: it yields the *same* identity the CLI uses, whereas
+            a pasted PAT is only as consistent as whoever pasted it. The PAT
+            form below stays for people without GitHub, and for `--no-auth`
+            coordinators. */}
+        {!noAuth && (
+          <div className="login-github">
+            {device ? (
+              <div className="login-device" role="status">
+                <p>
+                  Enter this code at{" "}
+                  <a href={device.verificationUri} target="_blank" rel="noreferrer noopener">
+                    {device.verificationUri.replace(/^https?:\/\//, "")}
+                  </a>
+                </p>
+                <p className="login-device-code">
+                  <code>{device.userCode}</code>
+                </p>
+                <p className="login-device-hint">Waiting for you to approve on GitHub…</p>
+              </div>
+            ) : (
+              <button type="button" onClick={() => void handleGithubSignIn()} disabled={checking || !serverUrl.trim()}>
+                Continue with GitHub
+              </button>
+            )}
+            <p className="login-or">or</p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <label htmlFor="server-url">Coordinator URL</label>
           <input id="server-url" type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} spellCheck={false} autoCapitalize="off" />
@@ -127,8 +188,8 @@ export function LoginScreen() {
           </button>
         </form>
         <p className="login-hint">
-          No token yet? Run <code>twing init</code> in your repo, then <code>twing servers --show-token</code> to get the server URL and token to paste
-          above.
+          Continue with GitHub signs you in as the same identity your CLI uses. A token is only needed if you don\'t use GitHub -- run{" "}
+          <code>twing init</code> in your repo, then <code>twing servers --show-token</code> to get one.
         </p>
         {/* Public "observe twing getting built" demo (2026-08-28): a plain
             link, not a button/action -- /observe is its own unauthenticated

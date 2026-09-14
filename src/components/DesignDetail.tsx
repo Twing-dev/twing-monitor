@@ -491,7 +491,16 @@ export function DesignDetail({
       {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />}
       <ResolveActions design={design} onResolved={onResolved} readOnly={readOnly} />
 
-      {design.rawPlanExcerpt && (
+      {/* Suppressed once the declaration itself survived the round trip, for
+          the same reason the path lists below are. `rawPlanText` is only a
+          *carrier*: `design register --from` sends it so a template still
+          reaches a coordinator too old to have a `changes` column. When that
+          column did its job, the raw YAML is the same items over again,
+          unstructured and unlinked to claims -- so the structured rendering
+          supersedes it rather than sitting above it. An ExitPlanMode
+          registration has prose here and no `changes` at all, and that is the
+          case this block still exists for. */}
+      {design.rawPlanExcerpt && !hasStructuredChanges(design.changes) && (
         <div className="detail-field">
           <h3>Plan text</h3>
           <pre className="plan-text">{design.rawPlanExcerpt}</pre>

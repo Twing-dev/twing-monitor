@@ -1094,6 +1094,268 @@ button {
   font-size: 0.85rem;
 }
 
+/* One row per kind, every kind, closed by default. The whole point is that
+   a reader sees "Database — no changes" without opening anything; the rows
+   with content are the only ones that reward a click. */
+.kind-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.kind-section + .kind-section {
+  border-top: 1px solid var(--border);
+}
+
+.kind-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  text-align: left;
+  font: inherit;
+  background: none;
+  border: 0;
+  color: inherit;
+}
+
+.kind-toggle {
+  cursor: pointer;
+}
+
+.kind-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.kind-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.kind-caret {
+  flex: none;
+  width: 10px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.kind-section.open .kind-caret {
+  transform: rotate(90deg);
+}
+
+.kind-label {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.kind-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* An empty kind is stated, not hidden -- but quietly, so the rows that do
+   have content still carry the eye. */
+.kind-empty .kind-label,
+.kind-count-none {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.kind-hint {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-transform: lowercase;
+}
+
+.kind-body {
+  padding: 4px 14px 14px 34px;
+}
+
+.kind-description {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.kind-count-ok {
+  color: var(--good);
+}
+
+.kind-count-drift {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.conformance {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+}
+
+.conformance-drift {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+}
+
+.conformance-toggle {
+  padding: 11px 14px;
+}
+
+/* Structured design changes (2026-09). A row reads verb -> target ->
+   intent, so the verb chip is fixed-width: the targets then start on a
+   common left edge and the list scans vertically instead of zig-zagging
+   with each action's word length. */
+.change-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.change-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.change-action {
+  flex: none;
+  width: 62px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 0;
+  border-radius: 5px;
+  background: var(--border);
+  color: var(--text-dim);
+}
+
+/* Colour carries the one distinction worth seeing at a glance: whether
+   behaviour is supposed to change. add/remove are the loud ends,
+   modify/rewrite the ordinary middle, and rename/move get the accent
+   because they assert behaviour did NOT change -- the claim most worth
+   checking against the diff. */
+.action-add {
+  background: var(--good-bg);
+  color: var(--good);
+}
+.action-remove {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.action-modify,
+.action-rewrite {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.action-rename,
+.action-move {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.change-target {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+/* The path is context, the symbol is the subject -- within a section the
+   directory prefix repeats on every row and is the least informative part
+   of the line. */
+.change-path {
+  color: var(--text-dim);
+}
+
+.change-symbol {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.change-symbol::before {
+  content: "::";
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.change-from {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.change-conformance {
+  margin-left: auto;
+  color: var(--good);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.change-intent {
+  margin: 2px 0 0;
+  padding-left: 70px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 620px) {
+  .change-intent {
+    padding-left: 0;
+  }
+}
+
+.conformance-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.undeclared-list {
+  margin-top: 8px;
+}
+
+.undeclared-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.undeclared-note {
+  color: var(--warning);
+  font-size: 0.75rem;
+}
+
+.card-blast {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bookkeeping (sessionId, scopeVersion, the justified* counters) is
+   diagnostic, not editorial. It stays on the page -- people do need it --
+   but it stops competing with the work for attention. */
+.detail-bookkeeping {
+  opacity: 0.72;
+}
+
+.detail-bookkeeping:hover,
+.detail-bookkeeping:focus-within {
+  opacity: 1;
+}
+
 .detail-kv {
   margin: 0;
   display: grid;

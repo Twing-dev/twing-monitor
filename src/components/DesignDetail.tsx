@@ -4,11 +4,12 @@ import { fetchClaims } from "../api/claims.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchReviews } from "../api/reviews.js";
 import { resolveDesign } from "../api/designs.js";
-import type { AlignmentThread, DesignStatement } from "../api/types.js";
+import type { AlignmentThread, Claim, DesignChange, DesignStatement } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "./AsyncSection.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 import { relativeTime } from "../lib/time.js";
+import { computeConformance, groupByKind, hasStructuredChanges, kindDescription, kindLabel, pathOfTarget } from "../lib/designConformance.js";
 
 /** A design's involvement in an open, semantic-conflict-origin alignment
  * thread (§7's async Bedrock comparator, `design-semantic-check.ts`) --
@@ -21,6 +22,170 @@ import { relativeTime } from "../lib/time.js";
 export interface SemanticOverlap {
   thread: AlignmentThread;
   counterpart?: DesignStatement;
+}
+
+/** One declared change: verb, target, and why -- in that order, because
+ * that is the order the sentence reads in ("modify RetryPolicy.backoff:
+ * exponential growth, capped at 30s").
+ *
+ * The symbol is emphasised over its path: within a section a reader is
+ * scanning for *what* changed, and the repeated directory prefix in front
+ * of it is the least informative part of the line. A `rename`/`move` shows
+ * its `from` inline rather than in the intent text, because "only the name
+ * changed" is the actual claim being made and it is what a reviewer checks.
+ */
+function ChangeRow({ change, conformance }: { change: DesignChange; conformance?: "matched" | "not_yet_edited" }) {
+  const path = pathOfTarget(change.target);
+  const symbol = change.target.length > path.length ? change.target.slice(path.length + 2) : undefined;
+  return (
+    <li className={`change-row change-${change.action}`}>
+      <div className="change-head">
+        <span className={`change-action action-${change.action}`}>{change.action}</span>
+        <code className="change-target">
+          <span className="change-path">{path}</span>
+          {symbol && <span className="change-symbol">{symbol}</span>}
+        </code>
+        {change.from && <span className="change-from">← {change.from}</span>}
+        {/* Only the satisfied case gets a marker. An unbuilt declaration is
+            the normal state of an open design -- flagging it here would put
+            a warning on almost every row of every in-progress design. The
+            conformance section below is where "not yet" is counted. */}
+        {conformance === "matched" && (
+          <span className="change-conformance" title="a recorded edit matches this target">
+            ✓
+          </span>
+        )}
+      </div>
+      <p className="change-intent">{change.intent}</p>
+    </li>
+  );
+}
+
+/**
+ * One kind's row: always present, whether or not it has changes.
+ *
+ * Closed by default, showing only the answer to "is there anything here" --
+ * that's the first-glance read, and opening a row is the deliberate act of
+ * going deeper. A row with no changes isn't a button at all: there is
+ * nothing behind it to reveal, and making it look clickable teaches people
+ * that clicking sometimes does nothing.
+ */
+function KindSection({
+  group,
+  stateByChangeId,
+}: {
+  group: { kind: string; changes: DesignChange[] };
+  stateByChangeId: Map<string, "matched" | "not_yet_edited">;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = group.changes.length;
+  const label = kindLabel(group.kind);
+  const description = kindDescription(group.kind);
+
+  if (count === 0) {
+    return (
+      <div className="kind-section kind-empty">
+        <div className="kind-head" title={description}>
+          <span className="kind-caret" aria-hidden="true" />
+          <span className="kind-label">{label}</span>
+          <span className="kind-count kind-count-none">no changes</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`kind-section${open ? " open" : ""}`}>
+      <button type="button" className="kind-head kind-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} title={description}>
+        <span className="kind-caret" aria-hidden="true">
+          ▸
+        </span>
+        <span className="kind-label">{label}</span>
+        <span className="kind-count">
+          {count} change{count === 1 ? "" : "s"}
+        </span>
+        <span className="kind-hint">{open ? "hide" : "show files"}</span>
+      </button>
+      {open && (
+        <div className="kind-body">
+          {description && <p className="kind-description">{description}</p>}
+          <ul className="change-list">
+            {group.changes.map((change) => (
+              <ChangeRow key={change.id} change={change} conformance={stateByChangeId.get(change.id)} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The declared changes: one row per kind, every kind, expandable where
+ * there's something to expand. See `groupByKind`'s doc comment for why the
+ * empty ones are shown rather than omitted -- "no database changes" is the
+ * answer a reader came for, and an omitted section can't say it. */
+function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; claims: Claim[] }) {
+  const [conformanceOpen, setConformanceOpen] = useState(false);
+  const report = computeConformance(changes, claims);
+  const stateByChangeId = new Map(report.declared.map((row) => [row.change.id, row.state]));
+  const drifted = report.undeclared.length > 0;
+
+  return (
+    <>
+      <div className="detail-field">
+        <h3>What&rsquo;s changing</h3>
+        <div className="kind-list">
+          {groupByKind(changes).map((group) => (
+            <KindSection key={group.kind} group={group} stateByChangeId={stateByChangeId} />
+          ))}
+        </div>
+      </div>
+
+      {/* Always rendered, including when everything lines up: "nothing
+          undeclared" is a real answer, and a section that appears only when
+          something is wrong trains people to read its absence as "not
+          checked" rather than "checked, and fine". Opens by default only
+          when there's drift -- the one case worth interrupting someone
+          for. */}
+      <div className={`detail-field conformance${drifted ? " conformance-drift" : ""}`}>
+        <button
+          type="button"
+          className="kind-head kind-toggle conformance-toggle"
+          aria-expanded={conformanceOpen || drifted}
+          onClick={() => setConformanceOpen((v) => !v)}
+        >
+          <span className="kind-caret" aria-hidden="true">
+            ▸
+          </span>
+          <span className="kind-label">Did the code match the plan?</span>
+          <span className={`kind-count${drifted ? " kind-count-drift" : " kind-count-ok"}`}>
+            {drifted ? `${report.undeclared.length} not planned` : "no surprises"}
+          </span>
+        </button>
+        {(conformanceOpen || drifted) && (
+          <div className="kind-body">
+            <p className="kind-description">
+              {report.matchedCount} of {changes.length} planned change{changes.length === 1 ? "" : "s"} {report.matchedCount === 1 ? "has" : "have"} been
+              edited so far
+              {report.matchedCount < changes.length && <> · {changes.length - report.matchedCount} not started yet</>}
+            </p>
+            {drifted ? (
+              <ul className="path-list undeclared-list">
+                {report.undeclared.map((symbolId) => (
+                  <li key={symbolId}>
+                    <code>{symbolId}</code>
+                    <span className="undeclared-note">edited, but the plan never mentioned it</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="conformance-summary">Everything edited so far was part of the plan.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
 }
 
 function PathList({ title, paths }: { title: string; paths: string[] }) {
@@ -333,11 +498,25 @@ export function DesignDetail({
         </div>
       )}
 
-      <PathList title="Creates" paths={design.creates} />
-      <PathList title="Touches" paths={design.touches} />
+      {/* Two renderings of the same question, chosen by whether this
+          design was registered from a template. The structured one
+          supersedes the path lists entirely rather than sitting alongside
+          them -- `creates`/`touches` are *derived* from `changes` for a
+          --from registration (core's `deriveScope`), so showing both would
+          print the same paths twice, once with the verb and once without.
+          `dependsOn` has no structured equivalent and is shown either
+          way. */}
+      {hasStructuredChanges(design.changes) ? (
+        <DeclaredChanges changes={design.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
+      ) : (
+        <>
+          <PathList title="Creates" paths={design.creates} />
+          <PathList title="Touches" paths={design.touches} />
+        </>
+      )}
       <PathList title="Depends on" paths={design.dependsOn} />
 
-      <div className="detail-field">
+      <div className="detail-field detail-bookkeeping">
         <h3>Session</h3>
         <dl className="detail-kv">
           <dt>Developer</dt>

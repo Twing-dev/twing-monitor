@@ -23,6 +23,48 @@ export interface ProjectSummary {
   githubRepo?: string;
 }
 
+/** Mirrors @twing/core's `DesignChangeAction` -- what happens to a target.
+ * Split on one question: `rename`/`move` assert behaviour did NOT change
+ * (only the name or the path did), the other four assert it did. That split
+ * is why they render differently below: a rename shows its `from` inline,
+ * because "only the name changed" is the claim being made. */
+export type DesignChangeAction = "add" | "modify" | "rewrite" | "remove" | "rename" | "move";
+
+/** Mirrors @twing/core's `DesignChangeKind` -- what *sort of thing* is being
+ * changed, the axis that lets a reader ask "does this touch the database?"
+ * without reading every path.
+ *
+ * Typed as a closed union but never exhaustively switched on: `kindLabel`
+ * and the section ordering both fall back for an unrecognized value, so a
+ * coordinator that promotes one of the spec's reserved kinds (`config`,
+ * `dependency`, `build`) renders it in an "Other" section instead of
+ * dropping it on the floor. Same reasoning `ActivityEvent.kind` gives for
+ * staying `string` -- see its doc comment below. */
+export type DesignChangeKind = "code" | "api" | "schema" | "test" | "docs" | "config";
+
+/** Mirrors @twing/core's `DesignChange`.
+ *
+ * `target` is the load-bearing field: it uses the **same
+ * `path::Symbol.method` namespace as `Claim.symbolId`**, which is what
+ * makes "did they build what they declared" a set difference rather than a
+ * judgement call (`lib/designConformance.ts`). If this ever diverges from
+ * core's spelling, that comparison silently degrades to nonsense rather
+ * than failing loudly -- the `constraintId`/`constraintIds` drift
+ * documented on `PendingReview` below is the precedent for how that goes
+ * unnoticed. */
+export interface DesignChange {
+  id: string;
+  action: DesignChangeAction;
+  /** Absent means `"code"`, which is what `kindOf` resolves it to -- the
+   * common case is deliberately left unwritten in the template. */
+  kind?: DesignChangeKind;
+  target: string;
+  intent: string;
+  /** The previous name (`rename`) or path (`move`). Present on exactly
+   * those two actions. */
+  from?: string;
+}
+
 /** Mirrors @twing/core's DesignStatement (packages/core/src/types.ts). */
 export interface DesignStatement {
   id: string;
@@ -50,6 +92,15 @@ export interface DesignStatement {
   creates: string[];
   touches: string[];
   dependsOn: string[];
+  /** The structured declaration, for a design registered from a template
+   * (`twing design register --from`). Absent -- never `[]` -- for every
+   * other registration path, and the two mean different things here:
+   * absent falls back to the legacy `creates`/`touches` rendering, while an
+   * empty list would mean "declared nothing", which the CLI refuses to
+   * register in the first place. See `hasStructuredChanges` in
+   * `lib/designConformance.ts`, the one place that distinction is
+   * decided. */
+  changes?: DesignChange[];
   /** The verbatim ExitPlanMode plan text, when this design came from one --
    * despite the "excerpt" name it's the full text, uncapped (core's own doc
    * comment explains the historical name). Never set on a `twing design

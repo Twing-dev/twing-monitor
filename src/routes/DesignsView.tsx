@@ -17,6 +17,7 @@ import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
+import { blastRadius, hasStructuredChanges } from "../lib/designConformance.js";
 import { buildShareUrl } from "../lib/urlState.js";
 
 const STATUSES = ["open", "flagged", "dormant", "superseded", "closed", "expired", "all"] as const;
@@ -153,10 +154,18 @@ function DesignCardHeaderContent({
       <div className="card-meta">
         <span>{primary.developerId}</span>
         <span>{relativeTime(primary.lastActivityAt)}</span>
-        {primary.creates.length + primary.touches.length > 0 && (
-          <span>
-            {primary.creates.length} created, {primary.touches.length} touched
-          </span>
+        {/* Blast radius, for a design that declared one. "4 changes · 2
+            files · 1 rename · schema" answers what someone scanning a list
+            actually asks; the counted-two-bags fallback below it does not,
+            but it is all a legacy design has. */}
+        {hasStructuredChanges(primary.changes) ? (
+          <span className="card-blast">{blastRadius(primary.changes)}</span>
+        ) : (
+          primary.creates.length + primary.touches.length > 0 && (
+            <span>
+              {primary.creates.length} created, {primary.touches.length} touched
+            </span>
+          )
         )}
       </div>
     </>

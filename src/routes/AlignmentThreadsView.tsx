@@ -63,6 +63,33 @@ export function ThreadCardHeaderContent({ thread, showRepoBadge, projectsById }:
   );
 }
 
+/** A closed-by-default section with a one-line summary, expanded on click
+ * -- same `.kind-section`/`.kind-head`/`.kind-body` visual language
+ * DesignDetail's own "What's changing" sections already use, reused here
+ * (not extracted to a shared component -- each caller's inner content is
+ * different enough that sharing the wrapper markup wasn't worth a new
+ * cross-file dependency for two call sites). A thread with a long message
+ * history was otherwise turning every conflict card into a long scroll the
+ * moment you opened it -- this keeps the collapsed state a compact,
+ * scannable summary of all three fields, with each one only pulled open
+ * when you actually want to read it. */
+function CollapsibleField({ label, countLabel, children }: { label: string; countLabel: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`kind-section${open ? " open" : ""}`}>
+      <button type="button" className="kind-head kind-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="kind-caret" aria-hidden="true">
+          ▸
+        </span>
+        <span className="kind-label">{label}</span>
+        <span className="kind-count">{countLabel}</span>
+        <span className="kind-hint">{open ? "hide" : "show"}</span>
+      </button>
+      {open && <div className="kind-body">{children}</div>}
+    </div>
+  );
+}
+
 export function ThreadDetail({
   thread,
   designsById,
@@ -125,63 +152,69 @@ export function ThreadDetail({
     }
   }
 
+  // Whichever of the two design-link slots actually render something --
+  // the initiating side always shows one line (a link, or an honest "no
+  // design"/"expired" note), the other side only when there's a second
+  // design or id to say something about.
+  const linkedDesignsCount = 1 + (otherDesign || thread.designId ? 1 : 0);
+  const messageCount = state.status === "ready" ? state.data.messages.length : undefined;
+
   return (
     <div className="design-detail">
-      <div className="detail-field">
-        <h3>Linked designs</h3>
-        <div className="thread-design-links">
-          {initiatingDesign && onOpenDesign ? (
-            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(initiatingDesign.id)}>
-              → {thread.developerId}'s design: {initiatingDesign.summary || initiatingDesign.id.slice(0, 8)}
-            </button>
-          ) : noInitiatingDesign ? (
-            <p className="resolve-pending-note">No design registered for {thread.developerId}'s edit.</p>
-          ) : (
-            <p className="resolve-pending-note">{thread.developerId}'s design -- expired or since deleted.</p>
-          )}
-          {otherDesign && onOpenDesign ? (
-            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(otherDesign.id)}>
-              → {thread.otherDeveloperId}'s design: {otherDesign.summary || otherDesign.id.slice(0, 8)}
-            </button>
-          ) : thread.designId ? (
-            <p className="resolve-pending-note">{thread.otherDeveloperId}'s design -- expired or since deleted.</p>
-          ) : null}
-        </div>
-      </div>
+      <div className="kind-list">
+        <CollapsibleField label="Linked designs" countLabel={`${linkedDesignsCount} design${linkedDesignsCount === 1 ? "" : "s"}`}>
+          <div className="thread-design-links">
+            {initiatingDesign && onOpenDesign ? (
+              <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(initiatingDesign.id)}>
+                → {thread.developerId}'s design: {initiatingDesign.summary || initiatingDesign.id.slice(0, 8)}
+              </button>
+            ) : noInitiatingDesign ? (
+              <p className="resolve-pending-note">No design registered for {thread.developerId}'s edit.</p>
+            ) : (
+              <p className="resolve-pending-note">{thread.developerId}'s design -- expired or since deleted.</p>
+            )}
+            {otherDesign && onOpenDesign ? (
+              <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenDesign(otherDesign.id)}>
+                → {thread.otherDeveloperId}'s design: {otherDesign.summary || otherDesign.id.slice(0, 8)}
+              </button>
+            ) : thread.designId ? (
+              <p className="resolve-pending-note">{thread.otherDeveloperId}'s design -- expired or since deleted.</p>
+            ) : null}
+          </div>
+        </CollapsibleField>
 
-      {resolveAlignmentBucket(thread.category) === "symbol_conflict" && thread.symbolIds.length > 0 && (
-        <div className="detail-field">
-          <h3>Overlapping files</h3>
-          <ul className="thread-symbol-list">
-            {thread.symbolIds.map((s) => (
-              <li key={s}>
-                <code>{s}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="detail-field">
-        <h3>Messages</h3>
-        <AsyncSection
-          state={state}
-          isEmpty={(d) => d.messages.length === 0}
-          emptyMessage="No messages yet."
-          render={(d) => (
-            <ul className="thread-message-list">
-              {d.messages.map((m, i) => (
-                <li key={i} className="thread-message">
-                  <div className="thread-message-meta">
-                    <span>{m.authorId ?? "twing"}</span>
-                    <span>{relativeTime(m.ts)}</span>
-                  </div>
-                  <p>{m.message}</p>
+        {resolveAlignmentBucket(thread.category) === "symbol_conflict" && thread.symbolIds.length > 0 && (
+          <CollapsibleField label="Overlapping files" countLabel={`${thread.symbolIds.length} file${thread.symbolIds.length === 1 ? "" : "s"}`}>
+            <ul className="thread-symbol-list">
+              {thread.symbolIds.map((s) => (
+                <li key={s}>
+                  <code>{s}</code>
                 </li>
               ))}
             </ul>
-          )}
-        />
+          </CollapsibleField>
+        )}
+
+        <CollapsibleField label="Messages" countLabel={messageCount === undefined ? "…" : `${messageCount} message${messageCount === 1 ? "" : "s"}`}>
+          <AsyncSection
+            state={state}
+            isEmpty={(d) => d.messages.length === 0}
+            emptyMessage="No messages yet."
+            render={(d) => (
+              <ul className="thread-message-list">
+                {d.messages.map((m, i) => (
+                  <li key={i} className="thread-message">
+                    <div className="thread-message-meta">
+                      <span>{m.authorId ?? "twing"}</span>
+                      <span>{relativeTime(m.ts)}</span>
+                    </div>
+                    <p>{m.message}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          />
+        </CollapsibleField>
       </div>
 
       {/* Every thread a signed-in developer's own view can render is one

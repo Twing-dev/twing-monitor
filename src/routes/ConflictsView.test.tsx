@@ -299,6 +299,8 @@ describe("ConflictsView", () => {
 
     const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
+    // Linked designs is collapsed by default -- open it before its content is reachable.
+    await user.click(screen.getByRole("button", { name: /Linked designs/ }));
 
     expect(screen.getByText("No design registered for alice@example.com's edit.")).toBeInTheDocument();
     const link = await screen.findByRole("button", { name: /bob@example.com's design: Add exponential backoff to RetryPolicy/ });
@@ -334,6 +336,8 @@ describe("ConflictsView", () => {
 
     const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
+    // Messages is collapsed by default -- open it before its content is reachable.
+    await user.click(await screen.findByRole("button", { name: /Messages/ }));
 
     expect(await screen.findByText("auto-opened")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Message"), "Let's coordinate.");
@@ -386,6 +390,8 @@ describe("ConflictsView", () => {
 
     const card = await screen.findByRole("button", { name: /overlapping path with/i });
     await user.click(card);
+    // Messages is collapsed by default -- open it before its content is reachable.
+    await user.click(await screen.findByRole("button", { name: /Messages/ }));
 
     expect(await screen.findByText("auto-opened")).toBeInTheDocument();
     expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();

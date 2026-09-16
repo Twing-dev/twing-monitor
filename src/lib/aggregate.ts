@@ -1,4 +1,5 @@
 import type { AlignmentThread, DesignStatement, PendingReview, ProjectMember } from "../api/types.js";
+import { pathOfTarget } from "./designConformance.js";
 
 /**
  * Fans a per-project list-fetcher out across every selected repo and
@@ -178,4 +179,60 @@ export function summarizeOverview(openDesigns: DesignStatement[], flaggedDesigns
     pendingApprovals: pendingReviews.length,
     teamMembers: new Set(members.map((m) => m.developerId)).size,
   };
+}
+
+/** A file/symbol path that has collided more than once, with everyone
+ * involved and when it last happened. Every other view organizes conflicts
+ * by developer or by status -- this is the one axis nothing shows: which
+ * *code* keeps generating conflicts, which is a signal about the code
+ * (needs splitting up, needs clearer ownership) rather than about any one
+ * conflict. Built from the same `paths`/`symbolIds` fields Reviews'
+ * "Collides with" band and a thread's "Overlapping files" section already
+ * render -- no new data, just aggregated by path instead of by conflict. */
+export interface Hotspot {
+  path: string;
+  count: number;
+  /** Deduped, sorted. Every developer who was on either side of any
+   * conflict this path was involved in. */
+  developers: string[];
+  lastActivityAt: number;
+}
+
+/** Reduces overlapping-path mentions across reviews and threads to one
+ * ranked list, most-collided-first (ties broken by most recent). A single
+ * conflict naming several paths counts once per path, not once overall --
+ * "how many separate collisions has this file been part of" is the
+ * question this answers, not "how many conflicts exist." */
+export function buildHotspots(reviews: PendingReview[], threads: AlignmentThread[]): Hotspot[] {
+  const byPath = new Map<string, { count: number; developers: Set<string>; lastActivityAt: number }>();
+
+  function record(rawPath: string, developers: (string | undefined)[], ts: number) {
+    const path = pathOfTarget(rawPath);
+    if (!path) return;
+    let entry = byPath.get(path);
+    if (!entry) {
+      entry = { count: 0, developers: new Set(), lastActivityAt: 0 };
+      byPath.set(path, entry);
+    }
+    entry.count++;
+    for (const d of developers) if (d) entry.developers.add(d);
+    if (ts > entry.lastActivityAt) entry.lastActivityAt = ts;
+  }
+
+  for (const review of reviews) {
+    for (const conflict of review.conflicts ?? []) {
+      for (const path of conflict.paths ?? []) {
+        record(path, [review.design?.developerId, conflict.developerId], review.createdAt);
+      }
+    }
+  }
+  for (const thread of threads) {
+    for (const symbolId of thread.symbolIds) {
+      record(symbolId, [thread.developerId, thread.otherDeveloperId], thread.lastActivityAt ?? thread.openedAt);
+    }
+  }
+
+  return Array.from(byPath.entries())
+    .map(([path, e]) => ({ path, count: e.count, developers: Array.from(e.developers).sort(), lastActivityAt: e.lastActivityAt }))
+    .sort((a, b) => b.count - a.count || b.lastActivityAt - a.lastActivityAt);
 }

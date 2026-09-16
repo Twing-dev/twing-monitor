@@ -1,4 +1,4 @@
-import type { DesignStatement, ProjectMember } from "../api/types.js";
+import type { AlignmentThread, DesignStatement, PendingReview, ProjectMember } from "../api/types.js";
 
 /**
  * Fans a per-project list-fetcher out across every selected repo and
@@ -117,4 +117,65 @@ export function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
     result.push(item);
   }
   return result;
+}
+
+/** Which stage a merged Conflicts-tab item is at. Deliberately computed only
+ * from fields already on the list-view record (`PendingReview`/
+ * `AlignmentThread`) -- not from a thread's full message history, which
+ * would need a second fetch per thread. `open_discussion` therefore means
+ * "this thread is still open," not "it's specifically your turn to reply"
+ * (that would need to know the last message's author, which the list
+ * endpoint doesn't carry). */
+export type ConflictStage = "open_discussion" | "awaiting_approval" | "resolved";
+
+/** One row in the merged Conflicts tab -- a `PendingReview` (admin
+ * approve/reject queue) or an `AlignmentThread` (party reply/close
+ * conversation) are different entities with different actions, so this
+ * stays a discriminated union rather than flattening them into one shape;
+ * `ConflictsView` renders each arm with the real `ReviewCardBody`/
+ * `ThreadDetail` components instead of a shared generic card. */
+export type ConflictItem =
+  | { kind: "review"; stage: ConflictStage; ts: number; review: PendingReview }
+  | { kind: "thread"; stage: ConflictStage; ts: number; thread: AlignmentThread };
+
+/** Merges a project's pending reviews and alignment threads into one
+ * newest-first list -- the data behind ConflictsView (Reviews +
+ * Alignment threads, merged: both are "a conflict between two people's
+ * work, at some stage of getting resolved," which is the whole point of
+ * combining them under one tab instead of two unrelated-sounding ones). */
+export function buildConflictItems(reviews: PendingReview[], threads: AlignmentThread[]): ConflictItem[] {
+  const reviewItems: ConflictItem[] = reviews.map((review) => ({
+    kind: "review",
+    stage: review.decision ? "resolved" : "awaiting_approval",
+    ts: review.createdAt,
+    review,
+  }));
+  const threadItems: ConflictItem[] = threads.map((thread) => ({
+    kind: "thread",
+    stage: thread.status === "open" ? "open_discussion" : "resolved",
+    ts: thread.lastActivityAt ?? thread.openedAt,
+    thread,
+  }));
+  return [...reviewItems, ...threadItems].sort((a, b) => b.ts - a.ts);
+}
+
+/** The Overview page's four KPI tiles -- every count here comes from a list
+ * a caller already fetches for another tab (no new endpoint), just reduced
+ * to a number. `teamMembers` dedupes by developer the same way
+ * `dedupeMembersByDeveloper` does, since a developer can be a member of
+ * more than one selected repo. */
+export interface OverviewSummary {
+  activeWork: number;
+  conflictsBlocking: number;
+  pendingApprovals: number;
+  teamMembers: number;
+}
+
+export function summarizeOverview(openDesigns: DesignStatement[], flaggedDesigns: DesignStatement[], pendingReviews: PendingReview[], members: ProjectMember[]): OverviewSummary {
+  return {
+    activeWork: openDesigns.length,
+    conflictsBlocking: flaggedDesigns.length,
+    pendingApprovals: pendingReviews.length,
+    teamMembers: new Set(members.map((m) => m.developerId)).size,
+  };
 }

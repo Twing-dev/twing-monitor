@@ -3,23 +3,45 @@ import type { ProjectSummary } from "../api/types.js";
 import { useApiFetch } from "../api/client.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { fetchReviews } from "../api/reviews.js";
+import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
+import { OverviewView } from "./OverviewView.js";
 import { DesignsView } from "./DesignsView.js";
-import { ReviewsView } from "./ReviewsView.js";
+import { ConflictsView } from "./ConflictsView.js";
 import { ActivityView } from "./ActivityView.js";
-import { AlignmentThreadsView } from "./AlignmentThreadsView.js";
 import { MembersView } from "./MembersView.js";
 import { ConstraintsView } from "./ConstraintsView.js";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "designs", label: "Designs" },
-  { id: "reviews", label: "Reviews" },
-  { id: "activity", label: "Activity" },
-  { id: "threads", label: "Alignment threads" },
-  { id: "members", label: "Members" },
-  { id: "constraints", label: "Constraints" },
+/** 2026-09 revamp: a dark sidebar replacing the old top tab bar (scales
+ * better as a landmark than a horizontal bar, and reads as more deliberate
+ * for a tool people are meant to check regularly -- see the redesign plan
+ * for the research this followed). "Live" is what changes as agents work;
+ * "Settings" is static/config info that doesn't belong at the same visual
+ * weight as live conflict data. */
+const LIVE_NAV: { id: TabId; label: string; icon: string }[] = [
+  { id: "overview", label: "Overview", icon: "◆" },
+  { id: "designs", label: "Work in progress", icon: "▣" },
+  { id: "conflicts", label: "Conflicts", icon: "⚠" },
+  { id: "activity", label: "History", icon: "≡" },
 ];
+const SETTINGS_NAV: { id: TabId; label: string; icon: string }[] = [
+  { id: "members", label: "Team", icon: "◐" },
+  { id: "constraints", label: "Rules", icon: "▤" },
+];
+
+/** Title + one-line explanation for the page header -- the "what is this
+ * tab for" answer the old flat tab bar never gave anyone (the redesign's
+ * whole point: a first-time viewer shouldn't have to guess what "Alignment
+ * threads" means). */
+const PAGE_INFO: Record<TabId, { title: string; sub: string }> = {
+  overview: { title: "Overview", sub: "What's happening right now." },
+  designs: { title: "Work in progress", sub: "What every active session has declared it's building, right now." },
+  conflicts: { title: "Conflicts", sub: "Every place two developers' (or agents') work is colliding, and what stage it's at." },
+  activity: { title: "History", sub: "The full timeline -- every claim, check, decision, and rule change, in order." },
+  members: { title: "Team", sub: "Who's on this repo, and their role." },
+  constraints: { title: "Rules", sub: "Fixed project rules every edit gets checked against." },
+};
 
 /**
  * A single repo's tab view is the `projects.length === 1` case of the same
@@ -40,12 +62,12 @@ export function RepoDetailLayout({
    * only ever one project to show), so there's nowhere for "← All repos"
    * to go back to; the header hides the back link when this is absent. */
   onBack?: () => void;
-  /** Set only by `ObserveApp`. Drops the Reviews tab (its GET route 404s
+  /** Set only by `ObserveApp`. Skips fetching reviews (GET /v1/reviews 404s
    * for this identity server-side, see app.ts's isPublicViewer guard) and
-   * threads through to hide mutating UI in the tabs that stay -- the
-   * server already rejects every POST/PATCH from this identity regardless
-   * (the publicProjectId auth branch is GET-only by construction), so this
-   * is purely the UX nicety of not showing dead-end forms/buttons. */
+   * threads through to hide mutating UI in the tabs that stay -- the server
+   * already rejects every POST/PATCH from this identity regardless (the
+   * publicProjectId auth branch is GET-only by construction), so this is
+   * purely the UX nicety of not showing dead-end forms/buttons. */
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
@@ -58,23 +80,18 @@ export function RepoDetailLayout({
     const u = parseUrlState();
     return u.tab === "designs" ? u.focusId : undefined;
   });
-  // Same idea, for a review card's own copy-link URL.
-  const [focusReviewId, setFocusReviewId] = useState<string | undefined>(() => {
+  // Same idea, for a conflict card's own copy-link URL -- a review or a
+  // thread id either way; ConflictsView tries both (2026-09 merge).
+  const [focusConflictId, setFocusConflictId] = useState<string | undefined>(() => {
     const u = parseUrlState();
-    return u.tab === "reviews" ? u.focusId : undefined;
-  });
-  // Same idea, for an alignment-thread card's own copy-link URL.
-  const [focusThreadId, setFocusThreadId] = useState<string | undefined>(() => {
-    const u = parseUrlState();
-    return u.tab === "threads" ? u.focusId : undefined;
+    return u.tab === "conflicts" ? u.focusId : undefined;
   });
 
   const projectIds = projects.map((p) => p.projectId);
 
   function focusIdForTab(t: TabId): string | undefined {
     if (t === "designs") return focusDesignId;
-    if (t === "reviews") return focusReviewId;
-    if (t === "threads") return focusThreadId;
+    if (t === "conflicts") return focusConflictId;
     return undefined;
   }
 
@@ -89,14 +106,13 @@ export function RepoDetailLayout({
     pushUrlState({ repoIds: projectIds, tab: next, focusId: focusIdForTab(next) });
   }
 
-  // A dedicated single-card page (DesignsView/ReviewsView/
-  // AlignmentThreadsView, when their own focusXId prop is set) offers this
-  // as its "back to the full list" link -- drops the focus for the
-  // *current* tab only and returns to normal browsing.
+  // A dedicated single-card page (DesignsView/ConflictsView, when their own
+  // focusXId prop is set) offers this as its "back to the full list" link
+  // -- drops the focus for the *current* tab only and returns to normal
+  // browsing.
   function clearFocus() {
     if (tab === "designs") setFocusDesignId(undefined);
-    else if (tab === "reviews") setFocusReviewId(undefined);
-    else if (tab === "threads") setFocusThreadId(undefined);
+    else if (tab === "conflicts") setFocusConflictId(undefined);
     pushUrlState({ repoIds: projectIds, tab });
   }
 
@@ -110,105 +126,121 @@ export function RepoDetailLayout({
       if (url.repoIds.join(",") !== projectIds.join(",")) return;
       setTab(url.tab);
       setFocusDesignId(url.tab === "designs" ? url.focusId : undefined);
-      setFocusReviewId(url.tab === "reviews" ? url.focusId : undefined);
-      setFocusThreadId(url.tab === "threads" ? url.focusId : undefined);
+      setFocusConflictId(url.tab === "conflicts" ? url.focusId : undefined);
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectIds.join(",")]);
-  // A pending review means someone is blocked right now, waiting on a
-  // human -- and nothing in twing tells that human. There's no email,
-  // webhook or digest anywhere, so an admin only finds out by opening this
-  // tab and looking. Surfacing the count on the tab itself is the cheapest
-  // step toward closing that: a queue building up is visible from any tab.
-  // Summed across every selected repo, matching what the Reviews tab
-  // itself shows in the aggregated view. Deliberately not gated on role --
-  // a member can't decide a review, but knowing the queue is backing up is
-  // still worth seeing.
-  // Skipped entirely when readOnly: GET /v1/reviews 404s for the public
-  // viewer identity (app.ts), and there's no Reviews tab to badge-count for
-  // anyway -- no point making a fetch that can only ever fail.
-  const pending = useAsyncData(() => (readOnly ? Promise.resolve([]) : Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat())), [
-    apiFetch,
-    projectIds.join(","),
-    readOnly,
-  ]);
-  const pendingCount = pending.status === "ready" ? pending.data.length : 0;
+
+  // The Conflicts nav badge: a pending review or an open thread each mean
+  // someone is waiting, and nothing in twing pages that person -- an admin
+  // or party only finds out by opening this tab and looking. Summed across
+  // every selected repo, matching what Conflicts itself shows in the
+  // aggregated view. Deliberately not gated on role -- a member can't
+  // decide a review, but knowing the queue is backing up is still worth
+  // seeing. Reviews skipped entirely when readOnly (GET /v1/reviews 404s
+  // for the public viewer identity) -- no point making a fetch that can
+  // only ever fail.
+  const pendingReviews = useAsyncData(
+    () => (readOnly ? Promise.resolve([]) : Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat())),
+    [apiFetch, projectIds.join(","), readOnly],
+  );
+  const openThreads = useAsyncData(
+    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, { status: "open" }))).then((lists) => lists.flatMap((p) => p.items)),
+    [apiFetch, projectIds.join(",")],
+  );
+  const conflictsCount = (pendingReviews.status === "ready" ? pendingReviews.data.length : 0) + (openThreads.status === "ready" ? openThreads.data.length : 0);
+
   const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
   const single = projects.length === 1 ? projects[0] : undefined;
-  const tabs = readOnly ? TABS.filter((t) => t.id !== "reviews") : TABS;
+
+  function navItem(t: { id: TabId; label: string; icon: string }) {
+    return (
+      <button
+        key={t.id}
+        type="button"
+        role="tab"
+        aria-selected={tab === t.id}
+        className={`nav-item${tab === t.id ? " active" : ""}`}
+        onClick={() => openTab(t.id)}
+      >
+        <span className="icon" aria-hidden="true">
+          {t.icon}
+        </span>
+        {t.label}
+        {t.id === "conflicts" && conflictsCount > 0 && (
+          <span className={`nav-count${pendingReviews.status === "ready" && pendingReviews.data.length === 0 ? " mild" : ""}`} aria-label={`${conflictsCount} conflicts`}>
+            {conflictsCount}
+          </span>
+        )}
+      </button>
+    );
+  }
 
   return (
-    <div className="repo-detail-view">
-      <header className="view-header">
-        <div>
-          {onBack && (
-            <button type="button" className="link-button back-link" onClick={onBack}>
-              ← All repos
-            </button>
-          )}
-          {single ? (
-            <h1>{repoLabel(single)}</h1>
-          ) : (
-            <>
-              <h1>{projects.length} repos</h1>
-              <div className="repo-chip-row">
-                {projects.map((p) => (
-                  <span key={p.projectId} className="repo-chip">
-                    {repoLabel(p)}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
+    <div className="repo-detail-shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <span className="dot" aria-hidden="true" />
+          twing monitor
         </div>
-        {single && <span className={`role-badge role-${single.role}`}>{single.role}</span>}
-      </header>
 
-      <nav className="tab-bar" role="tablist">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`tab-button${tab === t.id ? " active" : ""}`}
-            onClick={() => openTab(t.id)}
-          >
-            {t.label}
-            {t.id === "reviews" && pendingCount > 0 && (
-              <span className="tab-count" aria-label={`${pendingCount} waiting for a decision`}>
-                {pendingCount}
-              </span>
-            )}
+        {onBack && (
+          <button type="button" className="link-button back-link sidebar-back-link" onClick={onBack}>
+            ← All repos
           </button>
-        ))}
-      </nav>
+        )}
+        <div className="repo-switcher">
+          <span>{single ? repoLabel(single) : `${projects.length} repos`}</span>
+          {single && <span className="role">{single.role}</span>}
+        </div>
 
-      <div className="tab-panel">
-        {tab === "designs" && (
-          <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} readOnly={readOnly} />
-        )}
-        {/* readOnly also guards this render, not just the tab bar -- tab
-            state can only reach "reviews" via a restored/pasted URL
-            (parseUrlState), and the server 404s the fetch anyway, but this
-            avoids ReviewsView ever mounting against a route it can't use. */}
-        {tab === "reviews" && !readOnly && <ReviewsView projectIds={projectIds} projectsById={projectsById} focusReviewId={focusReviewId} onClearFocus={clearFocus} />}
-        {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={openTab} />}
-        {tab === "threads" && (
-          <AlignmentThreadsView
-            projectIds={projectIds}
-            projectsById={projectsById}
-            onOpenDesign={openDesign}
-            focusThreadId={focusThreadId}
-            onClearFocus={clearFocus}
-            readOnly={readOnly}
-          />
-        )}
-        {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
-        {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
-      </div>
+        <div className="nav-group-label">Live</div>
+        {LIVE_NAV.map(navItem)}
+
+        <div className="nav-group-label">Settings</div>
+        {SETTINGS_NAV.map(navItem)}
+      </aside>
+
+      <main className="main">
+        <div className="topbar">
+          <div>
+            <h1>{PAGE_INFO[tab].title}</h1>
+            <p className="page-sub">{PAGE_INFO[tab].sub}</p>
+          </div>
+        </div>
+
+        <div className="content">
+          {!single && (
+            <div className="repo-chip-row repo-chip-row-content">
+              {projects.map((p) => (
+                <span key={p.projectId} className="repo-chip">
+                  {repoLabel(p)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {tab === "overview" && <OverviewView projectIds={projectIds} projectsById={projectsById} readOnly={readOnly} onOpenTab={openTab} />}
+          {tab === "designs" && (
+            <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} readOnly={readOnly} />
+          )}
+          {tab === "conflicts" && (
+            <ConflictsView
+              projectIds={projectIds}
+              projectsById={projectsById}
+              onOpenDesign={openDesign}
+              focusConflictId={focusConflictId}
+              onClearFocus={clearFocus}
+              readOnly={readOnly}
+            />
+          )}
+          {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={openTab} />}
+          {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
+          {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
+        </div>
+      </main>
     </div>
   );
 }

@@ -346,19 +346,7 @@ button {
   flex: 1;
 }
 
-/* --- Repo detail layout + tabs --- */
-
-.repo-detail-view {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 48px 24px;
-}
-
-.repo-detail-view h1 {
-  margin: 4px 0 0;
-  font-size: 1.5rem;
-  font-family: var(--font-mono);
-}
+/* --- Repo detail layout: sidebar + main (2026-09 revamp) --- */
 
 .back-link {
   font-size: 0.8rem;
@@ -371,6 +359,11 @@ button {
   margin-top: 6px;
 }
 
+.repo-chip-row-content {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
 .repo-chip {
   display: inline-flex;
   background: var(--accent-dim);
@@ -381,40 +374,166 @@ button {
   font-family: var(--font-mono);
 }
 
-.tab-bar {
+/* Sidebar is intentionally its own small palette (dark, not the app's
+   single light theme) -- a landmark that stays visually distinct from the
+   content it navigates, same reasoning most multi-section dashboards use a
+   sidebar rather than a top bar once there's more than a couple of tabs. */
+.repo-detail-shell {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
-  overflow-x: auto;
+  min-height: 100vh;
 }
 
-.tab-button {
+.sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  background: #1c1a26;
+  color: #c9c6d6;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 18px;
+  font-weight: 800;
+  color: #fff;
+  font-size: 1.02rem;
+  font-family: var(--font-display);
+}
+
+.sidebar-brand .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.repo-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #2a2836;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: #fff;
+}
+
+.repo-switcher .role {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8798;
+  font-family: var(--font-body);
+}
+
+.sidebar-back-link {
+  color: #8a8798;
+  margin-bottom: 10px;
+  display: inline-block;
+}
+
+.sidebar-back-link:hover {
+  color: #fff;
+}
+
+.nav-group-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a8798;
+  padding: 14px 10px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
-  padding: 10px 14px;
-  font-size: 0.88rem;
-  white-space: nowrap;
+  cursor: pointer;
+  color: #c9c6d6;
+  font-family: inherit;
+  font-size: 0.86rem;
+  padding: 9px 10px;
+  border-radius: 8px;
+  margin-bottom: 2px;
 }
 
-.tab-button:hover {
-  color: var(--text);
+.nav-item:hover {
+  background: #2a2836;
+  color: #fff;
 }
 
-.tab-button.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+.nav-item.active {
+  background: #2a2836;
+  color: #fff;
+  font-weight: 700;
 }
 
-.tab-button:focus-visible {
+.nav-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
-.tab-panel {
-  min-height: 200px;
+.nav-item .icon {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-count {
+  margin-left: auto;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 100px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.nav-count.mild {
+  background: var(--warning);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar {
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar h1 {
+  font-size: 1.3rem;
+}
+
+.page-sub {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+}
+
+.content {
+  max-width: 900px;
+  padding: 28px 32px 80px;
 }
 
 /* --- List views (Designs / Reviews / Threads / Members / Constraints) --- */
@@ -429,6 +548,167 @@ button {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+/* Conflicts tab's stage filter -- a small fixed set of chips reads better
+   than a <select> for four options that also carry live counts. */
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  font-family: inherit;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  padding: 6px 13px;
+  border-radius: 100px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+}
+
+/* A conflict card's stage, next to its badges -- separate from the badge
+   row since it answers "what do I do next," not "what kind of conflict is
+   this" (StatusBadge/conflictKind's job). */
+.stage-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-left: 8px;
+}
+
+/* --- Overview page: KPI tiles + preview panels --- */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.kpi-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.kpi-tile.tone-critical {
+  border-left-color: var(--danger);
+}
+
+.kpi-tile.tone-warning {
+  border-left-color: var(--warning);
+}
+
+.kpi-tile.tone-good {
+  border-left-color: var(--good);
+}
+
+.kpi-tile.tone-neutral {
+  border-left-color: var(--accent);
+}
+
+.kpi-num {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1;
+  font-family: var(--font-display);
+}
+
+.kpi-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.panel-head h2 {
+  font-size: 0.95rem;
+}
+
+.see-all {
+  font-size: 0.78rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.panel-sub {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0 0 14px;
+}
+
+.preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+li:first-child > .preview-row {
+  border-top: none;
+}
+
+.preview-row-static {
+  cursor: default;
+}
+
+.preview-summary {
+  font-size: 0.86rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-meta {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 0.76rem;
 }
 
 /* A single card shown standalone (landed on via a copy-link URL) instead
@@ -887,6 +1167,12 @@ button {
 
 .why-flagged-warning h3 {
   color: var(--warning);
+}
+
+.sub-explain {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 8px 0 0;
 }
 
 /* --- Resolve actions (§17.5: adopt or justify a flagged design) --- */
@@ -1521,26 +1807,6 @@ button {
   font-size: 0.76rem;
   color: var(--text-dim);
   word-break: break-all;
-}
-
-/* Pending-review count on the Reviews tab. A pending review means someone
-   is blocked waiting on a human, and nothing else in twing tells that
-   human -- so this is the one ambient signal that a queue is building. */
-.tab-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--warning, var(--accent));
-  color: var(--bg, #fff);
-  font-size: 0.68rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 
 /* Card summaries are clamped until the card is expanded (2026-08-25).

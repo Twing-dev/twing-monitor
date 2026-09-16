@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { fetchAllProjects, dedupeDesignsByGroup, dedupeMembersByDeveloper } from "./aggregate.js";
-import type { DesignStatement, ProjectMember } from "../api/types.js";
+import { fetchAllProjects, dedupeDesignsByGroup, dedupeMembersByDeveloper, buildConflictItems, summarizeOverview } from "./aggregate.js";
+import type { AlignmentThread, DesignStatement, PendingReview, ProjectMember } from "../api/types.js";
 
 function design(overrides: Partial<DesignStatement> & { id: string }): DesignStatement {
   return {
@@ -125,5 +125,91 @@ describe("dedupeMembersByDeveloper", () => {
 
   it("returns an empty array for an empty input", () => {
     expect(dedupeMembersByDeveloper([])).toEqual([]);
+  });
+});
+
+function review(overrides: Partial<PendingReview> & { id: string }): PendingReview {
+  return { designId: "design-1", projectId: "proj-1", justification: "because", createdAt: 0, ...overrides };
+}
+
+function thread(overrides: Partial<AlignmentThread> & { id: string }): AlignmentThread {
+  return {
+    projectId: "proj-1",
+    symbolId: "",
+    developerId: "alice@example.com",
+    otherDeveloperId: "bob@example.com",
+    status: "open",
+    systemDescription: "looks like a duplicate",
+    openedAt: 0,
+    symbolIds: [],
+    lastActivityAt: 0,
+    ...overrides,
+  };
+}
+
+describe("buildConflictItems", () => {
+  it("stages an undecided review as awaiting_approval and a decided one as resolved", () => {
+    const pending = review({ id: "r-pending", createdAt: 10 });
+    const decided = review({ id: "r-decided", createdAt: 20, decision: "approve" });
+    const items = buildConflictItems([pending, decided], []);
+
+    const pendingItem = items.find((i) => i.kind === "review" && i.review.id === "r-pending");
+    const decidedItem = items.find((i) => i.kind === "review" && i.review.id === "r-decided");
+    expect(pendingItem?.stage).toBe("awaiting_approval");
+    expect(decidedItem?.stage).toBe("resolved");
+  });
+
+  it("stages an open thread as open_discussion and a closed/dormant one as resolved", () => {
+    const open = thread({ id: "t-open", status: "open", lastActivityAt: 10 });
+    const closed = thread({ id: "t-closed", status: "closed", lastActivityAt: 20 });
+    const dormant = thread({ id: "t-dormant", status: "dormant", lastActivityAt: 30 });
+    const items = buildConflictItems([], [open, closed, dormant]);
+
+    expect(items.find((i) => i.kind === "thread" && i.thread.id === "t-open")?.stage).toBe("open_discussion");
+    expect(items.find((i) => i.kind === "thread" && i.thread.id === "t-closed")?.stage).toBe("resolved");
+    expect(items.find((i) => i.kind === "thread" && i.thread.id === "t-dormant")?.stage).toBe("resolved");
+  });
+
+  it("merges reviews and threads into one newest-first list", () => {
+    const oldReview = review({ id: "r-old", createdAt: 10 });
+    const newThread = thread({ id: "t-new", lastActivityAt: 30 });
+    const midReview = review({ id: "r-mid", createdAt: 20 });
+    const items = buildConflictItems([oldReview, midReview], [newThread]);
+
+    expect(items.map((i) => (i.kind === "review" ? i.review.id : i.thread.id))).toEqual(["t-new", "r-mid", "r-old"]);
+  });
+
+  it("a thread with no lastActivityAt falls back to openedAt for sorting", () => {
+    const t = thread({ id: "t1", openedAt: 42, lastActivityAt: undefined as unknown as number });
+    const items = buildConflictItems([], [t]);
+    expect(items[0].ts).toBe(42);
+  });
+
+  it("returns an empty array when there's nothing to merge", () => {
+    expect(buildConflictItems([], [])).toEqual([]);
+  });
+});
+
+describe("summarizeOverview", () => {
+  it("counts each list at face value, deduping team members by developerId", () => {
+    const open = [design({ id: "d1" }), design({ id: "d2" })];
+    const flagged = [design({ id: "d3", status: "flagged" })];
+    const pendingReviews = [review({ id: "r1" })];
+    const members = [
+      { developerId: "alice@example.com", projectId: "proj-1", role: "admin" as const },
+      { developerId: "alice@example.com", projectId: "proj-2", role: "member" as const },
+      { developerId: "bob@example.com", projectId: "proj-1", role: "member" as const },
+    ];
+
+    expect(summarizeOverview(open, flagged, pendingReviews, members)).toEqual({
+      activeWork: 2,
+      conflictsBlocking: 1,
+      pendingApprovals: 1,
+      teamMembers: 2,
+    });
+  });
+
+  it("is all zeros for empty inputs", () => {
+    expect(summarizeOverview([], [], [], [])).toEqual({ activeWork: 0, conflictsBlocking: 0, pendingApprovals: 0, teamMembers: 0 });
   });
 });

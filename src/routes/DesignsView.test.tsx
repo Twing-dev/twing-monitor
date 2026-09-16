@@ -6,7 +6,7 @@ import { saveAuth } from "../auth/storage.js";
 import { DesignsView } from "./DesignsView.js";
 import type { ProjectSummary } from "../api/types.js";
 
-function renderWithAuth(onOpenTab?: (tab: "threads") => void, projectIds: string[] = ["proj-1"], projectsById: Record<string, ProjectSummary> = {}) {
+function renderWithAuth(onOpenTab?: (tab: "conflicts") => void, projectIds: string[] = ["proj-1"], projectsById: Record<string, ProjectSummary> = {}) {
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
@@ -338,7 +338,7 @@ describe("DesignsView", () => {
     // The collapsed card itself gets a chip -- this is the list-level fix:
     // an "open" design with a live warning must not look identical to a
     // clean one before you ever expand it.
-    await waitFor(() => expect(screen.getByText("overlap warning")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Planning overlap")).toBeInTheDocument());
 
     const card = await screen.findByRole("button", { name: /Add a shared cache helper/ });
     await user.click(card);
@@ -407,7 +407,7 @@ describe("DesignsView", () => {
     renderWithAuth();
 
     const card = await screen.findByRole("button", { name: /A perfectly clean design/ });
-    await waitFor(() => expect(screen.queryByText("overlap warning")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Planning overlap")).not.toBeInTheDocument());
     await user.click(card);
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Session" })).toBeInTheDocument()); // detail did render...
@@ -641,12 +641,12 @@ describe("DesignsView", () => {
     renderWithAuth(onOpenTab);
 
     // Both cards get the chip, not just the one the thread's own symbolId names.
-    await waitFor(() => expect(screen.getAllByText("semantic overlap", { selector: ".status-badge" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText("Conflicting approach", { selector: ".status-badge" })).toHaveLength(2));
 
     const erinCard = screen.getByRole("button", { name: /Add API-key rate limiter/ });
     await user.click(erinCard);
 
-    expect(await screen.findByText("Semantic overlap")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Conflicting approach" })).toBeInTheDocument();
     expect(screen.getByText("Both plans independently build a sliding-window rate limiter.")).toBeInTheDocument();
     // The counterpart link's own text is prefixed with "→ " -- anchor on
     // that so this doesn't ambiguously also match frank's own card-toggle
@@ -659,8 +659,8 @@ describe("DesignsView", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /^→ Add API-key rate limiter/ })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Add session-guard throttle/ })).toHaveAttribute("aria-expanded", "true");
 
-    await user.click(screen.getByRole("button", { name: "View alignment thread →" }));
-    expect(onOpenTab).toHaveBeenCalledWith("threads");
+    await user.click(screen.getByRole("button", { name: "View conflict →" }));
+    expect(onOpenTab).toHaveBeenCalledWith("conflicts");
   });
 
   it("a design with no open alignment thread gets no semantic overlap chip", async () => {
@@ -677,7 +677,7 @@ describe("DesignsView", () => {
     renderWithAuth();
 
     await screen.findByText("Add API-key rate limiter");
-    expect(screen.queryByText("semantic overlap", { selector: ".status-badge" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Conflicting approach", { selector: ".status-badge" })).not.toBeInTheDocument();
   });
 
   describe("multi-repo aggregation", () => {

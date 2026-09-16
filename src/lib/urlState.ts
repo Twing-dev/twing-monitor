@@ -1,18 +1,27 @@
-export type TabId = "designs" | "reviews" | "activity" | "threads" | "members" | "constraints";
+export type TabId = "overview" | "designs" | "conflicts" | "activity" | "members" | "constraints";
 
-const TAB_IDS: readonly TabId[] = ["designs", "reviews", "activity", "threads", "members", "constraints"];
+const TAB_IDS: readonly TabId[] = ["overview", "designs", "conflicts", "activity", "members", "constraints"];
 
 export interface UrlViewState {
   /** Empty -- list view. One or more -- detail view (one repo is just the N=1 case of an aggregate). */
   repoIds: string[];
   /** Meaningless/ignored when `repoIds` is empty. */
   tab: TabId;
-  /** A design id (tab === "designs") or review id (tab === "reviews") to auto-expand. */
+  /** A design id (tab === "designs") or a conflict id -- review or thread,
+   * tab === "conflicts" tries both (tab === "conflicts") -- to auto-expand. */
   focusId?: string;
 }
 
-function isTabId(value: string | null): value is TabId {
-  return value !== null && (TAB_IDS as readonly string[]).includes(value);
+/** `"reviews"`/`"threads"` (2026-09 conflict-tab unification: Reviews and
+ * Alignment threads merged into one Conflicts tab) -- a pasted link from
+ * before the merge still names one of the old tab ids. Mapped to
+ * `"conflicts"` rather than silently falling back to `"designs"`, since
+ * `focusId` (a review or thread id either way) still resolves correctly
+ * there -- `ConflictsView` tries a review lookup then a thread lookup for
+ * any focus id, regardless of which old tab it came from. */
+function normalizeTabId(value: string | null): TabId {
+  if (value === "reviews" || value === "threads") return "conflicts";
+  return (TAB_IDS as readonly string[]).includes(value ?? "") ? (value as TabId) : "overview";
 }
 
 export function parseUrlState(search: string = window.location.search): UrlViewState {
@@ -24,8 +33,7 @@ export function parseUrlState(search: string = window.location.search): UrlViewS
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  const tabRaw = params.get("tab");
-  return { repoIds, tab: isTabId(tabRaw) ? tabRaw : "designs", focusId: params.get("focus") ?? undefined };
+  return { repoIds, tab: normalizeTabId(params.get("tab")), focusId: params.get("focus") ?? undefined };
 }
 
 function buildUrlSearch(state: UrlViewState): string {

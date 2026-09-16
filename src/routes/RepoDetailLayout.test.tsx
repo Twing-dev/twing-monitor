@@ -86,7 +86,7 @@ describe("RepoDetailLayout", () => {
     );
     renderLayout();
 
-    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     // Activity groups by design by default -- expand the design's group
     // before its "View design ->" link is reachable.
     const groupHeader = await screen.findByRole("button", { name: /a design owned by someone else, currently flagged/i, expanded: false });
@@ -100,8 +100,8 @@ describe("RepoDetailLayout", () => {
     const link = await screen.findByRole("button", { name: /^→/ });
     await user.click(link);
 
-    // Switched to the Designs tab automatically (no manual click needed).
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Designs", selected: true })).toBeInTheDocument());
+    // Switched to the Work in progress (Designs) tab automatically (no manual click needed).
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Work in progress", selected: true })).toBeInTheDocument());
     // The design is owned by someone else and is "flagged", not "open" --
     // only visible at all because focusDesignId forces status=all/mineOnly=false.
     // It also arrives pre-expanded (no extra click needed).
@@ -109,21 +109,24 @@ describe("RepoDetailLayout", () => {
     expect(screen.getByText("src/x.ts")).toBeInTheDocument();
   });
 
-  it("renders the single-repo header (name + role badge) unchanged when given exactly one project", async () => {
+  it("renders the single-repo name + role badge in the sidebar, and the current page title as the main heading", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
     renderLayout();
 
-    expect(await screen.findByRole("heading", { name: "proj-1" })).toBeInTheDocument();
+    expect(await screen.findByText("proj-1")).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /^\d+ repos$/ })).not.toBeInTheDocument();
+    // The main heading is the current page's title, not the repo name --
+    // the repo switcher (sidebar) is what carries repo identity now.
+    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ repos$/)).not.toBeInTheDocument();
   });
 
-  it("renders an 'N repos' header with a chip per repo when given more than one project", async () => {
+  it("renders an 'N repos' switcher with a chip per repo when given more than one project", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
     const other: ProjectSummary = { projectId: "proj-2", orgId: "org-1", role: "member", githubOwner: "acme", githubRepo: "widgets" };
     renderLayout([project, other]);
 
-    expect(await screen.findByRole("heading", { name: "2 repos" })).toBeInTheDocument();
+    expect(await screen.findByText("2 repos")).toBeInTheDocument();
     expect(screen.getByText("proj-1")).toBeInTheDocument();
     expect(screen.getByText("acme/widgets")).toBeInTheDocument();
     // No single-repo role badge when aggregating multiple repos.
@@ -132,7 +135,7 @@ describe("RepoDetailLayout", () => {
 
   // Public "observe twing getting built" demo (2026-08-28)
   describe("readOnly", () => {
-    it("drops the Reviews tab entirely and never fetches /v1/reviews at all", async () => {
+    it("keeps the Conflicts tab (threads are still viewable) but never fetches /v1/reviews", async () => {
       const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), { status: 200 }));
       vi.stubGlobal("fetch", fetchMock);
       saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
@@ -142,8 +145,9 @@ describe("RepoDetailLayout", () => {
         </ServerProvider>,
       );
 
-      await screen.findByRole("tab", { name: "Designs" });
-      expect(screen.queryByRole("tab", { name: "Reviews" })).not.toBeInTheDocument();
+      await screen.findByRole("tab", { name: "Overview" });
+      expect(screen.getByRole("tab", { name: "Conflicts" })).toBeInTheDocument();
+      await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/alignment-threads"))).toBe(true));
       expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/reviews"))).toBe(false);
     });
 
@@ -156,7 +160,7 @@ describe("RepoDetailLayout", () => {
         </ServerProvider>,
       );
 
-      await screen.findByRole("tab", { name: "Designs" });
+      await screen.findByRole("tab", { name: "Overview" });
       expect(screen.queryByRole("button", { name: "← All repos" })).not.toBeInTheDocument();
     });
 

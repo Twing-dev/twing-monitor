@@ -10,6 +10,8 @@ import { AsyncSection } from "./AsyncSection.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 import { relativeTime } from "../lib/time.js";
 import { computeConformance, groupByKind, hasStructuredChanges, kindDescription, kindLabel, pathOfTarget } from "../lib/designConformance.js";
+import { conflictKindInfo, isConflictBucket } from "../lib/conflictKind.js";
+import { StatusBadge } from "./StatusBadge.js";
 
 /** A design's involvement in an open, semantic-conflict-origin alignment
  * thread (§7's async Bedrock comparator, `design-semantic-check.ts`) --
@@ -235,9 +237,13 @@ function LatestCheckOutcome({ design }: { design: DesignStatement }) {
   const formatted = formatActivityEvent(state.data.items[0]);
   const verdictField = formatted.details.find((d) => d.label === "Verdict");
   if (!verdictField || verdictField.value === "clean") return null;
+  // The shared conflictKind vocabulary, when the verdict is one of the four
+  // real buckets (it always should be, once past the "clean" check above --
+  // isConflictBucket is just a type guard, not expected to ever fail here).
+  const info = isConflictBucket(verdictField.value) ? conflictKindInfo(verdictField.value) : undefined;
   // file_overlap never blocks (2026-08-26) -- the only verdict that can
   // reach this panel while `status` stays "open" rather than "flagged".
-  const isAdvisoryOnly = verdictField.value === "file_overlap";
+  const isAdvisoryOnly = info ? !info.blocking : verdictField.value === "file_overlap";
   return (
     <div className={`detail-field why-flagged${isAdvisoryOnly ? " why-flagged-warning" : ""}`}>
       <h3>{isAdvisoryOnly ? "Heads up (non-blocking)" : design.status === "flagged" ? "Why flagged" : "Unresolved conflict"}</h3>
@@ -245,10 +251,11 @@ function LatestCheckOutcome({ design }: { design: DesignStatement }) {
         {formatted.details.map((d) => (
           <Fragment key={d.label}>
             <dt>{d.label}</dt>
-            <dd>{d.value}</dd>
+            <dd>{d.label === "Verdict" && info ? <StatusBadge label={info.label} tone={info.tone} /> : d.value}</dd>
           </Fragment>
         ))}
       </dl>
+      {info && <p className="sub-explain">{info.explanation}</p>}
     </div>
   );
 }
@@ -269,12 +276,13 @@ function SemanticOverlapNote({
 }: {
   overlap: SemanticOverlap;
   onOpenDesign?: (designId: string) => void;
-  onOpenTab?: (tab: "threads") => void;
+  onOpenTab?: (tab: "conflicts") => void;
 }) {
   const { thread, counterpart } = overlap;
+  const info = conflictKindInfo("llm_divergence");
   return (
     <div className="detail-field resolve-actions resolve-pending">
-      <h3>Semantic overlap</h3>
+      <h3>{info.label}</h3>
       <p className="resolve-pending-note">{thread.systemDescription}</p>
       <div className="thread-design-links">
         {counterpart && onOpenDesign ? (
@@ -285,8 +293,8 @@ function SemanticOverlapNote({
           !counterpart && <p className="resolve-pending-note">The overlapping design has since expired or been deleted.</p>
         )}
         {onOpenTab && (
-          <button type="button" className="link-chip" onClick={() => onOpenTab("threads")}>
-            View alignment thread →
+          <button type="button" className="link-chip" onClick={() => onOpenTab("conflicts")}>
+            View conflict →
           </button>
         )}
       </div>
@@ -479,7 +487,7 @@ export function DesignDetail({
   onResolved: () => void;
   semanticOverlap?: SemanticOverlap;
   onOpenDesign?: (designId: string) => void;
-  onOpenTab?: (tab: "threads") => void;
+  onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();

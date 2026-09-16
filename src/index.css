@@ -686,7 +686,7 @@ button {
 
 .preview-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
@@ -709,6 +709,8 @@ li:first-child > .preview-row {
 }
 
 .preview-summary {
+  flex: 1 1 0%;
+  min-width: 0;
   font-size: 0.86rem;
   font-weight: 600;
   display: flex;
@@ -722,6 +724,8 @@ li:first-child > .preview-row {
   gap: 10px;
   color: var(--text-dim);
   font-size: 0.76rem;
+  white-space: nowrap;
+  padding-top: 1px;
 }
 
 /* A single card shown standalone (landed on via a copy-link URL) instead

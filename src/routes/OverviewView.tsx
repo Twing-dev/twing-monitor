@@ -115,7 +115,7 @@ export function OverviewView({
                   <button type="button" className="preview-row" onClick={() => onOpenTab("conflicts")}>
                     <span className="preview-summary">
                       {showRepoBadge && <RepoBadge project={projectsById[projectId] ?? { projectId }} />}
-                      {summaryText}
+                      <span>{summaryText}</span>
                     </span>
                     <span className="preview-meta">
                       {who && <span>{who}</span>}
@@ -146,7 +146,7 @@ export function OverviewView({
                 <li key={event.id} className="preview-row preview-row-static">
                   <span className="preview-summary">
                     {showRepoBadge && <RepoBadge project={projectsById[event.projectId] ?? { projectId: event.projectId }} />}
-                    {formatted.label}
+                    <span>{formatted.label}</span>
                   </span>
                   <span className="preview-meta">
                     {event.developerId && <span>{event.developerId}</span>}

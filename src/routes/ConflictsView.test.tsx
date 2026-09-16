@@ -187,6 +187,35 @@ describe("ConflictsView", () => {
     expect(screen.queryByText("Overlaps an approved sibling design, same touched path")).not.toBeInTheDocument();
   });
 
+  it("'Mine only' keeps items where the signed-in developer is a party, and updates the stage counts to match", async () => {
+    // renderWithAuth signs in as alice@example.com. She's a party to
+    // OPEN_THREAD (developerId) but not the author of ENRICHED_REVIEW's
+    // design (priya@team.dev) -- so "Mine only" should drop the review and
+    // keep the thread.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/reviews?")) return jsonResponse({ items: [ENRICHED_REVIEW] });
+        if (url.includes("/v1/alignment-threads?")) return jsonResponse({ items: [OPEN_THREAD] });
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithAuth();
+
+    await waitFor(() => expect(screen.getByText("All (2)")).toBeInTheDocument());
+    expect(screen.getByText("add retry with exponential backoff to the webhook client")).toBeInTheDocument();
+    expect(screen.getByText(OPEN_THREAD.summary)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Mine only" }));
+
+    expect(screen.getByText("All (1)")).toBeInTheDocument();
+    expect(screen.getByText("Open discussion (1)")).toBeInTheDocument();
+    expect(screen.getByText(OPEN_THREAD.summary)).toBeInTheDocument();
+    expect(screen.queryByText("add retry with exponential backoff to the webhook client")).not.toBeInTheDocument();
+  });
+
   it("does not show Approve/Reject to a non-admin", async () => {
     vi.stubGlobal(
       "fetch",

@@ -1,6 +1,6 @@
-export type TabId = "overview" | "designs" | "conflicts" | "activity" | "members" | "constraints";
+export type TabId = "overview" | "designs" | "conflicts" | "hotspots" | "activity" | "members" | "constraints";
 
-const TAB_IDS: readonly TabId[] = ["overview", "designs", "conflicts", "activity", "members", "constraints"];
+const TAB_IDS: readonly TabId[] = ["overview", "designs", "conflicts", "hotspots", "activity", "members", "constraints"];
 
 export interface UrlViewState {
   /** Empty -- list view. One or more -- detail view (one repo is just the N=1 case of an aggregate). */

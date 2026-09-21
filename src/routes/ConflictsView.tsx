@@ -3,12 +3,13 @@ import { useApiFetch, ApiError, type Fetcher } from "../api/client.js";
 import { fetchReviews, fetchReviewById, decideReview } from "../api/reviews.js";
 import { fetchAlignmentThreads, fetchAlignmentThread } from "../api/alignmentThreads.js";
 import type { AlignmentThread, PendingReview, ProjectSummary } from "../api/types.js";
+import { useAuth } from "../auth/useAuth.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { buildShareUrl } from "../lib/urlState.js";
-import { buildConflictItems, type ConflictStage } from "../lib/aggregate.js";
+import { buildConflictItems, type ConflictItem, type ConflictStage } from "../lib/aggregate.js";
 import { ReviewCardHeaderContent, ReviewCardBody } from "./ReviewsView.js";
 import { ThreadCardHeaderContent, ThreadDetail } from "./AlignmentThreadsView.js";
 
@@ -179,6 +180,19 @@ function ConflictFocusedPage({
   );
 }
 
+/** Whether the signed-in developer is a party to this conflict -- a
+ * review's design author for a review, either developer for a thread.
+ * Matches DesignsView's own existing "Mine only" checkbox in spirit
+ * (`mineOnly`/`developerId` there), but computed client-side rather than
+ * as a server-side query param: `fetchReviews`/`fetchAlignmentThreads`
+ * have no `developerId` filter the way `fetchDesigns` does, and adding one
+ * would be a server change this branch is deliberately staying clear of. */
+function isMine(item: ConflictItem, me: string | undefined): boolean {
+  if (!me) return false;
+  if (item.kind === "review") return item.review.design?.developerId === me;
+  return item.thread.developerId === me || item.thread.otherDeveloperId === me;
+}
+
 type ReviewPage = { items: PendingReview[]; nextBefore?: number };
 type ThreadPage = { items: AlignmentThread[]; nextBefore?: number };
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
@@ -199,7 +213,9 @@ export function ConflictsView({
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
+  const { auth } = useAuth();
   const [filter, setFilter] = useState<ConflictStage | "all">("all");
+  const [mineOnly, setMineOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -268,7 +284,11 @@ export function ConflictsView({
 
   const allReviews = useMemo(() => Object.values(reviewPages).flatMap((p) => p.items), [reviewPages]);
   const allThreads = useMemo(() => Object.values(threadPages).flatMap((p) => p.items), [threadPages]);
-  const allItems = useMemo(() => buildConflictItems(allReviews, allThreads), [allReviews, allThreads]);
+  const mergedItems = useMemo(() => buildConflictItems(allReviews, allThreads), [allReviews, allThreads]);
+  // "Mine only" scopes everything below it -- the per-stage counts on the
+  // filter chips reflect just your own items too, not the whole project's,
+  // once it's on.
+  const allItems = useMemo(() => (mineOnly ? mergedItems.filter((i) => isMine(i, auth?.developerId)) : mergedItems), [mergedItems, mineOnly, auth?.developerId]);
   const items = filter === "all" ? allItems : allItems.filter((i) => i.stage === filter);
   const hasMore = Object.values(reviewPages).some((p) => p.nextBefore !== undefined) || Object.values(threadPages).some((p) => p.nextBefore !== undefined);
 
@@ -321,12 +341,18 @@ export function ConflictsView({
 
   return (
     <div className="list-view">
-      <div className="filter-chips">
-        {FILTERS.map((f) => (
-          <button key={f.value} type="button" className={`filter-chip${filter === f.value ? " active" : ""}`} onClick={() => setFilter(f.value)}>
-            {f.label} ({f.value === "all" ? allItems.length : counts[f.value]})
-          </button>
-        ))}
+      <div className="filter-bar">
+        <div className="filter-chips">
+          {FILTERS.map((f) => (
+            <button key={f.value} type="button" className={`filter-chip${filter === f.value ? " active" : ""}`} onClick={() => setFilter(f.value)}>
+              {f.label} ({f.value === "all" ? allItems.length : counts[f.value]})
+            </button>
+          ))}
+        </div>
+        <label className="checkbox-filter">
+          <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+          Mine only
+        </label>
       </div>
 
       {error && (

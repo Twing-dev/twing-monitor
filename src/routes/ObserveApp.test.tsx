@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ObserveApp } from "./ObserveApp.js";
 
 const project = { projectId: "proj-1", orgId: "", role: "member" as const };
@@ -33,13 +34,11 @@ describe("ObserveApp", () => {
 
     render(<ObserveApp />);
 
-    expect(await screen.findByRole("heading", { name: "proj-1" })).toBeInTheDocument();
+    expect(await screen.findByText("proj-1")).toBeInTheDocument();
     // No repo picker (RepoListView is skipped entirely) and no sign-in form.
     expect(screen.queryByRole("heading", { name: "Repos" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
-    // Reviews is excluded from the tab bar for this identity.
-    expect(screen.queryByRole("tab", { name: "Reviews" })).not.toBeInTheDocument();
-    expect(await screen.findByRole("tab", { name: "Designs" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Work in progress" })).toBeInTheDocument();
   });
 
   it("never touches localStorage -- a real admin's cached session in the same browser is left alone", async () => {
@@ -47,7 +46,7 @@ describe("ObserveApp", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [project] }), { status: 200 })));
 
     render(<ObserveApp />);
-    await screen.findByRole("heading", { name: "proj-1" });
+    await screen.findByText("proj-1");
 
     // Untouched: still exactly the real admin's own cached session.
     const raw = localStorage.getItem("twing-monitor:auth");
@@ -105,7 +104,8 @@ describe("ObserveApp", () => {
 
     render(<ObserveApp />);
 
-    expect(await screen.findByRole("tab", { name: "Designs" })).toBeInTheDocument();
+    const tab = await screen.findByRole("tab", { name: "Work in progress" });
+    await userEvent.setup().click(tab);
     expect(await screen.findByText("A public design")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load older" })).toBeInTheDocument();
   });
@@ -121,7 +121,7 @@ describe("ObserveApp", () => {
 
     render(<ObserveApp />);
 
-    expect(await screen.findByRole("heading", { name: "2 repos" })).toBeInTheDocument();
+    expect(await screen.findByText("2 repos")).toBeInTheDocument();
     expect(screen.getByText("proj-1")).toBeInTheDocument();
     expect(screen.getByText("proj-2")).toBeInTheDocument();
   });

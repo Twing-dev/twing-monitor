@@ -16,6 +16,7 @@ import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
 import { toneForDesignStatus } from "../lib/designStatus.js";
+import { conflictKindInfo } from "../lib/conflictKind.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { blastRadius, hasStructuredChanges } from "../lib/designConformance.js";
 import { buildShareUrl } from "../lib/urlState.js";
@@ -137,8 +138,8 @@ function DesignCardHeaderContent({
       <div className="card-top-row">
         <span className="card-summary">{primary.summary}</span>
         <div className="card-badges">
-          {anyUnresolvedWarning && <StatusBadge label="overlap warning" tone="warning" />}
-          {anySemanticOverlap && <StatusBadge label="semantic overlap" tone="warning" />}
+          {anyUnresolvedWarning && <StatusBadge label={conflictKindInfo("file_overlap").label} tone={conflictKindInfo("file_overlap").tone} />}
+          {anySemanticOverlap && <StatusBadge label={conflictKindInfo("llm_divergence").label} tone={conflictKindInfo("llm_divergence").tone} />}
           {/* One badge per distinct repo/status, not per member -- a group can
               have more members than repos (two designs linked in the same
               project) or more members than distinct statuses (a uniformly
@@ -194,7 +195,7 @@ function DesignCardBody({
   designsById: Record<string, DesignStatement>;
   onResolved: () => void;
   onOpenDesign: (designId: string) => void;
-  onOpenTab?: (tab: "threads") => void;
+  onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
 }) {
   return (
@@ -250,7 +251,7 @@ export function DesignsView({
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
   onClearFocus?: () => void;
-  onOpenTab?: (tab: "threads") => void;
+  onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();

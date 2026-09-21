@@ -32,7 +32,7 @@ function AuthGate() {
     if (matched.length === 0) {
       // Named repo(s) not found / no longer accessible -- fall back to the
       // list view rather than erroring, and drop the dead reference.
-      replaceUrlState({ repoIds: [], tab: "designs" });
+      replaceUrlState({ repoIds: [], tab: "overview" });
       return;
     }
     setView({ mode: "detail", projects: matched });
@@ -68,7 +68,7 @@ function AuthGate() {
         key={view.projects.map((p) => p.projectId).join(",")}
         projects={view.projects}
         onBack={() => {
-          pushUrlState({ repoIds: [], tab: "designs" });
+          pushUrlState({ repoIds: [], tab: "overview" });
           setView({ mode: "list" });
         }}
       />
@@ -78,11 +78,11 @@ function AuthGate() {
     <RepoListView
       state={projectsState}
       onSelectProject={(project) => {
-        pushUrlState({ repoIds: [project.projectId], tab: "designs" });
+        pushUrlState({ repoIds: [project.projectId], tab: "overview" });
         setView({ mode: "detail", projects: [project] });
       }}
       onViewAggregate={(projects) => {
-        pushUrlState({ repoIds: projects.map((p) => p.projectId), tab: "designs" });
+        pushUrlState({ repoIds: projects.map((p) => p.projectId), tab: "overview" });
         setView({ mode: "detail", projects });
       }}
     />

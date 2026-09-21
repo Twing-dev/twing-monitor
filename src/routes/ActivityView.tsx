@@ -39,7 +39,7 @@ export interface ActivityViewProps {
   onOpenDesign?: (designId: string) => void;
   /** Simple tab switches for kinds this view doesn't have a per-item
    * detail target for yet (a specific alignment thread/constraint row). */
-  onOpenTab?: (tab: "threads" | "constraints") => void;
+  onOpenTab?: (tab: "conflicts" | "constraints") => void;
 }
 
 /** One event row -- shared between the flat list and an expanded design
@@ -61,7 +61,7 @@ function ActivityRow({
   projectsById: Record<string, ProjectSummary>;
   showRepoBadge: boolean;
   onOpenDesign?: (designId: string) => void;
-  onOpenTab?: (tab: "threads" | "constraints") => void;
+  onOpenTab?: (tab: "conflicts" | "constraints") => void;
   onFilterDeveloper: (developerId: string) => void;
 }) {
   const formatted = formatActivityEvent(event);
@@ -122,8 +122,8 @@ function ActivityRow({
             </button>
           )}
           {formatted.threadId && onOpenTab && (
-            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenTab("threads")}>
-              View alignment thread →
+            <button type="button" className="link-chip link-chip-accent" onClick={() => onOpenTab("conflicts")}>
+              View conflict →
             </button>
           )}
           {formatted.constraintId && onOpenTab && (
@@ -161,7 +161,7 @@ function DesignGroupRow({
   projectsById: Record<string, ProjectSummary>;
   showRepoBadge: boolean;
   onOpenDesign?: (designId: string) => void;
-  onOpenTab?: (tab: "threads" | "constraints") => void;
+  onOpenTab?: (tab: "conflicts" | "constraints") => void;
   onFilterDeveloper: (developerId: string) => void;
 }) {
   // The group's most-recently-active member represents it in the header --

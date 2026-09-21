@@ -1,4 +1,5 @@
-import type { DesignStatement, ProjectMember } from "../api/types.js";
+import type { AlignmentThread, DesignStatement, PendingReview, ProjectMember } from "../api/types.js";
+import { pathOfTarget } from "./designConformance.js";
 
 /**
  * Fans a per-project list-fetcher out across every selected repo and
@@ -117,4 +118,121 @@ export function uniqueBy<T, K>(items: T[], key: (item: T) => K): T[] {
     result.push(item);
   }
   return result;
+}
+
+/** Which stage a merged Conflicts-tab item is at. Deliberately computed only
+ * from fields already on the list-view record (`PendingReview`/
+ * `AlignmentThread`) -- not from a thread's full message history, which
+ * would need a second fetch per thread. `open_discussion` therefore means
+ * "this thread is still open," not "it's specifically your turn to reply"
+ * (that would need to know the last message's author, which the list
+ * endpoint doesn't carry). */
+export type ConflictStage = "open_discussion" | "awaiting_approval" | "resolved";
+
+/** One row in the merged Conflicts tab -- a `PendingReview` (admin
+ * approve/reject queue) or an `AlignmentThread` (party reply/close
+ * conversation) are different entities with different actions, so this
+ * stays a discriminated union rather than flattening them into one shape;
+ * `ConflictsView` renders each arm with the real `ReviewCardBody`/
+ * `ThreadDetail` components instead of a shared generic card. */
+export type ConflictItem =
+  | { kind: "review"; stage: ConflictStage; ts: number; review: PendingReview }
+  | { kind: "thread"; stage: ConflictStage; ts: number; thread: AlignmentThread };
+
+/** Merges a project's pending reviews and alignment threads into one
+ * newest-first list -- the data behind ConflictsView (Reviews +
+ * Alignment threads, merged: both are "a conflict between two people's
+ * work, at some stage of getting resolved," which is the whole point of
+ * combining them under one tab instead of two unrelated-sounding ones). */
+export function buildConflictItems(reviews: PendingReview[], threads: AlignmentThread[]): ConflictItem[] {
+  const reviewItems: ConflictItem[] = reviews.map((review) => ({
+    kind: "review",
+    stage: review.decision ? "resolved" : "awaiting_approval",
+    ts: review.createdAt,
+    review,
+  }));
+  const threadItems: ConflictItem[] = threads.map((thread) => ({
+    kind: "thread",
+    stage: thread.status === "open" ? "open_discussion" : "resolved",
+    ts: thread.lastActivityAt ?? thread.openedAt,
+    thread,
+  }));
+  return [...reviewItems, ...threadItems].sort((a, b) => b.ts - a.ts);
+}
+
+/** The Overview page's four KPI tiles -- every count here comes from a list
+ * a caller already fetches for another tab (no new endpoint), just reduced
+ * to a number. `teamMembers` dedupes by developer the same way
+ * `dedupeMembersByDeveloper` does, since a developer can be a member of
+ * more than one selected repo. */
+export interface OverviewSummary {
+  activeWork: number;
+  conflictsBlocking: number;
+  pendingApprovals: number;
+  teamMembers: number;
+}
+
+export function summarizeOverview(openDesigns: DesignStatement[], flaggedDesigns: DesignStatement[], pendingReviews: PendingReview[], members: ProjectMember[]): OverviewSummary {
+  return {
+    activeWork: openDesigns.length,
+    conflictsBlocking: flaggedDesigns.length,
+    pendingApprovals: pendingReviews.length,
+    teamMembers: new Set(members.map((m) => m.developerId)).size,
+  };
+}
+
+/** A file/symbol path that has collided more than once, with everyone
+ * involved and when it last happened. Every other view organizes conflicts
+ * by developer or by status -- this is the one axis nothing shows: which
+ * *code* keeps generating conflicts, which is a signal about the code
+ * (needs splitting up, needs clearer ownership) rather than about any one
+ * conflict. Built from the same `paths`/`symbolIds` fields Reviews'
+ * "Collides with" band and a thread's "Overlapping files" section already
+ * render -- no new data, just aggregated by path instead of by conflict. */
+export interface Hotspot {
+  path: string;
+  count: number;
+  /** Deduped, sorted. Every developer who was on either side of any
+   * conflict this path was involved in. */
+  developers: string[];
+  lastActivityAt: number;
+}
+
+/** Reduces overlapping-path mentions across reviews and threads to one
+ * ranked list, most-collided-first (ties broken by most recent). A single
+ * conflict naming several paths counts once per path, not once overall --
+ * "how many separate collisions has this file been part of" is the
+ * question this answers, not "how many conflicts exist." */
+export function buildHotspots(reviews: PendingReview[], threads: AlignmentThread[]): Hotspot[] {
+  const byPath = new Map<string, { count: number; developers: Set<string>; lastActivityAt: number }>();
+
+  function record(rawPath: string, developers: (string | undefined)[], ts: number) {
+    const path = pathOfTarget(rawPath);
+    if (!path) return;
+    let entry = byPath.get(path);
+    if (!entry) {
+      entry = { count: 0, developers: new Set(), lastActivityAt: 0 };
+      byPath.set(path, entry);
+    }
+    entry.count++;
+    for (const d of developers) if (d) entry.developers.add(d);
+    if (ts > entry.lastActivityAt) entry.lastActivityAt = ts;
+  }
+
+  for (const review of reviews) {
+    for (const conflict of review.conflicts ?? []) {
+      for (const path of conflict.paths ?? []) {
+        record(path, [review.design?.developerId, conflict.developerId], review.createdAt);
+      }
+    }
+  }
+  for (const thread of threads) {
+    for (const symbolId of thread.symbolIds) {
+      record(symbolId, [thread.developerId, thread.otherDeveloperId], thread.lastActivityAt ?? thread.openedAt);
+    }
+  }
+
+  return Array.from(byPath.entries())
+    .map(([path, e]) => ({ path, count: e.count, developers: Array.from(e.developers).sort(), lastActivityAt: e.lastActivityAt }))
+    .sort((a, b) => b.count - a.count || b.lastActivityAt - a.lastActivityAt);
 }

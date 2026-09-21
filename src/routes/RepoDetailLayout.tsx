@@ -9,6 +9,7 @@ import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
 import { OverviewView } from "./OverviewView.js";
 import { DesignsView } from "./DesignsView.js";
 import { ConflictsView } from "./ConflictsView.js";
+import { HotspotsView } from "./HotspotsView.js";
 import { ActivityView } from "./ActivityView.js";
 import { MembersView } from "./MembersView.js";
 import { ConstraintsView } from "./ConstraintsView.js";
@@ -23,6 +24,7 @@ const LIVE_NAV: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "◆" },
   { id: "designs", label: "Work in progress", icon: "▣" },
   { id: "conflicts", label: "Conflicts", icon: "⚠" },
+  { id: "hotspots", label: "Hotspots", icon: "◈" },
   { id: "activity", label: "History", icon: "≡" },
 ];
 const SETTINGS_NAV: { id: TabId; label: string; icon: string }[] = [
@@ -38,6 +40,7 @@ const PAGE_INFO: Record<TabId, { title: string; sub: string }> = {
   overview: { title: "Overview", sub: "What's happening right now." },
   designs: { title: "Work in progress", sub: "What every active session has declared it's building, right now." },
   conflicts: { title: "Conflicts", sub: "Every place two developers' (or agents') work is colliding, and what stage it's at." },
+  hotspots: { title: "Hotspots", sub: "Files that keep generating conflicts -- a repeat collision is a signal, not just another item to clear." },
   activity: { title: "History", sub: "The full timeline -- every claim, check, decision, and rule change, in order." },
   members: { title: "Team", sub: "Who's on this repo, and their role." },
   constraints: { title: "Rules", sub: "Fixed project rules every edit gets checked against." },
@@ -236,6 +239,7 @@ export function RepoDetailLayout({
               readOnly={readOnly}
             />
           )}
+          {tab === "hotspots" && <HotspotsView projectIds={projectIds} readOnly={readOnly} />}
           {tab === "activity" && <ActivityView projectIds={projectIds} projectsById={projectsById} onOpenDesign={openDesign} onOpenTab={openTab} />}
           {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
           {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}

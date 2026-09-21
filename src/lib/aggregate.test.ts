@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fetchAllProjects, dedupeDesignsByGroup, dedupeMembersByDeveloper, buildConflictItems, summarizeOverview } from "./aggregate.js";
+import { fetchAllProjects, dedupeDesignsByGroup, dedupeMembersByDeveloper, buildConflictItems, summarizeOverview, buildHotspots } from "./aggregate.js";
 import type { AlignmentThread, DesignStatement, PendingReview, ProjectMember } from "../api/types.js";
 
 function design(overrides: Partial<DesignStatement> & { id: string }): DesignStatement {
@@ -211,5 +211,56 @@ describe("summarizeOverview", () => {
 
   it("is all zeros for empty inputs", () => {
     expect(summarizeOverview([], [], [], [])).toEqual({ activeWork: 0, conflictsBlocking: 0, pendingApprovals: 0, teamMembers: 0 });
+  });
+});
+
+describe("buildHotspots", () => {
+  it("counts a review conflict's paths, attributing both the design author and the conflict's own developer", () => {
+    const r = review({
+      id: "r1",
+      design: { summary: "", creates: [], touches: [], developerId: "alice@example.com", status: "flagged" },
+      conflicts: [{ designId: "d2", kind: "overlap", developerId: "bob@example.com", paths: ["src/billing/charge.ts"] }],
+    });
+    const hotspots = buildHotspots([r], []);
+
+    expect(hotspots).toEqual([{ path: "src/billing/charge.ts", count: 1, developers: ["alice@example.com", "bob@example.com"], lastActivityAt: r.createdAt }]);
+  });
+
+  it("strips the symbol half of a thread's symbolIds down to the file path", () => {
+    const t = thread({ id: "t1", symbolIds: ["src/net/retry.ts::RetryPolicy.backoff"], developerId: "alice@example.com", otherDeveloperId: "bob@example.com" });
+    const hotspots = buildHotspots([], [t]);
+
+    expect(hotspots[0].path).toBe("src/net/retry.ts");
+    expect(hotspots[0].developers).toEqual(["alice@example.com", "bob@example.com"]);
+  });
+
+  it("counts one occurrence per conflict a path appears in, not the total number of collisions overall", () => {
+    const r1 = review({ id: "r1", conflicts: [{ designId: "d2", kind: "overlap", paths: ["src/x.ts"] }] });
+    const r2 = review({ id: "r2", conflicts: [{ designId: "d3", kind: "overlap", paths: ["src/x.ts"] }] });
+    const hotspots = buildHotspots([r1, r2], []);
+
+    expect(hotspots[0]).toMatchObject({ path: "src/x.ts", count: 2 });
+  });
+
+  it("sorts most-collided-first, breaking ties by most recent", () => {
+    const busy = review({ id: "r1", createdAt: 10, conflicts: [{ designId: "d2", kind: "overlap", paths: ["src/busy.ts"] }] });
+    const busyAgain = review({ id: "r2", createdAt: 20, conflicts: [{ designId: "d3", kind: "overlap", paths: ["src/busy.ts"] }] });
+    const quietNewer = review({ id: "r3", createdAt: 30, conflicts: [{ designId: "d4", kind: "overlap", paths: ["src/quiet.ts"] }] });
+    const hotspots = buildHotspots([busy, busyAgain, quietNewer], []);
+
+    expect(hotspots.map((h) => h.path)).toEqual(["src/busy.ts", "src/quiet.ts"]);
+    expect(hotspots[0].lastActivityAt).toBe(20);
+  });
+
+  it("dedupes a developer who appears on multiple collisions for the same path", () => {
+    const r1 = review({ id: "r1", design: { summary: "", creates: [], touches: [], developerId: "alice@example.com", status: "flagged" }, conflicts: [{ designId: "d2", kind: "overlap", paths: ["src/x.ts"] }] });
+    const r2 = review({ id: "r2", design: { summary: "", creates: [], touches: [], developerId: "alice@example.com", status: "flagged" }, conflicts: [{ designId: "d3", kind: "overlap", paths: ["src/x.ts"] }] });
+    const hotspots = buildHotspots([r1, r2], []);
+
+    expect(hotspots[0].developers).toEqual(["alice@example.com"]);
+  });
+
+  it("returns an empty array when there's nothing to aggregate", () => {
+    expect(buildHotspots([], [])).toEqual([]);
   });
 });

@@ -161,6 +161,21 @@ export function ThreadDetail({
 
   return (
     <div className="design-detail">
+      {/* The coordinator's own specific finding text (e.g. "Signature of X
+          changed; Y calls it", or the semantic comparator's own explanation
+          for an llm_divergence thread) -- always shown, not gated on
+          `thread.summary` being absent. Previously only reached
+          `ThreadCardHeaderContent`'s headline as a fallback when `summary`
+          was missing, which is the rare case for anything registered after
+          2026-08-23 -- so the actual reason was being fetched and then
+          silently dropped for nearly every thread. Same field, same
+          unconditional treatment `DesignDetail`'s `SemanticOverlapNote`
+          already gives it. */}
+      <div className="detail-field">
+        <h3>Why this conflict</h3>
+        <p className="resolve-pending-note">{thread.systemDescription}</p>
+      </div>
+
       <div className="kind-list">
         <CollapsibleField label="Linked designs" countLabel={`${linkedDesignsCount} design${linkedDesignsCount === 1 ? "" : "s"}`}>
           <div className="thread-design-links">

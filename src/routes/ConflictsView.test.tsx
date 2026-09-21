@@ -140,6 +140,31 @@ describe("ConflictsView", () => {
     expect(screen.getByText("Edits collide", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
+  it("shows the coordinator's own specific conflict reason when a thread is expanded, even though it also has a summary", async () => {
+    // OPEN_THREAD has both `summary` (short list-view label) and
+    // `systemDescription` (the coordinator's specific finding text) set --
+    // this asserts the latter isn't silently dropped just because the
+    // former exists.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/reviews?")) return emptyReviews();
+        if (url.includes("/v1/alignment-threads?")) return jsonResponse({ items: [OPEN_THREAD] });
+        if (url.includes("/v1/alignment-threads/thread-1")) return jsonResponse({ thread: OPEN_THREAD, messages: [] });
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithAuth();
+
+    const card = await screen.findByRole("button", { name: /overlapping path with/i });
+    await user.click(card);
+
+    expect(await screen.findByText("Why this conflict")).toBeInTheDocument();
+    expect(screen.getByText(OPEN_THREAD.systemDescription)).toBeInTheDocument();
+  });
+
   it("a pre-2026-08-26 legacy-category thread still resolves a conflict badge", async () => {
     vi.stubGlobal(
       "fetch",

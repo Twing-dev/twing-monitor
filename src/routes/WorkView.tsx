@@ -11,8 +11,7 @@ import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
-import { toBullets } from "../lib/summaryBullets.js";
-import { deriveTitle } from "../lib/designTitle.js";
+import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
@@ -442,7 +441,7 @@ function DesignDetailPane({
   const apiFetch = useApiFetch();
   const primary = group.members[0];
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
-  const bullets = toBullets(primary.summary);
+  const points = toDesignPoints(primary.summary);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -494,9 +493,9 @@ function DesignDetailPane({
       {tab === "overview" && (
         <div className="work-tab-panel">
           <h3>What this design says it&rsquo;s doing</h3>
-          {bullets.length > 0 ? (
+          {points.length > 0 ? (
             <ul className="summary-bullets">
-              {bullets.map((line, i) => (
+              {points.map((line, i) => (
                 <li key={i}>{line}</li>
               ))}
             </ul>

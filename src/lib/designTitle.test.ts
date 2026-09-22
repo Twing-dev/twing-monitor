@@ -1,17 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { deriveTitle } from "./designTitle.js";
+import { deriveTitle, toDesignPoints } from "./designTitle.js";
+
+// The real shape a design's summary takes once it's been amended a few
+// times: an initial "headline -- elaboration" paragraph, then one blank-
+// line-separated paragraph per amendment (a real example, trimmed).
+const AMENDED_SUMMARY =
+  "Fix the nine defects found reviewing the Codex harness work -- trust stamping that silently never happens or overrides the user, a patch decode that can deny every edit, a resolver that cannot find the repo for a Codex patch, and capture that misattributes a moved session\n\n" +
+  "Update (2026-09-21): hook-version-stamp modify packages/cli/src/install-hook.ts -- Record which CLI installed the hook binary, so the resolver can tell a stale binary from a current one before handing it an event\n\n" +
+  "Update (2026-09-21): docs-stale-binary modify CLAUDE.md -- Document the version stamp and why the Codex path cannot self-heal without it";
 
 describe("deriveTitle", () => {
-  it("cuts at the first ' -- ' separator, dropping everything after", () => {
-    expect(deriveTitle("Add a RetryPolicy -- exponential backoff on the sync client, capped at 30s")).toBe("Add a RetryPolicy");
+  it("takes the first paragraph's headline before ' -- ', dropping every amendment paragraph after it", () => {
+    expect(deriveTitle(AMENDED_SUMMARY)).toBe("Fix the nine defects found reviewing the Codex harness work");
   });
 
-  it("drops every amendment appended after the headline, not just the first", () => {
-    const summary =
-      "Fix the nine defects found reviewing the Codex harness work -- trust stamping that silently never happens " +
-      "Update (2026-09-21): hook-version-stamp modify packages/cli/src/install-hook.ts -- Record which CLI installed the hook binary " +
-      "Update (2026-09-21): docs-stale-binary modify CLAUDE.md -- Document the version stamp";
-    expect(deriveTitle(summary)).toBe("Fix the nine defects found reviewing the Codex harness work");
+  it("cuts at the first ' -- ' separator for a single-paragraph summary", () => {
+    expect(deriveTitle("Add a RetryPolicy -- exponential backoff on the sync client, capped at 30s")).toBe("Add a RetryPolicy");
   });
 
   it("falls back to the first sentence when there's no ' -- ' but the summary splits into several", () => {
@@ -36,5 +40,32 @@ describe("deriveTitle", () => {
   it("returns empty input unchanged", () => {
     expect(deriveTitle("")).toBe("");
     expect(deriveTitle("   ")).toBe("");
+  });
+});
+
+describe("toDesignPoints", () => {
+  it("splits an amended summary into one point per paragraph, sub-split on ' -- '", () => {
+    const out = toDesignPoints(AMENDED_SUMMARY);
+    expect(out).toEqual([
+      "Fix the nine defects found reviewing the Codex harness work",
+      "trust stamping that silently never happens or overrides the user, a patch decode that can deny every edit, a resolver that cannot find the repo for a Codex patch, and capture that misattributes a moved session",
+      "Update (2026-09-21): hook-version-stamp modify packages/cli/src/install-hook.ts",
+      "Record which CLI installed the hook binary, so the resolver can tell a stale binary from a current one before handing it an event",
+      "Update (2026-09-21): docs-stale-binary modify CLAUDE.md",
+      "Document the version stamp and why the Codex path cannot self-heal without it",
+    ]);
+  });
+
+  it("splits ordinary multi-sentence prose the same way toBullets does", () => {
+    const out = toDesignPoints("Adds a RetryPolicy class with exponential backoff. Wires it into the HTTP client so every outbound call retries.");
+    expect(out).toHaveLength(2);
+  });
+
+  it("returns [] for a short single-clause summary, same convention as toBullets", () => {
+    expect(toDesignPoints("add keyboard shortcuts to the command palette")).toEqual([]);
+  });
+
+  it("returns [] for empty input", () => {
+    expect(toDesignPoints("")).toEqual([]);
   });
 });

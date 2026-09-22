@@ -12,6 +12,7 @@ import { RepoBadge } from "../components/RepoBadge.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
+import { deriveTitle } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
@@ -30,19 +31,22 @@ import { formatActivityEvent } from "../lib/activityFormat.js";
 type Section = "attention" | "progress" | "resolved";
 // "conflicts" is not a `Section` -- it's a narrower cut across "attention"
 // (a real two-side collision: a live file-overlap warning or semantic
-// overlap) vs. "attention"'s broader "flagged for any reason, including a
-// rule violation with no other party involved at all."
-type FilterPill = "all" | Section | "conflicts";
+// overlap) is a narrower cut of "attention" (flagged for any reason,
+// including a rule violation with no other party involved at all) --
+// dropped as a separate pill (2026-09) after testing against real
+// production data showed the two sets are the same often enough that
+// the split just reads as two labels for one thing, not two different
+// things worth filtering to separately.
+type FilterPill = "all" | Section;
 
 const PILLS: { value: FilterPill; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "attention", label: "Attention" },
-  { value: "conflicts", label: "Conflicts" },
+  { value: "attention", label: "Conflicts" },
   { value: "resolved", label: "Resolved" },
 ];
 
 const SECTION_HEADING: Record<Section, string> = {
-  attention: "Needs attention",
+  attention: "Conflicts",
   progress: "In progress",
   resolved: "Resolved",
 };
@@ -241,11 +245,8 @@ export function WorkView({
   );
 
   const counts = useMemo(() => {
-    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0, conflicts: 0 };
-    for (const r of rows) {
-      c[r.section]++;
-      if (r.flags.anyUnresolvedWarning || r.flags.anySemanticOverlap) c.conflicts++;
-    }
+    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0 };
+    for (const r of rows) c[r.section]++;
     return c;
   }, [rows]);
 
@@ -255,12 +256,7 @@ export function WorkView({
     return rows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
   }, [rows, query]);
 
-  const visibleRows =
-    pill === "all"
-      ? searched
-      : pill === "conflicts"
-        ? searched.filter((r) => r.flags.anyUnresolvedWarning || r.flags.anySemanticOverlap)
-        : searched.filter((r) => r.section === pill);
+  const visibleRows = pill === "all" ? searched : searched.filter((r) => r.section === pill);
 
   // Auto-select the first visible row whenever the current selection drops
   // out of view (filter/search changed, or nothing selected yet) -- keeps
@@ -326,14 +322,14 @@ export function WorkView({
           <p className="empty-state">No designs match this filter.</p>
         ) : (
           <div className="work-rows">
-            {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : (["__flat__"] as const)).map((section) => {
-              const inSection = section === "__flat__" ? visibleRows : visibleRows.filter((r) => r.section === section);
+            {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : [pill]).map((section) => {
+              const inSection = pill === "all" ? visibleRows.filter((r) => r.section === section) : visibleRows;
               if (inSection.length === 0) return null;
               return (
                 <div key={section}>
                   {pill === "all" && (
                     <div className={`work-section-heading${section === "attention" ? " attention" : ""}`}>
-                      {SECTION_HEADING[section as Section]} <span className="n">{inSection.length}</span>
+                      {SECTION_HEADING[section]} <span className="n">{inSection.length}</span>
                     </div>
                   )}
                   {inSection.map(({ group, primary, flags, section: rowSection }) => (
@@ -343,7 +339,7 @@ export function WorkView({
                       className={`work-row${selectedKey === group.key ? " selected" : ""}`}
                       onClick={() => selectRow(group.key)}
                     >
-                      <div className="work-row-summary">{primary.summary}</div>
+                      <div className="work-row-summary">{deriveTitle(primary.summary)}</div>
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
@@ -466,7 +462,7 @@ function DesignDetailPane({
     <>
       <div className="work-detail-header">
         <div className="work-detail-title" title={primary.summary}>
-          {primary.summary}
+          {deriveTitle(primary.summary)}
         </div>
         <div className="work-detail-meta">
           {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}

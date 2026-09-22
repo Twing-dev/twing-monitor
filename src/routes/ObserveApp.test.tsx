@@ -117,7 +117,21 @@ describe("ObserveApp", () => {
   // project GET /v1/projects returns for this identity.
   it("shows every public project at once as the multi-repo aggregate view when more than one is configured", async () => {
     const other = { projectId: "proj-2", orgId: "", role: "member" as const };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [project, other] }), { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        // Only /v1/projects returns the two projects -- WorkView (the
+        // unified home screen) is now what an "aggregate view" actually
+        // renders, and it fetches designs/activity/alignment-threads too;
+        // a blanket `[project, other]` response for those got cast (and
+        // rendered) as bogus DesignStatements, producing a second, flaky
+        // "proj-1"/"proj-2" via a design row's own repo badge alongside
+        // the repo-chip-row this test actually means to check.
+        if (url.includes("/v1/projects")) return new Response(JSON.stringify({ items: [project, other] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
 
     render(<ObserveApp />);
 

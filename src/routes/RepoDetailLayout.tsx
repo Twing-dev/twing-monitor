@@ -1,9 +1,5 @@
 import { useEffect, useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
-import { useApiFetch } from "../api/client.js";
-import { useAsyncData } from "../hooks/useAsyncData.js";
-import { fetchReviews } from "../api/reviews.js";
-import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
 import { WorkView } from "./WorkView.js";
@@ -18,15 +14,12 @@ import { ConstraintsView } from "./ConstraintsView.js";
  * detail pane (WorkView), a whole vertical rail for what's now a single
  * destination was the wrong shape, and it was eating a fixed 232px + the
  * content column's own 900px cap regardless of how wide the window actually
- * was. This is that destination's home screen -- everything else
- * (Conflicts' own exhaustive browse view, Hotspots, History, Team, Rules)
- * is one click away from a small icon row in a slim top bar instead of a
- * permanent nav item, since none of them is "what am I looking at right
- * now" the way the unified list is. */
+ * was. This is that destination's home screen. Only Team/Rules keep a
+ * top-bar icon (matches the design mockup exactly, top-bar down to the
+ * icon count) -- Conflicts/Hotspots/History have no icon anymore and are
+ * only reachable by an in-app cross-link (a Conflict tab's "View conflict
+ * ->") or a copy-link URL; their own page code is untouched. */
 const SECONDARY_NAV: { id: TabId; label: string; icon: string }[] = [
-  { id: "conflicts", label: "Conflicts", icon: "⚠" },
-  { id: "hotspots", label: "Hotspots", icon: "◈" },
-  { id: "activity", label: "History", icon: "≡" },
   { id: "members", label: "Team", icon: "◐" },
   { id: "constraints", label: "Rules", icon: "▤" },
 ];
@@ -69,7 +62,6 @@ export function RepoDetailLayout({
    * purely the UX nicety of not showing dead-end forms/buttons. */
   readOnly?: boolean;
 }) {
-  const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>(() => parseUrlState().tab);
   // Set by an Activity row's "View design ->" link, a card's own copy-link
   // URL, or a semantic-overlap jump -- WorkView consumes it to select that
@@ -88,6 +80,11 @@ export function RepoDetailLayout({
 
   const projectIds = projects.map((p) => p.projectId);
   const isHome = tab === "overview" || tab === "designs";
+  // Lives here, not in WorkView, because it renders in the shared top bar
+  // (next to the repo switcher) rather than WorkView's own filter row --
+  // only meaningful on the home screen, so it's dropped whenever isHome
+  // goes false rather than persisted across a trip to another tab.
+  const [query, setQuery] = useState("");
 
   function focusIdForTab(t: TabId): string | undefined {
     if (t === "designs" || t === "overview") return focusDesignId;
@@ -137,25 +134,6 @@ export function RepoDetailLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectIds.join(",")]);
 
-  // The Conflicts icon's badge count: a pending review or an open thread
-  // each mean someone is waiting, and nothing in twing pages that person --
-  // an admin or party only finds out by opening Conflicts and looking.
-  // Summed across every selected repo, matching what Conflicts itself shows
-  // in the aggregated view. Deliberately not gated on role -- a member
-  // can't decide a review, but knowing the queue is backing up is still
-  // worth seeing. Reviews skipped entirely when readOnly (GET /v1/reviews
-  // 404s for the public viewer identity) -- no point making a fetch that
-  // can only ever fail.
-  const pendingReviews = useAsyncData(
-    () => (readOnly ? Promise.resolve([]) : Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat())),
-    [apiFetch, projectIds.join(","), readOnly],
-  );
-  const openThreads = useAsyncData(
-    () => Promise.all(projectIds.map((pid) => fetchAlignmentThreads(apiFetch, pid, { status: "open" }))).then((lists) => lists.flatMap((p) => p.items)),
-    [apiFetch, projectIds.join(",")],
-  );
-  const conflictsCount = (pendingReviews.status === "ready" ? pendingReviews.data.length : 0) + (openThreads.status === "ready" ? openThreads.data.length : 0);
-
   const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
   const single = projects.length === 1 ? projects[0] : undefined;
 
@@ -180,6 +158,17 @@ export function RepoDetailLayout({
 
         <div className="work-topbar-spacer" />
 
+        {isHome && (
+          <input
+            className="work-search"
+            type="text"
+            placeholder="Search designs, people…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search designs"
+          />
+        )}
+
         <div className="work-topbar-icons">
           {SECONDARY_NAV.map((t) => (
             <button
@@ -191,11 +180,6 @@ export function RepoDetailLayout({
               onClick={() => openTab(t.id)}
             >
               {t.icon}
-              {t.id === "conflicts" && conflictsCount > 0 && (
-                <span className={`icon-btn-badge${pendingReviews.status === "ready" && pendingReviews.data.length === 0 ? " mild" : ""}`} aria-label={`${conflictsCount} conflicts`}>
-                  {conflictsCount}
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -219,7 +203,16 @@ export function RepoDetailLayout({
       )}
 
       {isHome && (
-        <WorkView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={() => setFocusDesignId(undefined)} onOpenTab={openTab} readOnly={readOnly} />
+        <WorkView
+          projectIds={projectIds}
+          projectsById={projectsById}
+          focusDesignId={focusDesignId}
+          onClearFocus={() => setFocusDesignId(undefined)}
+          onOpenTab={openTab}
+          readOnly={readOnly}
+          query={query}
+          onQueryChange={setQuery}
+        />
       )}
       {!isHome && (
         <div className="content">

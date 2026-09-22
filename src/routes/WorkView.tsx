@@ -4,20 +4,17 @@ import { fetchDesigns, fetchDesignById } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
-import type { ActivityEvent, AlignmentThread, DesignStatement, ProjectSummary } from "../api/types.js";
+import type { ActivityEvent, AlignmentThread, DesignChange, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
-import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
-import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
-import { blastRadius, hasStructuredChanges } from "../lib/designConformance.js";
+import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
-import { buildShareUrl } from "../lib/urlState.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
  * (2026-09): replaces the old Overview + Designs + Conflicts three-tab split
@@ -31,11 +28,16 @@ import { buildShareUrl } from "../lib/urlState.js";
  * it just moved off the primary nav (see RepoDetailLayout's top bar). */
 
 type Section = "attention" | "progress" | "resolved";
-type FilterPill = "all" | Section;
+// "conflicts" is not a `Section` -- it's a narrower cut across "attention"
+// (a real two-side collision: a live file-overlap warning or semantic
+// overlap) vs. "attention"'s broader "flagged for any reason, including a
+// rule violation with no other party involved at all."
+type FilterPill = "all" | Section | "conflicts";
 
 const PILLS: { value: FilterPill; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "attention", label: "Needs attention" },
+  { value: "attention", label: "Attention" },
+  { value: "conflicts", label: "Conflicts" },
   { value: "resolved", label: "Resolved" },
 ];
 
@@ -84,6 +86,24 @@ function designFlags(group: DesignGroup, latestChecks: Map<string, { verdict: st
   return { anyUnresolvedWarning, anySemanticOverlap };
 }
 
+/** The "N changes / N files / N renames / schema" stat tiles for the Design
+ * change tab -- same underlying counts `blastRadius` (designConformance.ts)
+ * joins into one line for a list row, just kept as separate tiles here since
+ * the detail pane has the room for them. */
+function changeTiles(changes: DesignChange[]): { n: string; label: string }[] {
+  const files = new Set(changes.map((c) => pathOfTarget(c.target)));
+  const renames = changes.filter((c) => c.action === "rename" || c.action === "move").length;
+  const kinds = new Set(changes.map(kindOf));
+  const tiles = [
+    { n: String(changes.length), label: changes.length === 1 ? "change" : "changes" },
+    { n: String(files.size), label: files.size === 1 ? "file" : "files" },
+  ];
+  if (renames > 0) tiles.push({ n: String(renames), label: renames === 1 ? "rename" : "renames" });
+  if (kinds.has("schema")) tiles.push({ n: "✓", label: "schema" });
+  if (kinds.has("api")) tiles.push({ n: "✓", label: "API" });
+  return tiles;
+}
+
 function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean }): Section {
   if (primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap) return "attention";
   if (primary.status === "closed" || primary.status === "superseded" || primary.status === "expired") return "resolved";
@@ -101,6 +121,8 @@ export function WorkView({
   onClearFocus,
   onOpenTab,
   readOnly,
+  query,
+  onQueryChange,
 }: {
   projectIds: string[];
   projectsById: Record<string, ProjectSummary>;
@@ -108,12 +130,14 @@ export function WorkView({
   onClearFocus?: () => void;
   onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
+  /** Rendered in the shared top bar (RepoDetailLayout), not here -- lifted
+   * up so it can sit next to the repo switcher the way the design mockup
+   * has it, rather than duplicating a second search box inside this pane. */
+  query: string;
+  onQueryChange: (query: string) => void;
 }) {
   const apiFetch = useApiFetch();
-  const { auth } = useAuth();
   const [pill, setPill] = useState<FilterPill>("all");
-  const [mineOnly, setMineOnly] = useState(false);
-  const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -121,12 +145,15 @@ export function WorkView({
   const [listState, setListState] = useState<LoadState>({ status: "loading" });
 
   const projectIdsKey = projectIds.join(",");
-  const developerId = mineOnly ? auth?.developerId : undefined;
 
   const loadFirstPage = useCallback(() => {
     let cancelled = false;
     setListState({ status: "loading" });
-    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, { status: "all", developerId }).then((page) => [pid, page] as const)))
+    // No `status` param at all -- the server takes it as a literal exact
+    // match (app.ts), so sending the string "all" (rather than omitting the
+    // key) would filter to zero designs every time, silently. Every status
+    // is exactly what an omitted filter already means server-side.
+    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, {}).then((page) => [pid, page] as const)))
       .then((results) => {
         if (cancelled) return;
         setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
@@ -140,7 +167,7 @@ export function WorkView({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiFetch, projectIdsKey, developerId, refreshKey]);
+  }, [apiFetch, projectIdsKey, refreshKey]);
 
   useEffect(() => loadFirstPage(), [loadFirstPage]);
 
@@ -149,7 +176,7 @@ export function WorkView({
     if (toFetch.length === 0) return;
     try {
       const results = await Promise.all(
-        toFetch.map((pid) => fetchDesigns(apiFetch, pid, { status: "all", developerId, before: pages[pid].nextBefore }).then((page) => [pid, page] as const)),
+        toFetch.map((pid) => fetchDesigns(apiFetch, pid, { before: pages[pid].nextBefore }).then((page) => [pid, page] as const)),
       );
       setPages((prev) => {
         const next = { ...prev };
@@ -214,8 +241,11 @@ export function WorkView({
   );
 
   const counts = useMemo(() => {
-    const c: Record<Section, number> = { attention: 0, progress: 0, resolved: 0 };
-    for (const r of rows) c[r.section]++;
+    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0, conflicts: 0 };
+    for (const r of rows) {
+      c[r.section]++;
+      if (r.flags.anyUnresolvedWarning || r.flags.anySemanticOverlap) c.conflicts++;
+    }
     return c;
   }, [rows]);
 
@@ -225,7 +255,12 @@ export function WorkView({
     return rows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
   }, [rows, query]);
 
-  const visibleRows = pill === "all" ? searched : searched.filter((r) => r.section === pill);
+  const visibleRows =
+    pill === "all"
+      ? searched
+      : pill === "conflicts"
+        ? searched.filter((r) => r.flags.anyUnresolvedWarning || r.flags.anySemanticOverlap)
+        : searched.filter((r) => r.section === pill);
 
   // Auto-select the first visible row whenever the current selection drops
   // out of view (filter/search changed, or nothing selected yet) -- keeps
@@ -256,8 +291,7 @@ export function WorkView({
    * filter/search, same as DesignsView's own jumpToDesign. */
   function openDesign(designId: string) {
     setPill("all");
-    setMineOnly(false);
-    setQuery("");
+    onQueryChange("");
     const group = groups.find((g) => g.members.some((m) => m.id === designId));
     setSelectedKey(group?.key ?? designId);
     setDetailTab("conflict");
@@ -286,27 +320,23 @@ export function WorkView({
               {p.label} {p.value === "all" ? rows.length : counts[p.value]}
             </button>
           ))}
-          <label className="checkbox-filter work-mine-only">
-            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-            Mine
-          </label>
         </div>
 
         {visibleRows.length === 0 ? (
           <p className="empty-state">No designs match this filter.</p>
         ) : (
           <div className="work-rows">
-            {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : [pill]).map((section) => {
-              const inSection = visibleRows.filter((r) => r.section === section);
+            {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : (["__flat__"] as const)).map((section) => {
+              const inSection = section === "__flat__" ? visibleRows : visibleRows.filter((r) => r.section === section);
               if (inSection.length === 0) return null;
               return (
                 <div key={section}>
                   {pill === "all" && (
                     <div className={`work-section-heading${section === "attention" ? " attention" : ""}`}>
-                      {SECTION_HEADING[section]} <span className="n">{inSection.length}</span>
+                      {SECTION_HEADING[section as Section]} <span className="n">{inSection.length}</span>
                     </div>
                   )}
-                  {inSection.map(({ group, primary, flags }) => (
+                  {inSection.map(({ group, primary, flags, section: rowSection }) => (
                     <button
                       key={group.key}
                       type="button"
@@ -315,7 +345,7 @@ export function WorkView({
                     >
                       <div className="work-row-summary">{primary.summary}</div>
                       <div className="work-row-meta">
-                        <span className={`work-status-dot ${section}`} aria-hidden="true" />
+                        <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
                         <span>{primary.developerId}</span>
                         <span className="sep">{relativeTime(primary.lastActivityAt)}</span>
@@ -417,6 +447,12 @@ function DesignDetailPane({
   const primary = group.members[0];
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const bullets = toBullets(primary.summary);
+  // The Conflict tab's own count badge -- how many members in this group
+  // (a linked design can span repos) actually have something to show under
+  // it, same "flagged, or a live overlap" test the tab's own visibility
+  // already uses, just counted per member instead of collapsed to a
+  // boolean.
+  const conflictMemberCount = group.members.filter((m) => m.status === "flagged" || findSemanticOverlapThread(openThreads, m.id) || flags.anyUnresolvedWarning).length;
 
   const activityState = useAsyncData(
     () =>
@@ -438,7 +474,6 @@ function DesignDetailPane({
           <span>updated {relativeTime(primary.lastActivityAt)}</span>
           <span className={`status-badge tone-neutral`}>{primary.status}</span>
         </div>
-        <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
       </div>
 
       <div className="work-tabs">
@@ -450,7 +485,7 @@ function DesignDetailPane({
         </button>
         {hasConflict && (
           <button type="button" className={`work-tab${tab === "conflict" ? " active" : ""}`} onClick={() => onTabChange("conflict")}>
-            Conflict
+            Conflict <span className="tab-count">{conflictMemberCount}</span>
           </button>
         )}
         <button type="button" className={`work-tab${tab === "activity" ? " active" : ""}`} onClick={() => onTabChange("activity")}>
@@ -460,34 +495,31 @@ function DesignDetailPane({
 
       {tab === "overview" && (
         <div className="work-tab-panel">
-          {bullets.length > 0 && (
+          <h3>What this design says it&rsquo;s doing</h3>
+          {bullets.length > 0 ? (
             <ul className="summary-bullets">
               {bullets.map((line, i) => (
                 <li key={i}>{line}</li>
               ))}
             </ul>
+          ) : (
+            <p>{primary.summary}</p>
           )}
-          <div className="detail-field detail-bookkeeping">
-            <h3>Session</h3>
-            <dl className="detail-kv">
-              <dt>Developer</dt>
-              <dd>{primary.developerId}</dd>
-              <dt>Session</dt>
-              <dd>
-                <code>{primary.sessionId}</code>
-              </dd>
-              <dt>Registered</dt>
-              <dd>{relativeTime(primary.createdAt)}</dd>
-              <dt>Last activity</dt>
-              <dd>{relativeTime(primary.lastActivityAt)}</dd>
-            </dl>
-          </div>
         </div>
       )}
 
       {tab === "changes" && (
         <div className="work-tab-panel">
-          {hasStructuredChanges(primary.changes) && <p className="work-blast-radius">{blastRadius(primary.changes)}</p>}
+          {hasStructuredChanges(primary.changes) && (
+            <div className="work-change-grid">
+              {changeTiles(primary.changes).map((t) => (
+                <div key={t.label} className="work-change-stat">
+                  <div className="n">{t.n}</div>
+                  <div className="l">{t.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
           {group.members.map((member) => (
             <div key={member.id}>
               {showRepoBadge && (

@@ -84,9 +84,12 @@ describe("RepoDetailLayout", () => {
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
+    // History has no top-bar icon anymore (matches the design mockup,
+    // which only keeps Team/Rules) -- land on it directly via URL, the same
+    // way a copy-link/bookmark would.
+    window.history.pushState(null, "", "?repos=proj-1&tab=activity");
     renderLayout();
 
-    await user.click(screen.getByRole("button", { name: "History" }));
     // Activity groups by design by default -- expand the design's group
     // before its "View design ->" link is reachable.
     const groupHeader = await screen.findByRole("button", { name: /a design owned by someone else, currently flagged/i, expanded: false });
@@ -139,14 +142,15 @@ describe("RepoDetailLayout", () => {
       const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), { status: 200 }));
       vi.stubGlobal("fetch", fetchMock);
       saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+      // Conflicts has no top-bar icon anymore (matches the design mockup) --
+      // land on it directly via URL, same as a copy-link.
+      window.history.pushState(null, "", "?repos=proj-1&tab=conflicts");
       render(
         <ServerProvider>
           <RepoDetailLayout projects={[project]} readOnly />
         </ServerProvider>,
       );
 
-      const conflictsIcon = await screen.findByRole("button", { name: "Conflicts" });
-      await userEvent.setup().click(conflictsIcon);
       await screen.findByRole("heading", { name: "Conflicts" });
       await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/alignment-threads"))).toBe(true));
       expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/reviews"))).toBe(false);

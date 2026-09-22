@@ -442,6 +442,18 @@ button {
   flex: 1;
 }
 
+.work-search {
+  font-family: inherit;
+  font-size: 0.83rem;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 11px;
+  width: 220px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
 .work-topbar-icons {
   display: flex;
   align-items: center;
@@ -473,24 +485,6 @@ button {
   background: var(--accent-dim);
   color: var(--accent);
   border-color: var(--accent-dim);
-}
-
-.icon-btn-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 100px;
-  min-width: 15px;
-  text-align: center;
-}
-
-.icon-btn-badge.mild {
-  background: var(--warning);
 }
 
 .work-page-header {
@@ -554,11 +548,6 @@ button {
   background: var(--text);
   color: #fff;
   border-color: var(--text);
-}
-
-.work-mine-only {
-  margin-left: auto;
-  font-size: 0.74rem;
 }
 
 .work-rows {
@@ -726,6 +715,9 @@ button {
   padding: 8px 15px;
   cursor: pointer;
   border-radius: 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .work-tab:hover {
@@ -738,14 +730,43 @@ button {
   box-shadow: 0 1px 2px rgba(33, 31, 46, 0.08);
 }
 
+.work-tab .tab-count {
+  font-size: 0.62rem;
+  background: var(--danger);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 100px;
+}
+
 .work-tab-panel {
   max-width: 720px;
 }
 
-.work-blast-radius {
-  font-size: 0.82rem;
+.work-change-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 0 0 20px;
+}
+
+.work-change-stat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--surface-hover);
+}
+
+.work-change-stat .n {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.work-change-stat .l {
+  font-size: 0.72rem;
   color: var(--text-dim);
-  margin: 0 0 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .work-activity-list {

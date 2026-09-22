@@ -465,7 +465,9 @@ function DesignDetailPane({
   return (
     <>
       <div className="work-detail-header">
-        <div className="work-detail-title">{primary.summary}</div>
+        <div className="work-detail-title" title={primary.summary}>
+          {primary.summary}
+        </div>
         <div className="work-detail-meta">
           {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
           <span>

@@ -6,39 +6,35 @@ import { fetchReviews } from "../api/reviews.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
-import { OverviewView } from "./OverviewView.js";
-import { DesignsView } from "./DesignsView.js";
+import { WorkView } from "./WorkView.js";
 import { ConflictsView } from "./ConflictsView.js";
 import { HotspotsView } from "./HotspotsView.js";
 import { ActivityView } from "./ActivityView.js";
 import { MembersView } from "./MembersView.js";
 import { ConstraintsView } from "./ConstraintsView.js";
 
-/** 2026-09 revamp: a dark sidebar replacing the old top tab bar (scales
- * better as a landmark than a horizontal bar, and reads as more deliberate
- * for a tool people are meant to check regularly -- see the redesign plan
- * for the research this followed). "Live" is what changes as agents work;
- * "Settings" is static/config info that doesn't belong at the same visual
- * weight as live conflict data. */
-const LIVE_NAV: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Overview", icon: "◆" },
-  { id: "designs", label: "Work in progress", icon: "▣" },
+/** 2026-09, second pass: the dark sidebar (one row per tab) replaced again --
+ * once Overview/Designs/Conflicts collapsed into one always-visible list +
+ * detail pane (WorkView), a whole vertical rail for what's now a single
+ * destination was the wrong shape, and it was eating a fixed 232px + the
+ * content column's own 900px cap regardless of how wide the window actually
+ * was. This is that destination's home screen -- everything else
+ * (Conflicts' own exhaustive browse view, Hotspots, History, Team, Rules)
+ * is one click away from a small icon row in a slim top bar instead of a
+ * permanent nav item, since none of them is "what am I looking at right
+ * now" the way the unified list is. */
+const SECONDARY_NAV: { id: TabId; label: string; icon: string }[] = [
   { id: "conflicts", label: "Conflicts", icon: "⚠" },
   { id: "hotspots", label: "Hotspots", icon: "◈" },
   { id: "activity", label: "History", icon: "≡" },
-];
-const SETTINGS_NAV: { id: TabId; label: string; icon: string }[] = [
   { id: "members", label: "Team", icon: "◐" },
   { id: "constraints", label: "Rules", icon: "▤" },
 ];
 
-/** Title + one-line explanation for the page header -- the "what is this
- * tab for" answer the old flat tab bar never gave anyone (the redesign's
- * whole point: a first-time viewer shouldn't have to guess what "Alignment
- * threads" means). */
-const PAGE_INFO: Record<TabId, { title: string; sub: string }> = {
-  overview: { title: "Overview", sub: "What's happening right now." },
-  designs: { title: "Work in progress", sub: "What every active session has declared it's building, right now." },
+/** Title + one-line explanation, shown above a secondary page only -- the
+ * unified list (tab "overview"/"designs") is the home screen and doesn't
+ * need to announce what it is the way a page you clicked into does. */
+const PAGE_INFO: Partial<Record<TabId, { title: string; sub: string }>> = {
   conflicts: { title: "Conflicts", sub: "Every place two developers' (or agents') work is colliding, and what stage it's at." },
   hotspots: { title: "Hotspots", sub: "Files that keep generating conflicts -- a repeat collision is a signal, not just another item to clear." },
   activity: { title: "History", sub: "The full timeline -- every claim, check, decision, and rule change, in order." },
@@ -75,25 +71,26 @@ export function RepoDetailLayout({
 }) {
   const apiFetch = useApiFetch();
   const [tab, setTab] = useState<TabId>(() => parseUrlState().tab);
-  // Set by ActivityView's "View design ->" link, a card's own copy-link
-  // URL, or a semantic-overlap jump -- DesignsView consumes it to force
-  // ?status=all (a flagged/closed design wouldn't otherwise be visible
-  // under the default "open" filter) and auto-expand that card.
+  // Set by an Activity row's "View design ->" link, a card's own copy-link
+  // URL, or a semantic-overlap jump -- WorkView consumes it to select that
+  // design (regardless of the list's current filter) as soon as it loads.
   const [focusDesignId, setFocusDesignId] = useState<string | undefined>(() => {
     const u = parseUrlState();
-    return u.tab === "designs" ? u.focusId : undefined;
+    return u.tab === "designs" || u.tab === "overview" ? u.focusId : undefined;
   });
-  // Same idea, for a conflict card's own copy-link URL -- a review or a
-  // thread id either way; ConflictsView tries both (2026-09 merge).
+  // Same idea, for a conflict card's own copy-link URL on the standalone
+  // Conflicts page -- a review or a thread id either way; ConflictsView
+  // tries both.
   const [focusConflictId, setFocusConflictId] = useState<string | undefined>(() => {
     const u = parseUrlState();
     return u.tab === "conflicts" ? u.focusId : undefined;
   });
 
   const projectIds = projects.map((p) => p.projectId);
+  const isHome = tab === "overview" || tab === "designs";
 
   function focusIdForTab(t: TabId): string | undefined {
-    if (t === "designs") return focusDesignId;
+    if (t === "designs" || t === "overview") return focusDesignId;
     if (t === "conflicts") return focusConflictId;
     return undefined;
   }
@@ -109,14 +106,18 @@ export function RepoDetailLayout({
     pushUrlState({ repoIds: projectIds, tab: next, focusId: focusIdForTab(next) });
   }
 
-  // A dedicated single-card page (DesignsView/ConflictsView, when their own
-  // focusXId prop is set) offers this as its "back to the full list" link
-  // -- drops the focus for the *current* tab only and returns to normal
-  // browsing.
-  function clearFocus() {
-    if (tab === "designs") setFocusDesignId(undefined);
-    else if (tab === "conflicts") setFocusConflictId(undefined);
-    pushUrlState({ repoIds: projectIds, tab });
+  function goHome() {
+    openTab("designs");
+  }
+
+  // The standalone Conflicts page's own "back to the full list" link --
+  // drops its focus id and returns to normal browsing there. WorkView
+  // manages its own selection instead of a focus/unfocus pair (see its own
+  // onClearFocus prop), since split-pane browsing never leaves a "focused
+  // page" to back out of the way the old flat list did.
+  function clearConflictFocus() {
+    setFocusConflictId(undefined);
+    pushUrlState({ repoIds: projectIds, tab: "conflicts" });
   }
 
   // Browser back/forward within this repo's tabs/focus. A change in which
@@ -128,7 +129,7 @@ export function RepoDetailLayout({
       const url = parseUrlState();
       if (url.repoIds.join(",") !== projectIds.join(",")) return;
       setTab(url.tab);
-      setFocusDesignId(url.tab === "designs" ? url.focusId : undefined);
+      setFocusDesignId(url.tab === "designs" || url.tab === "overview" ? url.focusId : undefined);
       setFocusConflictId(url.tab === "conflicts" ? url.focusId : undefined);
     }
     window.addEventListener("popstate", onPopState);
@@ -136,15 +137,15 @@ export function RepoDetailLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectIds.join(",")]);
 
-  // The Conflicts nav badge: a pending review or an open thread each mean
-  // someone is waiting, and nothing in twing pages that person -- an admin
-  // or party only finds out by opening this tab and looking. Summed across
-  // every selected repo, matching what Conflicts itself shows in the
-  // aggregated view. Deliberately not gated on role -- a member can't
-  // decide a review, but knowing the queue is backing up is still worth
-  // seeing. Reviews skipped entirely when readOnly (GET /v1/reviews 404s
-  // for the public viewer identity) -- no point making a fetch that can
-  // only ever fail.
+  // The Conflicts icon's badge count: a pending review or an open thread
+  // each mean someone is waiting, and nothing in twing pages that person --
+  // an admin or party only finds out by opening Conflicts and looking.
+  // Summed across every selected repo, matching what Conflicts itself shows
+  // in the aggregated view. Deliberately not gated on role -- a member
+  // can't decide a review, but knowing the queue is backing up is still
+  // worth seeing. Reviews skipped entirely when readOnly (GET /v1/reviews
+  // 404s for the public viewer identity) -- no point making a fetch that
+  // can only ever fail.
   const pendingReviews = useAsyncData(
     () => (readOnly ? Promise.resolve([]) : Promise.all(projectIds.map((pid) => fetchReviews(apiFetch, pid, "pending"))).then((lists) => lists.flat())),
     [apiFetch, projectIds.join(","), readOnly],
@@ -158,84 +159,77 @@ export function RepoDetailLayout({
   const projectsById: Record<string, ProjectSummary> = Object.fromEntries(projects.map((p) => [p.projectId, p]));
   const single = projects.length === 1 ? projects[0] : undefined;
 
-  function navItem(t: { id: TabId; label: string; icon: string }) {
-    return (
-      <button
-        key={t.id}
-        type="button"
-        role="tab"
-        aria-selected={tab === t.id}
-        className={`nav-item${tab === t.id ? " active" : ""}`}
-        onClick={() => openTab(t.id)}
-      >
-        <span className="icon" aria-hidden="true">
-          {t.icon}
-        </span>
-        {t.label}
-        {t.id === "conflicts" && conflictsCount > 0 && (
-          <span className={`nav-count${pendingReviews.status === "ready" && pendingReviews.data.length === 0 ? " mild" : ""}`} aria-label={`${conflictsCount} conflicts`}>
-            {conflictsCount}
-          </span>
-        )}
-      </button>
-    );
-  }
-
   return (
-    <div className="repo-detail-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
+    <div className="work-shell">
+      <div className="work-topbar">
+        <button type="button" className="work-brand" onClick={goHome} aria-label="twing monitor, go to designs">
           <span className="dot" aria-hidden="true" />
           twing monitor
-        </div>
+        </button>
 
         {onBack && (
-          <button type="button" className="link-button back-link sidebar-back-link" onClick={onBack}>
+          <button type="button" className="link-button back-link" onClick={onBack}>
             ← All repos
           </button>
         )}
-        <div className="repo-switcher">
+
+        <div className="work-repo-switcher">
           <span>{single ? repoLabel(single) : `${projects.length} repos`}</span>
           {single && <span className="role">{single.role}</span>}
         </div>
 
-        <div className="nav-group-label">Live</div>
-        {LIVE_NAV.map(navItem)}
+        <div className="work-topbar-spacer" />
 
-        <div className="nav-group-label">Settings</div>
-        {SETTINGS_NAV.map(navItem)}
-      </aside>
-
-      <main className="main">
-        <div className="topbar">
-          <div>
-            <h1>{PAGE_INFO[tab].title}</h1>
-            <p className="page-sub">{PAGE_INFO[tab].sub}</p>
-          </div>
-        </div>
-
-        <div className="content">
-          {!single && (
-            <div className="repo-chip-row repo-chip-row-content">
-              {projects.map((p) => (
-                <span key={p.projectId} className="repo-chip">
-                  {repoLabel(p)}
+        <div className="work-topbar-icons">
+          {SECONDARY_NAV.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`icon-btn${tab === t.id ? " active" : ""}`}
+              aria-label={t.label}
+              title={t.label}
+              onClick={() => openTab(t.id)}
+            >
+              {t.icon}
+              {t.id === "conflicts" && conflictsCount > 0 && (
+                <span className={`icon-btn-badge${pendingReviews.status === "ready" && pendingReviews.data.length === 0 ? " mild" : ""}`} aria-label={`${conflictsCount} conflicts`}>
+                  {conflictsCount}
                 </span>
-              ))}
-            </div>
-          )}
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          {tab === "overview" && <OverviewView projectIds={projectIds} projectsById={projectsById} readOnly={readOnly} onOpenTab={openTab} />}
-          {tab === "designs" && (
-            <DesignsView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={clearFocus} onOpenTab={openTab} readOnly={readOnly} />
-          )}
+      {!isHome && PAGE_INFO[tab] && (
+        <div className="work-page-header">
+          <h1>{PAGE_INFO[tab]!.title}</h1>
+          <p className="page-sub">{PAGE_INFO[tab]!.sub}</p>
+        </div>
+      )}
+
+      {!single && (
+        <div className="repo-chip-row repo-chip-row-content">
+          {projects.map((p) => (
+            <span key={p.projectId} className="repo-chip">
+              {repoLabel(p)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {isHome && (
+        <WorkView projectIds={projectIds} projectsById={projectsById} focusDesignId={focusDesignId} onClearFocus={() => setFocusDesignId(undefined)} onOpenTab={openTab} readOnly={readOnly} />
+      )}
+      {!isHome && (
+        <div className="content">
           {tab === "conflicts" && (
             <ConflictsView
               projectIds={projectIds}
               projectsById={projectsById}
               onOpenDesign={openDesign}
               focusConflictId={focusConflictId}
-              onClearFocus={clearFocus}
+              onClearFocus={clearConflictFocus}
               readOnly={readOnly}
             />
           )}
@@ -244,7 +238,7 @@ export function RepoDetailLayout({
           {tab === "members" && <MembersView projectIds={projectIds} projectsById={projectsById} />}
           {tab === "constraints" && <ConstraintsView projectIds={projectIds} projectsById={projectsById} />}
         </div>
-      </main>
+      )}
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ObserveApp } from "./ObserveApp.js";
 
 const project = { projectId: "proj-1", orgId: "", role: "member" as const };
@@ -38,7 +37,9 @@ describe("ObserveApp", () => {
     // No repo picker (RepoListView is skipped entirely) and no sign-in form.
     expect(screen.queryByRole("heading", { name: "Repos" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
-    expect(await screen.findByRole("tab", { name: "Work in progress" })).toBeInTheDocument();
+    // The unified design list is the home screen now -- no "Work in
+    // progress" tab to find or click, it's just already showing.
+    expect(await screen.findByRole("button", { name: "twing monitor, go to designs" })).toBeInTheDocument();
   });
 
   it("never touches localStorage -- a real admin's cached session in the same browser is left alone", async () => {
@@ -104,8 +105,7 @@ describe("ObserveApp", () => {
 
     render(<ObserveApp />);
 
-    const tab = await screen.findByRole("tab", { name: "Work in progress" });
-    await userEvent.setup().click(tab);
+    // Already showing on the unified home screen -- no tab to switch to.
     expect(await screen.findByText("A public design")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load older" })).toBeInTheDocument();
   });

@@ -29,13 +29,13 @@ describe("RepoDetailLayout", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("clicking 'View design ->' on an Activity row switches to the Designs tab with that design expanded", async () => {
+  it("clicking 'View design ->' on an Activity row switches to the unified list with that design selected", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes("/v1/activity")) {
+        if (url.includes("/v1/activity") && !url.includes("relatedId")) {
           return new Response(
             JSON.stringify({
               items: [
@@ -78,7 +78,7 @@ describe("RepoDetailLayout", () => {
         if (url.includes("/v1/designs/design-42")) {
           return new Response(JSON.stringify({ design: design42, groupMembers: [] }), { status: 200 });
         }
-        if (url.includes("/v1/claims") || url.includes("/v1/alignment-threads")) {
+        if (url.includes("/v1/claims") || url.includes("/v1/alignment-threads") || url.includes("/v1/activity") || url.includes("/v1/reviews")) {
           return new Response(JSON.stringify({ items: [] }), { status: 200 });
         }
         throw new Error(`unexpected fetch: ${url}`);
@@ -86,7 +86,7 @@ describe("RepoDetailLayout", () => {
     );
     renderLayout();
 
-    await user.click(screen.getByRole("tab", { name: "History" }));
+    await user.click(screen.getByRole("button", { name: "History" }));
     // Activity groups by design by default -- expand the design's group
     // before its "View design ->" link is reachable.
     const groupHeader = await screen.findByRole("button", { name: /a design owned by someone else, currently flagged/i, expanded: false });
@@ -100,24 +100,24 @@ describe("RepoDetailLayout", () => {
     const link = await screen.findByRole("button", { name: /^→/ });
     await user.click(link);
 
-    // Switched to the Work in progress (Designs) tab automatically (no manual click needed).
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Work in progress", selected: true })).toBeInTheDocument());
-    // The design is owned by someone else and is "flagged", not "open" --
-    // only visible at all because focusDesignId forces status=all/mineOnly=false.
-    // It also arrives pre-expanded (no extra click needed).
-    await waitFor(() => expect(screen.getByText("A design owned by someone else, currently flagged")).toBeInTheDocument());
-    expect(screen.getByText("src/x.ts")).toBeInTheDocument();
+    // Switched back to the unified home screen automatically (no manual
+    // click needed), with that design selected in the detail pane -- it's
+    // owned by someone else and is "flagged", not "open", so it's only
+    // visible at all because focusDesignId bypasses the list's filters.
+    await waitFor(() => expect(screen.getAllByText("A design owned by someone else, currently flagged").length).toBeGreaterThan(0));
+    // Touches live under the "Design change" tab now, not inline with
+    // everything else -- arrives on Overview by default, same as any other
+    // freshly-selected row.
+    await user.click(screen.getByRole("button", { name: "Design change" }));
+    expect(await screen.findByText("src/x.ts")).toBeInTheDocument();
   });
 
-  it("renders the single-repo name + role badge in the sidebar, and the current page title as the main heading", async () => {
+  it("renders the single-repo name + role badge in the top bar", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
     renderLayout();
 
     expect(await screen.findByText("proj-1")).toBeInTheDocument();
     expect(screen.getByText("admin")).toBeInTheDocument();
-    // The main heading is the current page's title, not the repo name --
-    // the repo switcher (sidebar) is what carries repo identity now.
-    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
     expect(screen.queryByText(/^\d+ repos$/)).not.toBeInTheDocument();
   });
 
@@ -135,7 +135,7 @@ describe("RepoDetailLayout", () => {
 
   // Public "observe twing getting built" demo (2026-08-28)
   describe("readOnly", () => {
-    it("keeps the Conflicts tab (threads are still viewable) but never fetches /v1/reviews", async () => {
+    it("keeps Conflicts reachable (threads are still viewable) but never fetches /v1/reviews", async () => {
       const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), { status: 200 }));
       vi.stubGlobal("fetch", fetchMock);
       saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
@@ -145,8 +145,9 @@ describe("RepoDetailLayout", () => {
         </ServerProvider>,
       );
 
-      await screen.findByRole("tab", { name: "Overview" });
-      expect(screen.getByRole("tab", { name: "Conflicts" })).toBeInTheDocument();
+      const conflictsIcon = await screen.findByRole("button", { name: "Conflicts" });
+      await userEvent.setup().click(conflictsIcon);
+      await screen.findByRole("heading", { name: "Conflicts" });
       await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/alignment-threads"))).toBe(true));
       expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/v1/reviews"))).toBe(false);
     });
@@ -160,7 +161,7 @@ describe("RepoDetailLayout", () => {
         </ServerProvider>,
       );
 
-      await screen.findByRole("tab", { name: "Overview" });
+      await screen.findByRole("button", { name: "twing monitor, go to designs" });
       expect(screen.queryByRole("button", { name: "← All repos" })).not.toBeInTheDocument();
     });
 

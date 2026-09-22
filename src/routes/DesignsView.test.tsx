@@ -762,3 +762,111 @@ describe("DesignsView", () => {
     });
   });
 });
+
+// Design review (2026-09): a reviewer scanning this list is looking for work
+// somebody is waiting on, so the chip leads with unresolved questions.
+describe("DesignsView comment counts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubWithCounts(counts: Record<string, { total: number; unresolved: number }>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs/comment-counts")) return new Response(JSON.stringify({ counts }), { status: 200 });
+        if (url.includes("/v1/designs")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "design-1",
+                  projectId: "proj-1",
+                  developerId: "alice@example.com",
+                  sessionId: "sess-1",
+                  status: "open",
+                  createdAt: Date.now(),
+                  summary: "Add retry backoff to the sync client",
+                  creates: [],
+                  touches: ["src/x.ts"],
+                  dependsOn: [],
+                  ttlMs: 1000,
+                  scopeVersion: 1,
+                  lastActivityAt: Date.now(),
+                  justifiedConstraintIds: [],
+                  justifiedOverlaps: [],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+  }
+
+  it("leads with open questions when a design has unresolved comments", async () => {
+    stubWithCounts({ "design-1": { total: 3, unresolved: 2 } });
+    renderWithAuth();
+    await waitFor(() => expect(screen.getByText("2 open comments")).toBeInTheDocument());
+  });
+
+  it("falls back to the total once every comment is settled", async () => {
+    stubWithCounts({ "design-1": { total: 2, unresolved: 0 } });
+    renderWithAuth();
+    await waitFor(() => expect(screen.getByText("2 comments")).toBeInTheDocument());
+  });
+
+  // Rendering "0 comments" on every row would put noise on exactly the
+  // designs that have nothing to say.
+  it("shows no chip at all for a design nobody has commented on", async () => {
+    stubWithCounts({});
+    renderWithAuth();
+    await waitFor(() => expect(screen.getByText("Add retry backoff to the sync client")).toBeInTheDocument());
+    expect(screen.queryByText(/comments?$/)).not.toBeInTheDocument();
+  });
+
+  // A coordinator predating the route leaves every chip off, which is the
+  // same as a project where nobody has commented -- never an error state on
+  // the design list itself.
+  it("still renders the design list when the counts route is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs/comment-counts")) return new Response("not found", { status: 404 });
+        if (url.includes("/v1/designs")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "design-1",
+                  projectId: "proj-1",
+                  developerId: "alice@example.com",
+                  sessionId: "sess-1",
+                  status: "open",
+                  createdAt: Date.now(),
+                  summary: "Add retry backoff to the sync client",
+                  creates: [],
+                  touches: [],
+                  dependsOn: [],
+                  ttlMs: 1000,
+                  scopeVersion: 1,
+                  lastActivityAt: Date.now(),
+                  justifiedConstraintIds: [],
+                  justifiedOverlaps: [],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    renderWithAuth();
+    await waitFor(() => expect(screen.getByText("Add retry backoff to the sync client")).toBeInTheDocument());
+  });
+});

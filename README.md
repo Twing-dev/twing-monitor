@@ -26,9 +26,32 @@ Per repo, six tabs:
   (`review_required`/`canonical_abstraction`/`domain_fact`) that the design
   gate checks every `Edit`/`Write` against.
 
-It's deliberately v1/read-only: no approve/reject/resolve/close actions from
-the UI yet (the server routes for those already exist — this is a scoping
-choice, not a limitation of the API).
+Still mostly read-only: no approve/reject/resolve/close actions on designs,
+reviews or threads from the UI (the server routes for those already exist —
+this is a scoping choice, not a limitation of the API).
+
+**Design review comments are the one exception** (2026-09), and the one place
+this dashboard writes. Open a design and you get a discussion panel:
+
+- Leave a comment on the design, or on one specific declared change.
+- The **agent answers first** — the coordinator takes a pass at every comment
+  from the design itself, so most questions never reach a person. Its answer
+  appears within a few seconds, tinted so you never have to read a label to
+  know a model wrote it.
+- If that answer isn't enough, **you** decide. "Needs the developer" escalates
+  it to whoever owns the design; they see it as a **non-blocking** banner at
+  the start of their next Claude Code / Codex / OpenCode session, never as an
+  interruption and never as a blocked edit. Their agent reads and replies with
+  `twing design comments`.
+
+The agent also recommends whether a comment needs a human, and that
+recommendation is shown — but it never acts on it. The person who asked the
+question is the only one who can judge whether it was answered.
+
+Commits made by an agent carry a `Twing-Design:` trailer linking back to the
+design here, so a reviewer reading `git log` can open it and comment. Those
+links keep working after a design closes, which is the normal case rather than
+the exception.
 
 ## Auth
 

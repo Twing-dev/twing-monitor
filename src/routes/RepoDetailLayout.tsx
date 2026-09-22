@@ -20,7 +20,7 @@ import { ConstraintsView } from "./ConstraintsView.js";
  * only reachable by an in-app cross-link (a Conflict tab's "View conflict
  * ->") or a copy-link URL; their own page code is untouched. */
 const SECONDARY_NAV: { id: TabId; label: string; icon: string }[] = [
-  { id: "members", label: "Team", icon: "◐" },
+  { id: "members", label: "Team", icon: "👥" },
   { id: "constraints", label: "Rules", icon: "▤" },
 ];
 

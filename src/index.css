@@ -2199,3 +2199,152 @@ li:first-child > .preview-row {
   color: var(--warning);
   font-weight: 600;
 }
+
+/* ---------------------------------------------------------------------------
+   Design chat (design review phase 2, 2026-09)
+
+   Deliberately reads as a conversation rather than as another record list:
+   the reviewer's turns sit right, the agent's left, the way every chat a
+   person has used looks. Two things are given real visual weight because
+   they are the two things a reviewer can get wrong here -- that the thread
+   is private, and how well grounded each answer actually is.
+   --------------------------------------------------------------------------- */
+
+.design-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Stated, not implied. A reviewer who thinks their half-formed question is
+   public will not ask it, which defeats the surface entirely. */
+.chat-privacy {
+  margin-left: 10px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.chat-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-turn {
+  border-radius: 10px;
+  padding: 9px 12px;
+  max-width: 85%;
+}
+
+.chat-turn-reviewer {
+  align-self: flex-end;
+  background: var(--accent-dim);
+}
+
+.chat-turn-agent {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.chat-turn-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  margin-bottom: 3px;
+}
+
+.chat-turn p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* The honest label on every answer. An answer grounded in 200 turns and one
+   answered from the design alone otherwise read identically, and a reviewer
+   who cannot tell them apart will trust both equally. */
+.chat-provenance {
+  margin-top: 6px !important;
+  padding-top: 6px;
+  border-top: 1px dotted var(--border);
+  font-size: 0.74rem !important;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.chat-thinking {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-composer label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.chat-composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.chat-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-composer button {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 7px 14px;
+}
+
+.chat-composer button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.chat-composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+}

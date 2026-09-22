@@ -406,3 +406,29 @@ export interface DesignCommentReply {
   message: string;
   ts: number;
 }
+
+/**
+ * One turn in a reviewer's private chat with a design (design review phase 2,
+ * 2026-09) -- mirrors `DesignChatMessage` in twing-cli's
+ * `design-chat-store.ts`.
+ *
+ * `role` rather than an author id, because a chat has exactly two
+ * participants: the reviewer who owns it and the coordinator answering. A
+ * developer id would be the same value on every reviewer turn and absent on
+ * every agent one.
+ */
+export interface DesignChatMessage {
+  role: "reviewer" | "agent";
+  message: string;
+  ts: number;
+  /** On an agent turn: one line saying what the answer was grounded in --
+   * how many turns of which session, and how many of the design's declared
+   * files that session touched.
+   *
+   * **Counts and ids only.** The session transcript itself never reaches
+   * this browser: it is assembled server-side, sent to the model, and
+   * discarded. A reviewer is entitled to an answer grounded in the session
+   * and to know how well grounded it is, not to read a colleague's
+   * conversation. */
+  provenance?: string;
+}

@@ -53,6 +53,28 @@ design here, so a reviewer reading `git log` can open it and comment. Those
 links keep working after a design closes, which is the normal case rather than
 the exception.
 
+**Ask this design** (2026-09) sits below the discussion: a private chat where
+you ask *why* rather than *what*. The coordinator answers from the session that
+produced the design — the conversation the developer and their agent actually
+had — so it can cover reasoning the design itself never wrote down.
+
+Three things are worth knowing about it:
+
+- **It is private to you.** Not to other reviewers, not to the design's author,
+  not to a project admin. Half-formed questions are the point; publishing them
+  would stop people asking.
+- **Every answer says what it was grounded in** — "Grounded in 32 of 138 turns
+  from session 7f3a1c42" — including when the answer came from the design alone
+  because the repository never opted into session capture. An ungrounded answer
+  and a well-grounded one are otherwise indistinguishable.
+- **The transcript never reaches your browser.** It is assembled server-side,
+  redacted again on the way (a credential that survived into a stored capture
+  does not reach the model, let alone you), sent to the model, and discarded.
+  You get answers grounded in a colleague's session, not a window into it.
+
+A chat is for understanding a design; a comment is for changing one. Only
+comments reach the developer.
+
 ## Auth
 
 Paste a personal access token (the same one `twing keygen`/`twing login`

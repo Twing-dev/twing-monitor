@@ -2186,3 +2186,439 @@ li:first-child > .preview-row {
   padding: 2px 7px;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Design review comments (2026-09)
+
+   The dashboard's first write surface. Styled to read as a conversation
+   rather than as another record table -- everything else here is machine
+   output, and this is people talking about work that has not happened yet.
+
+   The one load-bearing visual decision: an agent's reply is tinted and a
+   person's is not. A reviewer has to be able to tell, at a glance and without
+   reading a label, whether the thing answering them is a model or the
+   developer they asked for. The escalation recommendation gets a third
+   treatment again, because it is neither an answer nor a person -- it is the
+   model saying it cannot do this one.
+   --------------------------------------------------------------------------- */
+
+.design-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comment-count {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+  margin-left: 8px;
+  font-size: 0.78rem;
+}
+
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.comment-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+/* An escalated comment is the only state anyone is being waited on for, so
+   it is the only one that gets an edge. */
+.comment-card.comment-escalated {
+  border-left: 3px solid var(--warning);
+}
+
+.comment-card.comment-resolved {
+  opacity: 0.68;
+}
+
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.comment-author {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.comment-meta {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+}
+
+.comment-status {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: lowercase;
+}
+
+.comment-status-open {
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.comment-status-answered {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.comment-status-escalated {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.comment-status-resolved {
+  background: var(--good-bg);
+  color: var(--good);
+}
+
+.comment-anchor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+}
+
+.comment-body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.comment-replies {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-reply {
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+
+/* Tinted so a reviewer never has to read the label to know a model wrote
+   this. */
+.comment-reply-agent {
+  background: var(--accent-dim);
+}
+
+/* Neither an answer nor a person: the model saying it cannot do this one. */
+.comment-reply-recommendation {
+  background: var(--warning-bg);
+  border: 1px dashed var(--warning);
+}
+
+.comment-reply-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  margin-bottom: 3px;
+}
+
+.comment-reply p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.comment-escalated-note {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.comment-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-reply-form,
+.comment-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comment-reply-form textarea,
+.comment-new-form textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.comment-reply-form textarea:focus,
+.comment-new-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.comment-reply-form button,
+.comment-new-form button,
+.comment-decision button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 7px 12px;
+  align-self: flex-start;
+}
+
+.comment-reply-form button:hover:not(:disabled),
+.comment-new-form button:hover:not(:disabled),
+.comment-decision button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.comment-reply-form button:disabled,
+.comment-new-form button:disabled,
+.comment-decision button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.comment-decision {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comment-escalate {
+  background: var(--warning-bg);
+}
+
+.comment-resolve {
+  background: var(--good-bg);
+}
+
+.comment-anchor-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.comment-anchor-picker select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  padding: 6px 8px;
+}
+
+.comment-new-form label:first-child {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.comment-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+}
+
+.card-comments {
+  color: var(--text-dim);
+}
+
+/* An open question is somebody waiting, which is the only reason this chip
+   earns colour on a list row that already carries several badges. */
+.card-comments-open {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Design chat (design review phase 2, 2026-09)
+
+   Deliberately reads as a conversation rather than as another record list:
+   the reviewer's turns sit right, the agent's left, the way every chat a
+   person has used looks. Two things are given real visual weight because
+   they are the two things a reviewer can get wrong here -- that the thread
+   is private, and how well grounded each answer actually is.
+   --------------------------------------------------------------------------- */
+
+.design-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Stated, not implied. A reviewer who thinks their half-formed question is
+   public will not ask it, which defeats the surface entirely. */
+.chat-privacy {
+  margin-left: 10px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.chat-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-turn {
+  border-radius: 10px;
+  padding: 9px 12px;
+  max-width: 85%;
+}
+
+.chat-turn-reviewer {
+  align-self: flex-end;
+  background: var(--accent-dim);
+}
+
+.chat-turn-agent {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.chat-turn-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  margin-bottom: 3px;
+}
+
+.chat-turn p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* The honest label on every answer. An answer grounded in 200 turns and one
+   answered from the design alone otherwise read identically, and a reviewer
+   who cannot tell them apart will trust both equally. */
+.chat-provenance {
+  margin-top: 6px !important;
+  padding-top: 6px;
+  border-top: 1px dotted var(--border);
+  font-size: 0.74rem !important;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.chat-thinking {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-composer label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.chat-composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.chat-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-composer button {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 7px 14px;
+}
+
+.chat-composer button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.chat-composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+}

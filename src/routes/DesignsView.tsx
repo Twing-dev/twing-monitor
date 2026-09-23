@@ -4,6 +4,7 @@ import { ApiError } from "../api/client.js";
 import { fetchDesigns, fetchDesignById } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
+import { fetchCommentCounts } from "../api/comments.js";
 import type { ActivityEvent, AlignmentThread, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
 import { useAuth } from "../auth/useAuth.js";
@@ -125,6 +126,7 @@ function DesignCardHeaderContent({
   projectsById,
   anyUnresolvedWarning,
   anySemanticOverlap,
+  commentCount,
 }: {
   primary: DesignStatement;
   members: DesignStatement[];
@@ -132,6 +134,10 @@ function DesignCardHeaderContent({
   projectsById: Record<string, ProjectSummary>;
   anyUnresolvedWarning: boolean;
   anySemanticOverlap: boolean;
+  /** Absent when this design has never been commented on, which is the
+   * ordinary case -- rendering a "0 comments" chip on every row would be
+   * noise on exactly the designs that have nothing to say. */
+  commentCount?: { total: number; unresolved: number };
 }) {
   return (
     <>
@@ -155,6 +161,15 @@ function DesignCardHeaderContent({
       <div className="card-meta">
         <span>{primary.developerId}</span>
         <span>{relativeTime(primary.lastActivityAt)}</span>
+        {/* Open questions first: a reviewer scanning this list is looking for
+            work that somebody is waiting on, not for a comment tally. */}
+        {commentCount && (
+          <span className={`card-comments${commentCount.unresolved > 0 ? " card-comments-open" : ""}`}>
+            {commentCount.unresolved > 0
+              ? `${commentCount.unresolved} open comment${commentCount.unresolved === 1 ? "" : "s"}`
+              : `${commentCount.total} comment${commentCount.total === 1 ? "" : "s"}`}
+          </span>
+        )}
         {/* Blast radius, for a design that declared one. "4 changes · 2
             files · 1 rename · schema" answers what someone scanning a list
             actually asks; the counted-two-bags fallback below it does not,
@@ -344,6 +359,27 @@ export function DesignsView({
       ),
     [apiFetch, projectIdsKey, refreshKey],
   );
+
+  // Comment counts for exactly the designs on screen (design review, 2026-09)
+  // -- scoped to the loaded page rather than the project, so "load older"
+  // costs one more small request instead of the whole project's history.
+  // Best-effort, same stance as `checksState` above: a coordinator that
+  // predates this route just leaves every chip off, which is the same as a
+  // project where nobody has commented.
+  const commentCountsState = useAsyncData(
+    () =>
+      Promise.all(
+        projectIds.map((pid) =>
+          fetchCommentCounts(
+            apiFetch,
+            pid,
+            items.filter((d) => d.projectId === pid).map((d) => d.id),
+          ).catch(() => ({})),
+        ),
+      ).then((maps) => Object.assign({}, ...maps) as Record<string, { total: number; unresolved: number }>),
+    [apiFetch, projectIdsKey, items.map((d) => d.id).join(","), refreshKey],
+  );
+  const commentCounts = commentCountsState.status === "ready" ? commentCountsState.data : {};
   // Bonus, list-wide context -- same "don't block the primary render on it"
   // stance as DesignDetail's own LatestCheckOutcome: an empty map just means
   // no card gets a conflict chip, not a loading/error state of its own.
@@ -419,6 +455,7 @@ export function DesignsView({
                           projectsById={projectsById}
                           anyUnresolvedWarning={anyUnresolvedWarning}
                           anySemanticOverlap={anySemanticOverlap}
+                          commentCount={commentCounts[primary.id]}
                         />
                       </div>
                       <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
@@ -493,6 +530,7 @@ export function DesignsView({
                         projectsById={projectsById}
                         anyUnresolvedWarning={anyUnresolvedWarning}
                         anySemanticOverlap={anySemanticOverlap}
+                        commentCount={commentCounts[primary.id]}
                       />
                     </button>
                     <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />

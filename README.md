@@ -26,9 +26,54 @@ Per repo, six tabs:
   (`review_required`/`canonical_abstraction`/`domain_fact`) that the design
   gate checks every `Edit`/`Write` against.
 
-It's deliberately v1/read-only: no approve/reject/resolve/close actions from
-the UI yet (the server routes for those already exist — this is a scoping
-choice, not a limitation of the API).
+Still mostly read-only: no approve/reject/resolve/close actions on designs,
+reviews or threads from the UI (the server routes for those already exist —
+this is a scoping choice, not a limitation of the API).
+
+**Design review comments are the one exception** (2026-09), and the one place
+this dashboard writes. Open a design and you get a discussion panel:
+
+- Leave a comment on the design, or on one specific declared change.
+- The **agent answers first** — the coordinator takes a pass at every comment
+  from the design itself, so most questions never reach a person. Its answer
+  appears within a few seconds, tinted so you never have to read a label to
+  know a model wrote it.
+- If that answer isn't enough, **you** decide. "Needs the developer" escalates
+  it to whoever owns the design; they see it as a **non-blocking** banner at
+  the start of their next Claude Code / Codex / OpenCode session, never as an
+  interruption and never as a blocked edit. Their agent reads and replies with
+  `twing design comments`.
+
+The agent also recommends whether a comment needs a human, and that
+recommendation is shown — but it never acts on it. The person who asked the
+question is the only one who can judge whether it was answered.
+
+Commits made by an agent carry a `Twing-Design:` trailer linking back to the
+design here, so a reviewer reading `git log` can open it and comment. Those
+links keep working after a design closes, which is the normal case rather than
+the exception.
+
+**Ask this design** (2026-09) sits below the discussion: a private chat where
+you ask *why* rather than *what*. The coordinator answers from the session that
+produced the design — the conversation the developer and their agent actually
+had — so it can cover reasoning the design itself never wrote down.
+
+Three things are worth knowing about it:
+
+- **It is private to you.** Not to other reviewers, not to the design's author,
+  not to a project admin. Half-formed questions are the point; publishing them
+  would stop people asking.
+- **Every answer says what it was grounded in** — "Grounded in 32 of 138 turns
+  from session 7f3a1c42" — including when the answer came from the design alone
+  because the repository never opted into session capture. An ungrounded answer
+  and a well-grounded one are otherwise indistinguishable.
+- **The transcript never reaches your browser.** It is assembled server-side,
+  redacted again on the way (a credential that survived into a stored capture
+  does not reach the model, let alone you), sent to the model, and discarded.
+  You get answers grounded in a colleague's session, not a window into it.
+
+A chat is for understanding a design; a comment is for changing one. Only
+comments reach the developer.
 
 ## Auth
 

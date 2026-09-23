@@ -12,6 +12,8 @@ import { relativeTime } from "../lib/time.js";
 import { computeConformance, groupByKind, hasStructuredChanges, kindDescription, kindLabel, pathOfTarget } from "../lib/designConformance.js";
 import { conflictKindInfo, isConflictBucket } from "../lib/conflictKind.js";
 import { StatusBadge } from "./StatusBadge.js";
+import { DesignComments } from "./DesignComments.js";
+import { DesignChat } from "./DesignChat.js";
 
 /** A design's involvement in an open, semantic-conflict-origin alignment
  * thread (§7's async Bedrock comparator, `design-semantic-check.ts`) --
@@ -532,6 +534,16 @@ export function DesignDetail({
         </>
       )}
       <PathList title="Depends on" paths={design.dependsOn} />
+
+      {/* Above the bookkeeping block on purpose: the discussion is what a
+          reviewer came here to have, while session ids and scope versions
+          are reference material they look up occasionally. */}
+      <DesignComments design={design} readOnly={readOnly} />
+
+      {/* Below the discussion, not above it: feedback the developer will act
+          on is the point of this page, and a private chat is the thing you
+          do on the way to leaving some. */}
+      <DesignChat design={design} readOnly={readOnly} />
 
       <div className="detail-field detail-bookkeeping">
         <h3>Session</h3>

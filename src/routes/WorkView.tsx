@@ -10,6 +10,8 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
+import { DesignComments } from "../components/DesignComments.js";
+import { DesignChat } from "../components/DesignChat.js";
 import { relativeTime } from "../lib/time.js";
 import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
@@ -502,6 +504,51 @@ function DesignDetailPane({
           ) : (
             <p>{primary.summary}</p>
           )}
+
+          {/* Collapsed by default, on purpose: `summary` above is already an
+              LLM-generated paraphrase of this, produced once at registration
+              (design-extract.ts) -- most readers want that, not the raw
+              plan. Only present at all for an ExitPlanMode registration
+              (never set on a structured/plain one, DesignStatement's own
+              doc comment), so a member with none renders nothing rather
+              than an empty toggle. */}
+          {group.members.some((m) => m.rawPlanExcerpt) && (
+            <div className="work-raw-plans">
+              {group.members
+                .filter((m) => m.rawPlanExcerpt)
+                .map((member) => (
+                  <div key={member.id}>
+                    {showRepoBadge && (
+                      <div className="repo-badge-row">
+                        <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                      </div>
+                    )}
+                    <details className="work-raw-plan">
+                      <summary>View original plan text</summary>
+                      <pre className="plan-text">{member.rawPlanExcerpt}</pre>
+                    </details>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {/* Comments and Ask, moved out of their own tabs (2026-09) --
+              always visible at the bottom of Overview instead of requiring
+              a click. Discussion above chat, same ordering rationale the
+              combined DesignDetail used: "the discussion is what a reviewer
+              came here to have, while a private chat is the thing you do on
+              the way to leaving some." */}
+          {group.members.map((member) => (
+            <div key={member.id}>
+              {showRepoBadge && (
+                <div className="repo-badge-row">
+                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                </div>
+              )}
+              <DesignComments design={member} readOnly={readOnly} />
+              <DesignChat design={member} readOnly={readOnly} />
+            </div>
+          ))}
         </div>
       )}
 

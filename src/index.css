@@ -746,6 +746,31 @@ button {
   max-width: 720px;
 }
 
+.work-raw-plans {
+  margin-top: 18px;
+}
+
+.work-raw-plan {
+  margin-top: 6px;
+}
+
+.work-raw-plan summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.work-raw-plan summary:hover {
+  color: var(--text);
+}
+
+.work-raw-plan .plan-text {
+  margin-top: 8px;
+}
+
 .work-change-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

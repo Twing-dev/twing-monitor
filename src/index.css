@@ -374,154 +374,132 @@ button {
   font-family: var(--font-mono);
 }
 
-/* Sidebar is intentionally its own small palette (dark, not the app's
-   single light theme) -- a landmark that stays visually distinct from the
-   content it navigates, same reasoning most multi-section dashboards use a
-   sidebar rather than a top bar once there's more than a couple of tabs. */
-.repo-detail-shell {
+/* --- Unified home screen (2026-09, second pass): a slim top bar instead of
+   a fixed-width sidebar, and a full-width split list + detail pane instead
+   of a 900px-capped single column -- replaces a whole vertical rail (one
+   row per tab) with a home screen that no longer needs seven of them. */
+
+.work-shell {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.sidebar {
-  width: 232px;
-  flex-shrink: 0;
-  background: #1c1a26;
-  color: #c9c6d6;
+.work-topbar {
   display: flex;
-  flex-direction: column;
-  padding: 18px 12px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
 }
 
-.sidebar-brand {
+.work-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px 18px;
-  font-weight: 800;
-  color: #fff;
-  font-size: 1.02rem;
   font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.02rem;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  padding: 0;
 }
 
-.sidebar-brand .dot {
+.work-brand .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
 }
 
-.repo-switcher {
+.work-repo-switcher {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  background: #2a2836;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 12px;
+  padding: 6px 10px;
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: #fff;
-}
-
-.repo-switcher .role {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #8a8798;
-  font-family: var(--font-body);
-}
-
-.sidebar-back-link {
-  color: #8a8798;
-  margin-bottom: 10px;
-  display: inline-block;
-}
-
-.sidebar-back-link:hover {
-  color: #fff;
-}
-
-.nav-group-label {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #8a8798;
-  padding: 14px 10px 6px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #c9c6d6;
-  font-family: inherit;
-  font-size: 0.86rem;
-  padding: 9px 10px;
-  border-radius: 8px;
-  margin-bottom: 2px;
-}
-
-.nav-item:hover {
-  background: #2a2836;
-  color: #fff;
-}
-
-.nav-item.active {
-  background: #2a2836;
-  color: #fff;
-  font-weight: 700;
-}
-
-.nav-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.nav-item .icon {
-  width: 18px;
-  text-align: center;
   flex-shrink: 0;
 }
 
-.nav-count {
-  margin-left: auto;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.66rem;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 100px;
-  min-width: 16px;
-  text-align: center;
+.work-repo-switcher .role {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-family: var(--font-body);
 }
 
-.nav-count.mild {
-  background: var(--warning);
+/* A small fixed gap rather than an all-consuming flex spacer -- letting
+   .work-search grow instead means the bar fills the space between the repo
+   name and the icons, instead of sitting alone in the corner with a wide
+   dead strip in front of it. */
+.work-topbar-spacer {
+  flex: 0 0 auto;
+  width: 8px;
 }
 
-.main {
+.work-search {
+  font-family: inherit;
+  font-size: 0.83rem;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 11px;
   flex: 1;
-  min-width: 0;
+  min-width: 160px;
+  max-width: 440px;
+  color: var(--text);
 }
 
-.topbar {
-  padding: 20px 32px;
-  border-bottom: 1px solid var(--border);
+.work-topbar-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.icon-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
   background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-.topbar h1 {
+.icon-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.icon-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.work-page-header {
+  padding: 20px 32px 0;
+}
+
+.work-page-header h1 {
   font-size: 1.3rem;
 }
 
@@ -534,6 +512,356 @@ button {
 .content {
   max-width: 900px;
   padding: 28px 32px 80px;
+}
+
+/* --- WorkView: split list (left) + detail (right), full remaining width --- */
+
+.work-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.work-pane-list {
+  width: 440px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.work-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.work-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.work-pill.active {
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
+}
+
+.work-rows {
+  flex: 1;
+}
+
+.work-section-heading {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 10px 14px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.work-section-heading.attention {
+  color: var(--danger);
+}
+
+.work-section-heading .n {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 1px 7px;
+  font-size: 0.66rem;
+}
+
+/* Reveals the rest of an already-loaded section (Conflicts/In progress/
+   Resolved each cap at SECTION_PAGE_SIZE) -- distinct from .load-more-button,
+   which fetches an older page from the server. */
+.section-load-more-button {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 2px 14px 10px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.section-load-more-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.work-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  border-left: 3px solid transparent;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text);
+}
+
+.work-row:hover {
+  background: var(--surface-hover);
+}
+
+.work-row.selected {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+}
+
+.work-row-summary {
+  font-size: 0.87rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.work-row-meta .sep::before {
+  content: "·";
+  margin-right: 7px;
+  color: var(--border);
+}
+
+.work-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.work-status-dot.progress {
+  background: var(--good);
+}
+
+.work-status-dot.attention {
+  background: var(--danger);
+}
+
+.work-status-dot.resolved {
+  background: #c7c2b8;
+}
+
+.work-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 100px;
+  margin-left: auto;
+}
+
+.work-badge.conflict {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.work-badge.warn {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.work-pane-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0 32px 60px;
+}
+
+.work-detail-header {
+  padding: 24px 0 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.work-detail-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  line-height: 1.35;
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.work-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  margin: 16px 0 22px;
+}
+
+.work-tab {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 8px 15px;
+  cursor: pointer;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.work-tab:hover {
+  color: var(--text);
+}
+
+.work-tab.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(33, 31, 46, 0.08);
+}
+
+.work-tab .tab-count {
+  font-size: 0.62rem;
+  background: var(--danger);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 100px;
+}
+
+.work-tab-panel {
+  max-width: 720px;
+}
+
+.work-raw-plans {
+  margin-top: 18px;
+}
+
+.work-raw-plan {
+  margin-top: 6px;
+}
+
+.work-raw-plan summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.work-raw-plan summary:hover {
+  color: var(--text);
+}
+
+.work-raw-plan .plan-text {
+  margin-top: 8px;
+}
+
+.work-change-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 0 0 20px;
+}
+
+.work-change-stat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--surface-hover);
+}
+
+.work-change-stat .n {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.work-change-stat .l {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.work-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.work-activity-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.work-activity-item:last-child {
+  border-bottom: none;
+}
+
+.work-activity-time {
+  width: 60px;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 860px) {
+  .work-body {
+    flex-direction: column;
+  }
+  .work-pane-list {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 40vh;
+  }
 }
 
 /* --- List views (Designs / Reviews / Threads / Members / Constraints) --- */
@@ -1932,15 +2260,36 @@ li:first-child > .preview-row {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Overrides .detail-field h3's small uppercase label treatment -- this is
+   a section heading someone scrolls to and reads, not a field caption, so
+   it gets the same visual weight as "What this design says it's doing"
+   above it instead of disappearing into the page. */
+.design-comments h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .comment-count {
-  font-weight: 400;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--text-dim);
-  margin-left: 8px;
-  font-size: 0.78rem;
+  color: var(--accent);
+  background: var(--accent-dim);
+  margin-left: 0;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
 }
 
 .comment-list {
@@ -2216,18 +2565,43 @@ li:first-child > .preview-row {
   gap: 10px;
 }
 
-/* Stated, not implied. A reviewer who thinks their half-formed question is
-   public will not ask it, which defeats the surface entirely. */
+/* Overrides .detail-field h3's small uppercase label treatment, matching
+   .design-comments h3 -- this reads as a section someone scrolls to and
+   uses, not a field caption. */
+.design-chat h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Stated, not implied, and given real visual weight -- a reviewer who thinks
+   their half-formed question is public will not ask it, which defeats the
+   surface entirely. Solid rather than the old dashed outline so it reads as
+   a fact about this thread, not a faint caveat. */
 .chat-privacy {
-  margin-left: 10px;
-  font-size: 0.7rem;
-  font-weight: 400;
+  margin-left: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
   color: var(--text-dim);
-  border: 1px dashed var(--border);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-privacy::before {
+  content: "🔒";
+  font-size: 0.68rem;
 }
 
 .chat-log {
@@ -2261,11 +2635,31 @@ li:first-child > .preview-row {
 .chat-turn-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  color: var(--text-dim);
   font-size: 0.72rem;
   font-family: var(--font-mono);
   margin-bottom: 3px;
+}
+
+/* Who is talking, at a glance -- bold and colour-coded so a skim down the
+   thread tells reviewer from agent without reading every bubble. */
+.chat-turn-meta span:first-child {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-turn-reviewer .chat-turn-meta span:first-child {
+  color: var(--accent);
+}
+
+.chat-turn-agent .chat-turn-meta span:first-child {
+  color: var(--text-dim);
+}
+
+.chat-turn-meta span:last-child {
+  color: var(--text-dim);
 }
 
 .chat-turn p {
@@ -2275,16 +2669,28 @@ li:first-child > .preview-row {
   white-space: pre-wrap;
 }
 
-/* The honest label on every answer. An answer grounded in 200 turns and one
-   answered from the design alone otherwise read identically, and a reviewer
-   who cannot tell them apart will trust both equally. */
+/* The honest label on every answer, promoted from a faint italic footnote to
+   a real chip -- an answer grounded in 200 turns and one answered from the
+   design alone otherwise read identically, and a reviewer who cannot tell
+   them apart will trust both equally. */
 .chat-provenance {
-  margin-top: 6px !important;
-  padding-top: 6px;
-  border-top: 1px dotted var(--border);
-  font-size: 0.74rem !important;
+  margin-top: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px !important;
+  border-top: none;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font-size: 0.7rem !important;
   color: var(--text-dim);
-  font-style: italic;
+  font-style: normal;
+}
+
+.chat-provenance::before {
+  content: "🔎";
+  font-size: 0.66rem;
 }
 
 .chat-thinking {
@@ -2298,6 +2704,8 @@ li:first-child > .preview-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
 }
 
 .chat-composer label {

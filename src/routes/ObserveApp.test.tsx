@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ObserveApp } from "./ObserveApp.js";
 
 const project = { projectId: "proj-1", orgId: "", role: "member" as const };
@@ -38,7 +37,9 @@ describe("ObserveApp", () => {
     // No repo picker (RepoListView is skipped entirely) and no sign-in form.
     expect(screen.queryByRole("heading", { name: "Repos" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
-    expect(await screen.findByRole("tab", { name: "Work in progress" })).toBeInTheDocument();
+    // The unified design list is the home screen now -- no "Work in
+    // progress" tab to find or click, it's just already showing.
+    expect(await screen.findByRole("button", { name: "twing monitor, go to designs" })).toBeInTheDocument();
   });
 
   it("never touches localStorage -- a real admin's cached session in the same browser is left alone", async () => {
@@ -104,8 +105,7 @@ describe("ObserveApp", () => {
 
     render(<ObserveApp />);
 
-    const tab = await screen.findByRole("tab", { name: "Work in progress" });
-    await userEvent.setup().click(tab);
+    // Already showing on the unified home screen -- no tab to switch to.
     expect(await screen.findByText("A public design")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load older" })).toBeInTheDocument();
   });
@@ -117,7 +117,21 @@ describe("ObserveApp", () => {
   // project GET /v1/projects returns for this identity.
   it("shows every public project at once as the multi-repo aggregate view when more than one is configured", async () => {
     const other = { projectId: "proj-2", orgId: "", role: "member" as const };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [project, other] }), { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        // Only /v1/projects returns the two projects -- WorkView (the
+        // unified home screen) is now what an "aggregate view" actually
+        // renders, and it fetches designs/activity/alignment-threads too;
+        // a blanket `[project, other]` response for those got cast (and
+        // rendered) as bogus DesignStatements, producing a second, flaky
+        // "proj-1"/"proj-2" via a design row's own repo badge alongside
+        // the repo-chip-row this test actually means to check.
+        if (url.includes("/v1/projects")) return new Response(JSON.stringify({ items: [project, other] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
 
     render(<ObserveApp />);
 

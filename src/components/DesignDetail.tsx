@@ -128,7 +128,7 @@ function KindSection({
  * there's something to expand. See `groupByKind`'s doc comment for why the
  * empty ones are shown rather than omitted -- "no database changes" is the
  * answer a reader came for, and an omitted section can't say it. */
-function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; claims: Claim[] }) {
+export function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; claims: Claim[] }) {
   const [conformanceOpen, setConformanceOpen] = useState(false);
   const report = computeConformance(changes, claims);
   const stateByChangeId = new Map(report.declared.map((row) => [row.change.id, row.state]));
@@ -192,7 +192,7 @@ function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; claims:
   );
 }
 
-function PathList({ title, paths }: { title: string; paths: string[] }) {
+export function PathList({ title, paths }: { title: string; paths: string[] }) {
   if (paths.length === 0) return null;
   return (
     <div className="detail-field">
@@ -225,7 +225,7 @@ function PathList({ title, paths }: { title: string; paths: string[] }) {
  * explains *why* -- this is the only place that answer lives. Renders
  * nothing once the latest check came back clean (or a design that was
  * never non-clean to begin with). */
-function LatestCheckOutcome({ design }: { design: DesignStatement }) {
+export function LatestCheckOutcome({ design }: { design: DesignStatement }) {
   const apiFetch = useApiFetch();
   const state = useAsyncData(
     () => fetchActivity(apiFetch, design.projectId, { relatedId: design.id, kinds: ["design_checked", "design_flagged"], limit: 1 }),
@@ -271,7 +271,7 @@ function LatestCheckOutcome({ design }: { design: DesignStatement }) {
  * design/plan directly (not just "go check the thread") since that's the
  * one thing worth knowing at a glance; the thread link is there for the
  * full back-and-forth (reply/close, §7). */
-function SemanticOverlapNote({
+export function SemanticOverlapNote({
   overlap,
   onOpenDesign,
   onOpenTab,
@@ -339,7 +339,7 @@ interface LatestCheckPayload {
  * conflict/constraint ids this needs). Renders nothing once the design
  * isn't `"flagged"` -- `file_overlap` never needed resolving in the first
  * place. */
-function ResolveActions({ design, onResolved, readOnly }: { design: DesignStatement; onResolved: () => void; readOnly?: boolean }) {
+export function ResolveActions({ design, onResolved, readOnly }: { design: DesignStatement; onResolved: () => void; readOnly?: boolean }) {
   const apiFetch = useApiFetch();
   // This component's own refresh signal, separate from the parent list's:
   // an "adopted" resolve changes `design.status`, which the parent's own

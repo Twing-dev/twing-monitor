@@ -208,7 +208,6 @@ export function RepoDetailLayout({
           projectsById={projectsById}
           focusDesignId={focusDesignId}
           onClearFocus={() => setFocusDesignId(undefined)}
-          onOpenTab={openTab}
           readOnly={readOnly}
           query={query}
           onQueryChange={setQuery}

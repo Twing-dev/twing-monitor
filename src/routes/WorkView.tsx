@@ -129,7 +129,6 @@ export function WorkView({
   projectsById,
   focusDesignId,
   onClearFocus,
-  onOpenTab,
   readOnly,
   query,
   onQueryChange,
@@ -138,7 +137,6 @@ export function WorkView({
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
   onClearFocus?: () => void;
-  onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
   /** Rendered in the shared top bar (RepoDetailLayout), not here -- lifted
    * up so it can sit next to the repo switcher the way the design mockup
@@ -402,7 +400,6 @@ export function WorkView({
             onTabChange={setDetailTab}
             onResolved={() => setRefreshKey((k) => k + 1)}
             onOpenDesign={openDesign}
-            onOpenTab={onOpenTab}
             readOnly={readOnly}
           />
         )}
@@ -446,7 +443,6 @@ function DesignDetailPane({
   onTabChange,
   onResolved,
   onOpenDesign,
-  onOpenTab,
   readOnly,
 }: {
   group: DesignGroup;
@@ -459,7 +455,6 @@ function DesignDetailPane({
   onTabChange: (tab: DetailTab) => void;
   onResolved: () => void;
   onOpenDesign: (designId: string) => void;
-  onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
@@ -633,7 +628,7 @@ function DesignDetailPane({
                   </div>
                 )}
                 <LatestCheckOutcome design={member} />
-                {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />}
+                {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />
               </div>
             );

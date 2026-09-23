@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_INSTALL_DIR="${HOME}/.twing/monitor"
+SOURCE_URL="https://github.com/Twing-dev/twing-monitor.git"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  twing-monitor install (--domain <domain> | --insecure-http) [options]
+  twing-monitor upgrade [options]
+  twing-monitor status [--dir <path>]
+  twing-monitor stop [--dir <path>]
+
+Install options:
+  --domain <domain>          Public HTTPS domain for the dashboard
+  --insecure-http            Direct private-network HTTP; no TLS proxy
+  --coordinator <url>        Coordinator URL compiled into the login screen
+  --dir <path>               Installation directory (default: ~/.twing/monitor)
+  --port <port>              Public HTTPS/HTTP port (default: 443/80)
+  --http-port <port>         Public HTTP port for ACME challenges (default: 80)
+  --bind <address>           Direct HTTP bind address (default: 0.0.0.0)
+
+Upgrade options:
+  --dir <path>               Existing installation directory
+
+The dashboard is built from the current main branch during install and upgrade.
+EOF
+}
+
+die() { echo "twing-monitor: $*" >&2; exit 1; }
+
+absolute_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "$PWD" "$1" ;;
+  esac
+}
+
+read_setting() {
+  local file="$1" key="$2"
+  sed -n "s/^${key}=//p" "$file" | tail -n 1
+}
+
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
+
+write_stack_env() {
+  local file="$1" image="$2" transport="$3" domain="$4" coordinator="$5" bind="$6" port="$7" http_port="$8" project="$9"
+  local tmp="${file}.tmp"
+  cat >"$tmp" <<EOF
+TWING_MONITOR_IMAGE=$image
+TWING_TRANSPORT=$transport
+TWING_MONITOR_DOMAIN=$domain
+TWING_COORDINATOR_URL=$coordinator
+TWING_BIND_ADDRESS=$bind
+TWING_PORT=$port
+TWING_HTTP_PORT=$http_port
+TWING_COMPOSE_PROJECT=$project
+EOF
+  mv "$tmp" "$file"
+}
+
+write_compose_file() {
+  local file="$1" transport="$2" bind="$3" port="$4" http_port="$5"
+  cat >"$file" <<'EOF'
+name: ${TWING_COMPOSE_PROJECT}
+
+services:
+  monitor:
+    image: ${TWING_MONITOR_IMAGE}
+    restart: unless-stopped
+EOF
+  if [[ "$transport" == "http" ]]; then
+    cat >>"$file" <<EOF
+    ports:
+      - "$bind:$port:80"
+EOF
+    return
+  fi
+  cat >>"$file" <<'EOF'
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "${TWING_HTTP_PORT}:80"
+      - "${TWING_PORT}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - monitor
+
+volumes:
+  caddy-data:
+  caddy-config:
+EOF
+}
+
+write_caddyfile() {
+  cat >"$1" <<EOF
+$2 {
+  reverse_proxy monitor:80
+}
+EOF
+}
+
+compose() {
+  docker compose --project-directory "$install_dir" --env-file "$install_dir/.env" -f "$install_dir/compose.yaml" "$@"
+}
+
+build_image() {
+  local image="$1" coordinator="$2"
+  echo "twing-monitor: building $image"
+  docker build --pull --build-arg "VITE_DEFAULT_SERVER_URL=$coordinator" -f deploy/docker/Dockerfile -t "$image" "$SOURCE_URL"
+}
+
+monitor_origin() {
+  local transport="$1" domain="$2" port="$3"
+  if [[ "$transport" == "https" ]]; then
+    if [[ "$port" == "443" ]]; then printf 'https://%s\n' "$domain"; else printf 'https://%s:%s\n' "$domain" "$port"; fi
+  else
+    printf 'http://<monitor-host>:%s\n' "$port"
+  fi
+}
+
+show_cors_guidance() {
+  local origin
+  origin="$(monitor_origin "$1" "$2" "$3")"
+  echo "twing-monitor: allow this dashboard at the coordinator:"
+  echo "  TWING_SERVE_CORS_ORIGINS=$origin"
+  [[ "$1" == "https" ]] || echo "twing-monitor: replace <monitor-host> with the private DNS name or IP users browse to. HTTP sends tokens without encryption."
+}
+
+install_monitor() {
+  local domain="" coordinator="https://coordination-server.twing.dev" bind="0.0.0.0" port="443" http_port="80" transport="https" port_set=false
+  install_dir="$DEFAULT_INSTALL_DIR"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --domain) [[ $# -ge 2 ]] || die "--domain needs a value"; domain="$2"; shift 2 ;;
+      --insecure-http) transport="http"; shift ;;
+      --coordinator) [[ $# -ge 2 ]] || die "--coordinator needs a value"; coordinator="$2"; shift 2 ;;
+      --dir) [[ $# -ge 2 ]] || die "--dir needs a value"; install_dir="$2"; shift 2 ;;
+      --port) [[ $# -ge 2 ]] || die "--port needs a value"; port="$2"; port_set=true; shift 2 ;;
+      --http-port) [[ $# -ge 2 ]] || die "--http-port needs a value"; http_port="$2"; shift 2 ;;
+      --bind) [[ $# -ge 2 ]] || die "--bind needs a value"; bind="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown install option: $1" ;;
+    esac
+  done
+  [[ "$coordinator" =~ ^https?://[^[:space:]/]+(:[0-9]+)?(/[^[:space:]]*)?$ ]] || die "--coordinator must be an http:// or https:// URL"
+  if [[ "$transport" == "https" ]]; then
+    [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || die "--domain must be a hostname"
+  else
+    [[ -z "$domain" ]] || die "--domain and --insecure-http cannot be combined"
+    [[ "$port_set" == true ]] || port="80"
+  fi
+  valid_port "$port" || die "--port must be between 1 and 65535"
+  valid_port "$http_port" || die "--http-port must be between 1 and 65535"
+  [[ "$bind" != *$'\n'* && "$bind" != *$'\r'* ]] || die "invalid bind address"
+  install_dir="$(absolute_path "$install_dir")"
+  [[ ! -e "$install_dir/.env" ]] || die "$install_dir already contains a monitor installation; use upgrade"
+
+  local stamp image project
+  stamp="$(date -u +%Y%m%d%H%M%S)"
+  image="twing-monitor:${stamp}-$$"
+  project="twing-monitor-${stamp}-$$"
+  build_image "$image" "$coordinator"
+  mkdir -p "$install_dir"
+  write_compose_file "$install_dir/compose.yaml" "$transport" "$bind" "$port" "$http_port"
+  [[ "$transport" == "https" ]] && write_caddyfile "$install_dir/Caddyfile" "$domain"
+  write_stack_env "$install_dir/.env" "$image" "$transport" "$domain" "$coordinator" "$bind" "$port" "$http_port" "$project"
+  compose up -d
+  echo "twing-monitor: installed successfully"
+  show_cors_guidance "$transport" "$domain" "$port"
+}
+
+upgrade_monitor() {
+  install_dir="$DEFAULT_INSTALL_DIR"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir) [[ $# -ge 2 ]] || die "--dir needs a value"; install_dir="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown upgrade option: $1" ;;
+    esac
+  done
+  install_dir="$(absolute_path "$install_dir")"
+  local env_file="$install_dir/.env"
+  [[ -f "$env_file" && -f "$install_dir/compose.yaml" ]] || die "no monitor installation at $install_dir"
+  local old_image transport domain coordinator bind port http_port project stamp image
+  old_image="$(read_setting "$env_file" TWING_MONITOR_IMAGE)"
+  transport="$(read_setting "$env_file" TWING_TRANSPORT)"
+  domain="$(read_setting "$env_file" TWING_MONITOR_DOMAIN)"
+  coordinator="$(read_setting "$env_file" TWING_COORDINATOR_URL)"
+  bind="$(read_setting "$env_file" TWING_BIND_ADDRESS)"
+  port="$(read_setting "$env_file" TWING_PORT)"
+  http_port="$(read_setting "$env_file" TWING_HTTP_PORT)"
+  project="$(read_setting "$env_file" TWING_COMPOSE_PROJECT)"
+  stamp="$(date -u +%Y%m%d%H%M%S)"
+  image="twing-monitor:${stamp}-$$"
+  build_image "$image" "$coordinator"
+  write_compose_file "$install_dir/compose.yaml" "$transport" "$bind" "$port" "$http_port"
+  [[ "$transport" == "https" ]] && write_caddyfile "$install_dir/Caddyfile" "$domain"
+  write_stack_env "$env_file" "$image" "$transport" "$domain" "$coordinator" "$bind" "$port" "$http_port" "$project"
+  if compose up -d; then
+    echo "twing-monitor: upgraded $old_image -> $image"
+    show_cors_guidance "$transport" "$domain" "$port"
+    return
+  fi
+  echo "twing-monitor: upgrade failed; restoring $old_image" >&2
+  write_stack_env "$env_file" "$old_image" "$transport" "$domain" "$coordinator" "$bind" "$port" "$http_port" "$project"
+  compose up -d || die "upgrade and automatic rollback both failed"
+  die "upgrade failed; the previous dashboard was restored"
+}
+
+simple_dir_option() {
+  install_dir="$DEFAULT_INSTALL_DIR"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir) [[ $# -ge 2 ]] || die "--dir needs a value"; install_dir="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  install_dir="$(absolute_path "$install_dir")"
+  [[ -f "$install_dir/.env" ]] || die "no monitor installation at $install_dir"
+}
+
+command -v docker >/dev/null 2>&1 || die "docker is required"
+docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+command="${1:-}"
+[[ -n "$command" ]] || { usage; exit 1; }
+shift || true
+case "$command" in
+  install) install_monitor "$@" ;;
+  upgrade) upgrade_monitor "$@" ;;
+  status) simple_dir_option "$@"; compose ps ;;
+  stop) simple_dir_option "$@"; compose down ;;
+  -h|--help|help) usage ;;
+  *) die "unknown command: $command" ;;
+esac

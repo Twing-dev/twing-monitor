@@ -40,10 +40,13 @@ type Section = "attention" | "progress" | "resolved";
 // things worth filtering to separately.
 type FilterPill = "all" | Section;
 
+// Urgency-first: Conflicts is why someone opens this screen, so it leads.
+// All trails rather than leads -- it's the no-filter reset, not a priority.
 const PILLS: { value: FilterPill; label: string }[] = [
-  { value: "all", label: "All" },
   { value: "attention", label: "Conflicts" },
+  { value: "progress", label: "In progress" },
   { value: "resolved", label: "Resolved" },
+  { value: "all", label: "All" },
 ];
 
 const SECTION_HEADING: Record<Section, string> = {
@@ -51,6 +54,8 @@ const SECTION_HEADING: Record<Section, string> = {
   progress: "In progress",
   resolved: "Resolved",
 };
+
+const SECTION_PAGE_SIZE = 5;
 
 /** Same "one project-wide `design_checked` fetch, newest wins per design"
  * approach DesignsView uses for its own list-level chip -- copied rather
@@ -117,7 +122,7 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
-type DetailTab = "overview" | "changes" | "conflict" | "activity";
+type DetailTab = "overview" | "changes" | "conflict" | "ask" | "activity";
 
 export function WorkView({
   projectIds,
@@ -148,6 +153,11 @@ export function WorkView({
   const [refreshKey, setRefreshKey] = useState(0);
   const [pages, setPages] = useState<Record<string, ProjectPage>>({});
   const [listState, setListState] = useState<LoadState>({ status: "loading" });
+  // Each section (Conflicts/In progress/Resolved) starts capped at
+  // SECTION_PAGE_SIZE rows -- a long Resolved list otherwise pushes
+  // Conflicts and In progress off screen, the two sections someone actually
+  // needs to act on. Expanded independently per section, not globally.
+  const [expandedSections, setExpandedSections] = useState<Record<Section, boolean>>({ attention: false, progress: false, resolved: false });
 
   const projectIdsKey = projectIds.join(",");
 
@@ -326,6 +336,9 @@ export function WorkView({
             {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : [pill]).map((section) => {
               const inSection = pill === "all" ? visibleRows.filter((r) => r.section === section) : visibleRows;
               if (inSection.length === 0) return null;
+              const expanded = expandedSections[section];
+              const shown = expanded ? inSection : inSection.slice(0, SECTION_PAGE_SIZE);
+              const remaining = inSection.length - shown.length;
               return (
                 <div key={section}>
                   {pill === "all" && (
@@ -333,7 +346,7 @@ export function WorkView({
                       {SECTION_HEADING[section]} <span className="n">{inSection.length}</span>
                     </div>
                   )}
-                  {inSection.map(({ group, primary, flags, section: rowSection }) => (
+                  {shown.map(({ group, primary, flags, section: rowSection }) => (
                     <button
                       key={group.key}
                       type="button"
@@ -352,6 +365,15 @@ export function WorkView({
                       </div>
                     </button>
                   ))}
+                  {remaining > 0 && (
+                    <button
+                      type="button"
+                      className="section-load-more-button"
+                      onClick={() => setExpandedSections((prev) => ({ ...prev, [section]: true }))}
+                    >
+                      Load {remaining} more
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -482,6 +504,9 @@ function DesignDetailPane({
         <button type="button" className={`work-tab${tab === "changes" ? " active" : ""}`} onClick={() => onTabChange("changes")}>
           Design change
         </button>
+        <button type="button" className={`work-tab${tab === "ask" ? " active" : ""}`} onClick={() => onTabChange("ask")}>
+          Ask
+        </button>
         {hasConflict && (
           <button type="button" className={`work-tab${tab === "conflict" ? " active" : ""}`} onClick={() => onTabChange("conflict")}>
             Conflict <span className="tab-count">{conflictMemberCount}</span>
@@ -532,12 +557,14 @@ function DesignDetailPane({
             </div>
           )}
 
-          {/* Comments and Ask, moved out of their own tabs (2026-09) --
-              always visible at the bottom of Overview instead of requiring
-              a click. Discussion above chat, same ordering rationale the
-              combined DesignDetail used: "the discussion is what a reviewer
-              came here to have, while a private chat is the thing you do on
-              the way to leaving some." */}
+          {/* Comments, moved out of its own tab (2026-09) -- always visible
+              at the bottom of Overview instead of requiring a click. Public
+              discussion belongs with the design it's about. Ask stays a
+              separate tab, not inlined alongside it -- a private,
+              per-reviewer chat reads oddly stacked directly under a
+              public discussion thread, and a distinct tab reinforces
+              "this is a different, private space" better than proximity
+              does. */}
           {group.members.map((member) => (
             <div key={member.id}>
               {showRepoBadge && (
@@ -546,6 +573,20 @@ function DesignDetailPane({
                 </div>
               )}
               <DesignComments design={member} readOnly={readOnly} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "ask" && (
+        <div className="work-tab-panel">
+          {group.members.map((member) => (
+            <div key={member.id}>
+              {showRepoBadge && (
+                <div className="repo-badge-row">
+                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                </div>
+              )}
               <DesignChat design={member} readOnly={readOnly} />
             </div>
           ))}

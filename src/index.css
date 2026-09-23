@@ -438,8 +438,13 @@ button {
   font-family: var(--font-body);
 }
 
+/* A small fixed gap rather than an all-consuming flex spacer -- letting
+   .work-search grow instead means the bar fills the space between the repo
+   name and the icons, instead of sitting alone in the corner with a wide
+   dead strip in front of it. */
 .work-topbar-spacer {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 8px;
 }
 
 .work-search {
@@ -449,15 +454,18 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 11px;
-  width: 220px;
+  flex: 1;
+  min-width: 160px;
+  max-width: 440px;
   color: var(--text);
-  flex-shrink: 0;
 }
 
 .work-topbar-icons {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .icon-btn {
@@ -576,6 +584,27 @@ button {
   border-radius: 100px;
   padding: 1px 7px;
   font-size: 0.66rem;
+}
+
+/* Reveals the rest of an already-loaded section (Conflicts/In progress/
+   Resolved each cap at SECTION_PAGE_SIZE) -- distinct from .load-more-button,
+   which fetches an older page from the server. */
+.section-load-more-button {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 2px 14px 10px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.section-load-more-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .work-row {
@@ -2231,15 +2260,36 @@ li:first-child > .preview-row {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Overrides .detail-field h3's small uppercase label treatment -- this is
+   a section heading someone scrolls to and reads, not a field caption, so
+   it gets the same visual weight as "What this design says it's doing"
+   above it instead of disappearing into the page. */
+.design-comments h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .comment-count {
-  font-weight: 400;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--text-dim);
-  margin-left: 8px;
-  font-size: 0.78rem;
+  color: var(--accent);
+  background: var(--accent-dim);
+  margin-left: 0;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
 }
 
 .comment-list {
@@ -2515,18 +2565,43 @@ li:first-child > .preview-row {
   gap: 10px;
 }
 
-/* Stated, not implied. A reviewer who thinks their half-formed question is
-   public will not ask it, which defeats the surface entirely. */
+/* Overrides .detail-field h3's small uppercase label treatment, matching
+   .design-comments h3 -- this reads as a section someone scrolls to and
+   uses, not a field caption. */
+.design-chat h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Stated, not implied, and given real visual weight -- a reviewer who thinks
+   their half-formed question is public will not ask it, which defeats the
+   surface entirely. Solid rather than the old dashed outline so it reads as
+   a fact about this thread, not a faint caveat. */
 .chat-privacy {
-  margin-left: 10px;
-  font-size: 0.7rem;
-  font-weight: 400;
+  margin-left: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
   color: var(--text-dim);
-  border: 1px dashed var(--border);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-privacy::before {
+  content: "🔒";
+  font-size: 0.68rem;
 }
 
 .chat-log {
@@ -2560,11 +2635,31 @@ li:first-child > .preview-row {
 .chat-turn-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  color: var(--text-dim);
   font-size: 0.72rem;
   font-family: var(--font-mono);
   margin-bottom: 3px;
+}
+
+/* Who is talking, at a glance -- bold and colour-coded so a skim down the
+   thread tells reviewer from agent without reading every bubble. */
+.chat-turn-meta span:first-child {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-turn-reviewer .chat-turn-meta span:first-child {
+  color: var(--accent);
+}
+
+.chat-turn-agent .chat-turn-meta span:first-child {
+  color: var(--text-dim);
+}
+
+.chat-turn-meta span:last-child {
+  color: var(--text-dim);
 }
 
 .chat-turn p {
@@ -2574,16 +2669,28 @@ li:first-child > .preview-row {
   white-space: pre-wrap;
 }
 
-/* The honest label on every answer. An answer grounded in 200 turns and one
-   answered from the design alone otherwise read identically, and a reviewer
-   who cannot tell them apart will trust both equally. */
+/* The honest label on every answer, promoted from a faint italic footnote to
+   a real chip -- an answer grounded in 200 turns and one answered from the
+   design alone otherwise read identically, and a reviewer who cannot tell
+   them apart will trust both equally. */
 .chat-provenance {
-  margin-top: 6px !important;
-  padding-top: 6px;
-  border-top: 1px dotted var(--border);
-  font-size: 0.74rem !important;
+  margin-top: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px !important;
+  border-top: none;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font-size: 0.7rem !important;
   color: var(--text-dim);
-  font-style: italic;
+  font-style: normal;
+}
+
+.chat-provenance::before {
+  content: "🔎";
+  font-size: 0.66rem;
 }
 
 .chat-thinking {
@@ -2597,6 +2704,8 @@ li:first-child > .preview-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
 }
 
 .chat-composer label {

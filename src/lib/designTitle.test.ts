@@ -41,6 +41,25 @@ describe("deriveTitle", () => {
     expect(deriveTitle("")).toBe("");
     expect(deriveTitle("   ")).toBe("");
   });
+
+  it("doesn't crash on null/undefined -- a real API response is a boundary, not a guaranteed string", () => {
+    expect(deriveTitle(null)).toBe("");
+    expect(deriveTitle(undefined)).toBe("");
+  });
+
+  // Real bug, found against production data: a paragraph can have a real
+  // sentence break *before* its first " -- ", when the dash sits inside a
+  // later sentence rather than the first one. Always preferring the dash
+  // pulled in that whole extra sentence instead of stopping at the real
+  // headline.
+  it("stops at the first sentence when a ' -- ' appears later, inside a second sentence", () => {
+    const summary =
+      "Make session capture actually run under OpenCode. PRs #40 and #45 built the TranscriptSource seam and the OpenCode " +
+      "implementation, but nothing constructs it -- the daemon still only ever reads Claude Code's JSONL, so OpenCode " +
+      "capture is dead code today. This carries the information needed to pick a source from the harness to the daemon, " +
+      "as one extensible property bag rather than a new field per harness.";
+    expect(deriveTitle(summary)).toBe("Make session capture actually run under OpenCode.");
+  });
 });
 
 describe("toDesignPoints", () => {
@@ -67,5 +86,10 @@ describe("toDesignPoints", () => {
 
   it("returns [] for empty input", () => {
     expect(toDesignPoints("")).toEqual([]);
+  });
+
+  it("doesn't crash on null/undefined", () => {
+    expect(toDesignPoints(null)).toEqual([]);
+    expect(toDesignPoints(undefined)).toEqual([]);
   });
 });

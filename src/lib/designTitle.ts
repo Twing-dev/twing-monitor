@@ -47,23 +47,29 @@ function firstParagraph(text: string): string {
   return text.split(/\n\s*\n/)[0].trim();
 }
 
-export function deriveTitle(summary: string): string {
-  const text = summary.trim();
+export function deriveTitle(summary: string | null | undefined): string {
+  // `summary` is a required field on the wire, but this reads an external
+  // API response -- a system boundary is exactly where a loose/legacy row
+  // (or a test's own loose fixture) missing it shouldn't crash the row
+  // that surfaces it.
+  const text = (summary ?? "").trim();
   if (!text) return text;
   const head = firstParagraph(text);
 
-  // The " -- " separator is this codebase's own convention for "headline
-  // -- elaboration" (see this file's own doc comment) -- the segment
-  // before the first one is reliably the actual headline.
+  // Two candidate cut points: this codebase's " -- headline -- elaboration"
+  // dash convention, and the first sentence boundary (when the paragraph
+  // actually has more than one sentence -- toBullets returns [] otherwise).
+  // Whichever comes *first* wins -- a paragraph can easily have a real
+  // sentence break before its first dash (a multi-sentence declaration
+  // whose *second* sentence happens to contain one), and always preferring
+  // the dash in that case pulled in a whole extra sentence past the real
+  // headline instead of stopping at it.
   const dashIndex = head.indexOf(" -- ");
-  if (dashIndex !== -1) return hardClamp(head.slice(0, dashIndex).trim());
-
-  // No dash -- fall back to the first sentence, when the paragraph
-  // actually splits into more than one (toBullets returns [] for a single
-  // sentence, which is exactly the case where "first sentence" and "whole
-  // paragraph" are the same string anyway).
   const bullets = toBullets(head);
-  if (bullets.length > 0) return hardClamp(bullets[0]);
+  const sentenceCut = bullets.length > 0 ? bullets[0].length : -1;
+
+  const cut = Math.min(...[dashIndex, sentenceCut].filter((i) => i > 0));
+  if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim());
 
   return hardClamp(head);
 }
@@ -73,8 +79,8 @@ export function deriveTitle(summary: string): string {
  * rather than raw. Returns `[]` (same convention `toBullets` uses) when
  * the text is short enough that a list would just repeat it back as a
  * single item; the caller falls back to plain prose in that case. */
-export function toDesignPoints(summary: string): string[] {
-  const text = summary.trim();
+export function toDesignPoints(summary: string | null | undefined): string[] {
+  const text = (summary ?? "").trim();
   if (!text) return [];
 
   // Each amendment's own paragraph, split at the blank line between them.

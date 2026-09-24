@@ -495,6 +495,106 @@ button {
   border-color: var(--accent-dim);
 }
 
+.notif {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 17px;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(560px, calc(100dvh - 75px));
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px #211f2e24;
+}
+
+.notif-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-panel-head strong {
+  font-family: var(--font-display);
+}
+
+.notif-panel-sub,
+.notif-empty {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.notif-empty {
+  margin: 0;
+  padding: 20px 16px;
+}
+
+.notif-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.notif-row:last-child {
+  border-bottom: 0;
+}
+
+.notif-row:hover,
+.notif-row:focus-visible {
+  background: var(--surface-hover);
+}
+
+.notif-row.unread {
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.notif-actor,
+.notif-design {
+  font-weight: 800;
+}
+
+.notif-excerpt {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.notif-when {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
 .work-page-header {
   padding: 20px 32px 0;
 }
@@ -2818,6 +2918,32 @@ li:first-child > .preview-row {
 
   .work-topbar-spacer {
     display: none;
+  }
+
+  /* Anchored to the bottom of the viewport, not below the top bar.
+   *
+   * A top offset has to be a guess here, and the guess was wrong: the phone
+   * top bar wraps to three rows (brand and back link, icons, then the
+   * full-width search) and measures 143px at 390px wide, so a panel pinned
+   * at 68px opened 75px *inside* it, covering the search field. Any fixed
+   * number is wrong again the moment the bar rewraps -- one more repo in the
+   * switcher, a longer label, a second icon.
+   *
+   * `position: fixed` is unaffected by `.work-shell-home`'s `overflow:
+   * hidden`, since its containing block is the viewport and no ancestor
+   * establishes another one. `dvh` for the same reason the shell uses it:
+   * mobile browser chrome resizes the viewport. */
+  .notif-panel {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-height: 70dvh;
+    border-radius: 12px 12px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .work-repo-switcher {

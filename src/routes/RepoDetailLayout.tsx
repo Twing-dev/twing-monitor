@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
 import { repoLabel } from "../lib/repoLabel.js";
-import { type TabId, parseUrlState, pushUrlState } from "../lib/urlState.js";
+import { type TabId, buildShareUrl, parseUrlState, pushUrlState } from "../lib/urlState.js";
 import { WorkView } from "./WorkView.js";
 import { ConflictsView } from "./ConflictsView.js";
 import { HotspotsView } from "./HotspotsView.js";
 import { ActivityView } from "./ActivityView.js";
 import { MembersView } from "./MembersView.js";
 import { ConstraintsView } from "./ConstraintsView.js";
+import { NotificationBell } from "../components/NotificationBell.js";
 
 /** 2026-09, second pass: the dark sidebar (one row per tab) replaced again --
  * once Overview/Designs/Conflicts collapsed into one always-visible list +
@@ -98,6 +99,25 @@ export function RepoDetailLayout({
     pushUrlState({ repoIds: projectIds, tab: "designs", focusId: designId });
   }
 
+  /**
+   * Open a design that may not belong to the repo currently on screen --
+   * what a notification row needs, since the bell spans every repo you are
+   * in while this view is scoped to one selection.
+   *
+   * In-repo is the fast path and stays in place. Cross-repo is a real
+   * navigation rather than a synthetic popstate: switching repo selection is
+   * App's business (it remounts this component by key), and a URL the
+   * browser actually visits gets there correctly without this view having to
+   * reach up and drive it.
+   */
+  function openDesignAnywhere(designId: string, designProjectId: string) {
+    if (projectIds.includes(designProjectId)) {
+      openDesign(designId);
+      return;
+    }
+    window.location.assign(buildShareUrl(designProjectId, "designs", designId));
+  }
+
   function openTab(next: TabId) {
     setTab(next);
     pushUrlState({ repoIds: projectIds, tab: next, focusId: focusIdForTab(next) });
@@ -174,6 +194,9 @@ export function RepoDetailLayout({
         )}
 
         <div className="work-topbar-icons">
+          {/* Hidden for the public `/observe` viewer: it has no identity, so
+              there is no "waiting on you" for it to show. */}
+          {!readOnly && <NotificationBell onOpenDesign={openDesignAnywhere} />}
           {SECONDARY_NAV.map((t) => (
             <button
               key={t.id}

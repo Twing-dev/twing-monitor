@@ -47,7 +47,12 @@ function stubApi(designs: Record<string, unknown>[]) {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
-        return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        // Scoped by `projectId` the way the real endpoint is: the view fans
+        // one fetch out per selected repo and merges the results, so an
+        // unscoped stub returns every design once per repo and a
+        // multi-repo test ends up with duplicate ids in one group.
+        const projectId = new URL(url, "https://example.invalid").searchParams.get("projectId");
+        return new Response(JSON.stringify({ items: designs.filter((d) => d.projectId === projectId) }), { status: 200 });
       }
       return new Response(JSON.stringify({ items: [] }), { status: 200 });
     }),
@@ -181,6 +186,96 @@ describe("WorkView (desktop baseline)", () => {
     const { container } = renderWork();
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't load/i));
     expect(container.querySelector(".work-body")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A `--group`-linked chain is one row and one detail pane, but comments,
+ * chat and conformance are all per design -- so each tab body stacks one
+ * panel per member. Nothing inside those panels varies with which member it
+ * is (`summary` propagates across a group server-side; DesignChat and
+ * DesignComments each render a fixed heading), so before this they read as
+ * the same panel rendered twice. These pin the labelling that tells them
+ * apart, and pin that a group of one gains nothing.
+ */
+describe("WorkView grouped-design member panels", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Two designs sharing a `groupId` in the *same* repo -- registered by
+   * hand with the same `--group`, the case that produced two identical Ask
+   * sections both badged with the one repo. */
+  function linkedPair() {
+    return [
+      design({ id: "design-1", groupId: "grp-1", developerId: "alice@example.com", lastActivityAt: 2_000_000 }),
+      design({ id: "design-2", groupId: "grp-1", developerId: "bob@example.com", status: "closed", lastActivityAt: 1_000_000 }),
+    ];
+  }
+
+  async function openAskTab(container: HTMLElement) {
+    await waitFor(() => expect(container.querySelector(".work-tabs")).toBeInTheDocument());
+    await userEvent.click(within(container.querySelector(".work-tabs") as HTMLElement).getByText(/^ask$/i));
+    return container.querySelector(".work-tab-panel") as HTMLElement;
+  }
+
+  it("collapses a linked pair to one row", async () => {
+    stubApi(linkedPair());
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getAllByText("Add retry backoff to the sync client")).toHaveLength(1));
+  });
+
+  it("labels each member's Ask panel so two of them are not the same panel twice", async () => {
+    stubApi(linkedPair());
+    const { container } = renderWork();
+    const panel = await openAskTab(container);
+
+    // Two chats, because chat is keyed by design id -- they are genuinely
+    // two private threads, which is exactly why they need telling apart.
+    await waitFor(() => expect(panel.querySelectorAll(".design-chat")).toHaveLength(2));
+
+    const headings = panel.querySelectorAll(".work-member-heading");
+    expect(headings).toHaveLength(2);
+    expect(headings[0].textContent).toContain("alice@example.com");
+    expect(headings[1].textContent).toContain("bob@example.com");
+    // Per-member `status` does not propagate across a group, so it is a real
+    // distinguisher rather than a repeat of the header's.
+    expect(headings[1].textContent).toContain("closed");
+  });
+
+  it("labels the members' comment panels on Overview too", async () => {
+    stubApi(linkedPair());
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-tab-panel")).toBeInTheDocument());
+    const panel = container.querySelector(".work-tab-panel") as HTMLElement;
+    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+  });
+
+  it("adds no heading for a group of one, where the detail header already says it all", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    const panel = await openAskTab(container);
+    await waitFor(() => expect(panel.querySelectorAll(".design-chat")).toHaveLength(1));
+    expect(panel.querySelector(".work-member-heading")).not.toBeInTheDocument();
+  });
+
+  // The duplication the bug report actually named: the same repo badge
+  // rendered once per member, under a header that already names that repo.
+  it("badges a member only when the group spans repos", async () => {
+    stubApi(linkedPair());
+    const { container } = renderWork(["proj-1", "proj-2"]);
+    const panel = await openAskTab(container);
+    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+    expect(panel.querySelector(".repo-badge")).not.toBeInTheDocument();
+  });
+
+  it("keeps the badge when the group really does span repos", async () => {
+    stubApi([
+      design({ id: "design-1", groupId: "grp-1", projectId: "proj-1", lastActivityAt: 2_000_000 }),
+      design({ id: "design-2", groupId: "grp-1", projectId: "proj-2", lastActivityAt: 1_000_000 }),
+    ]);
+    const { container } = renderWork(["proj-1", "proj-2"]);
+    const panel = await openAskTab(container);
+    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+    expect(panel.querySelectorAll(".repo-badge")).toHaveLength(2);
   });
 });
 

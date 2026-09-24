@@ -875,6 +875,31 @@ button {
   max-width: 720px;
 }
 
+/* One member's panel inside a tab body, for a grouped (groupId-linked)
+ * design with more than one member -- the rule above it separates two
+ * members visibly, so two stacked panels read as two designs rather than as
+ * the same one rendered twice. Absent entirely for a group of one. */
+.work-member + .work-member {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.work-member-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.work-member-heading .sep::before {
+  content: "·";
+  margin-right: 7px;
+  color: var(--border);
+}
+
 .work-raw-plans {
   margin-top: 18px;
 }

@@ -12,6 +12,7 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { MemberPanel } from "../components/MemberPanel.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
 import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
@@ -237,14 +238,9 @@ function DesignCardBody({
           ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
           : undefined;
         return (
-          <div key={member.id}>
-            {showRepoBadge && (
-              <div className="repo-badge-row">
-                <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-              </div>
-            )}
+          <MemberPanel key={member.id} member={member} members={members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
             <DesignDetail design={member} onResolved={onResolved} semanticOverlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} readOnly={readOnly} />
-          </div>
+          </MemberPanel>
         );
       })}
     </>

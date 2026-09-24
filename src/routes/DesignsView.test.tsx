@@ -763,6 +763,118 @@ describe("DesignsView", () => {
   });
 });
 
+/**
+ * An expanded card renders one whole `DesignDetail` per group member, and
+ * `DesignDetail` contains a fixed "Discussion" and "Ask this design" of its
+ * own. Since `summary` propagates across a shared `groupId` server-side,
+ * two members in the *same* repo produced two byte-identical blocks under
+ * two copies of that repo's badge -- one card that read as the same design
+ * pasted twice. These pin the labelling that tells them apart.
+ */
+describe("DesignsView grouped-design member panels", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const BASE = {
+    id: "design-1",
+    projectId: "proj-1",
+    developerId: "alice@example.com",
+    sessionId: "s-1",
+    status: "open",
+    createdAt: Date.now(),
+    summary: "Add API-key rate limiter",
+    creates: [],
+    touches: [],
+    dependsOn: [],
+    ttlMs: 3_600_000,
+    scopeVersion: 1,
+    lastActivityAt: 2_000_000,
+    justifiedConstraintIds: [],
+    justifiedOverlaps: [],
+  };
+
+  function stub(designsByProject: Record<string, unknown[]>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const projectId = new URL(url).searchParams.get("projectId") ?? "";
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: designsByProject[projectId] ?? [] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+  }
+
+  /** Two designs sharing a `groupId` in the *same* repo -- the case behind
+   * the report: one card, two identical detail bodies inside it. */
+  const SAME_REPO_PAIR = [
+    { ...BASE, id: "design-1", groupId: "grp-1", developerId: "alice@example.com", lastActivityAt: 2_000_000 },
+    { ...BASE, id: "design-2", groupId: "grp-1", developerId: "bob@example.com", status: "closed", lastActivityAt: 1_000_000 },
+  ];
+
+  async function expandCard() {
+    await screen.findByText("Add API-key rate limiter");
+    await userEvent.click(screen.getByRole("button", { name: /Add API-key rate limiter/ }));
+  }
+
+  it("labels each member's detail body, so two Discussions are not one rendered twice", async () => {
+    stub({ "proj-1": SAME_REPO_PAIR });
+    const { container } = renderWithAuth();
+    await expandCard();
+
+    // Two full detail bodies -- each carries its own Discussion and Ask,
+    // both keyed by design id, so both are real and neither can be dropped.
+    await waitFor(() => expect(container.querySelectorAll(".design-detail")).toHaveLength(2));
+
+    const headings = container.querySelectorAll(".member-panel-heading");
+    expect(headings).toHaveLength(2);
+    expect(headings[0].textContent).toContain("alice@example.com");
+    expect(headings[1].textContent).toContain("bob@example.com");
+    // `status` does not propagate across a group, so it genuinely separates
+    // the two rather than repeating the card header's.
+    expect(headings[1].textContent).toContain("closed");
+  });
+
+  it("drops the per-member repo badge when every member is in the one repo", async () => {
+    stub({ "proj-1": SAME_REPO_PAIR, "proj-2": [] });
+    const { container } = renderWithAuth(undefined, ["proj-1", "proj-2"], {
+      "proj-1": { projectId: "proj-1", orgId: "", role: "admin" as const, githubOwner: "acme", githubRepo: "widgets" },
+    });
+    await expandCard();
+    await waitFor(() => expect(container.querySelectorAll(".member-panel-heading")).toHaveLength(2));
+
+    // Once, in the card header -- not again per member below it.
+    expect(screen.getAllByText("acme/widgets")).toHaveLength(1);
+  });
+
+  it("keeps a badge per member when the group really does span repos", async () => {
+    stub({
+      "proj-1": [{ ...BASE, id: "design-1", groupId: "grp-2", projectId: "proj-1", lastActivityAt: 2_000_000 }],
+      "proj-2": [{ ...BASE, id: "design-2", groupId: "grp-2", projectId: "proj-2", lastActivityAt: 1_000_000 }],
+    });
+    const { container } = renderWithAuth(undefined, ["proj-1", "proj-2"], {
+      "proj-1": { projectId: "proj-1", orgId: "", role: "admin" as const, githubOwner: "acme", githubRepo: "widgets" },
+      "proj-2": { projectId: "proj-2", orgId: "", role: "admin" as const },
+    });
+    await expandCard();
+    await waitFor(() => expect(container.querySelectorAll(".member-panel-heading")).toHaveLength(2));
+
+    // Header badge plus the member's own, for each of the two repos.
+    expect(screen.getAllByText("acme/widgets")).toHaveLength(2);
+    expect(screen.getAllByText("proj-2")).toHaveLength(2);
+  });
+
+  it("adds no heading to an ungrouped design, where the card header already says it all", async () => {
+    stub({ "proj-1": [BASE] });
+    const { container } = renderWithAuth();
+    await expandCard();
+
+    await waitFor(() => expect(container.querySelector(".design-detail")).toBeInTheDocument());
+    expect(container.querySelector(".member-panel-heading")).not.toBeInTheDocument();
+  });
+});
+
 // Design review (2026-09): a reviewer scanning this list is looking for work
 // somebody is waiting on, so the chip leads with unresolved questions.
 describe("DesignsView comment counts", () => {

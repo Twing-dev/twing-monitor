@@ -875,17 +875,18 @@ button {
   max-width: 720px;
 }
 
-/* One member's panel inside a tab body, for a grouped (groupId-linked)
- * design with more than one member -- the rule above it separates two
- * members visibly, so two stacked panels read as two designs rather than as
- * the same one rendered twice. Absent entirely for a group of one. */
-.work-member + .work-member {
+/* One member's panel inside a grouped (groupId-linked) design's body --
+ * WorkView's detail tabs and DesignsView's expanded card both stack one per
+ * member. The rule above it separates two members visibly, so two stacked
+ * panels read as two designs rather than as the same one rendered twice.
+ * Absent entirely for a group of one. */
+.member-panel + .member-panel {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
 }
 
-.work-member-heading {
+.member-panel-heading {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -894,10 +895,26 @@ button {
   color: var(--text-dim);
 }
 
-.work-member-heading .sep::before {
+.member-panel-heading .sep::before {
   content: "·";
   margin-right: 7px;
   color: var(--border);
+}
+
+/* Inside an expanded design card the panel below is a `.design-detail`,
+ * which brings its own top rule and 18px gutter -- so the separator above
+ * would draw a second line, and an unpadded heading would sit flush against
+ * the card edge while the content under it is inset. Same gutter the repo
+ * badge row this replaced used. */
+.design-card .member-panel + .member-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.design-card .member-panel-heading {
+  padding: 12px 18px 0;
+  margin-bottom: 0;
 }
 
 .work-raw-plans {
@@ -1316,13 +1333,6 @@ li:first-child > .preview-row {
 .card-copy-link:hover {
   background: var(--surface-hover);
   color: var(--text);
-}
-
-/* Precedes each member's own DesignDetail inside a grouped (groupId-linked)
- * card's expanded body -- only rendered when the card has more than one
- * member, labeling which repo the panel below it belongs to. */
-.repo-badge-row {
-  padding: 10px 18px 0;
 }
 
 .card-body {

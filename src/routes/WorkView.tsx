@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
 import { fetchDesigns, fetchDesignById } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
@@ -10,6 +10,7 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { MemberPanel } from "../components/MemberPanel.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignComments } from "../components/DesignComments.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -457,57 +458,6 @@ export function WorkView({
   );
 }
 
-/**
- * Labels one member's panel inside a tab body, for a group that has more
- * than one member.
- *
- * Every tab below stacks one panel per member, because comments, chat and
- * conformance are all per design even though a `--group`-linked chain is
- * one logical unit of work (`dedupeDesignsByGroup`). Nothing *visible* in
- * those panels varies with which member it is, though: `summary` propagates
- * across a shared `groupId` server-side (see `DesignStatement.groupId`),
- * and `DesignChat`/`DesignComments` each render a fixed heading of their
- * own -- so two members read as one panel rendered twice rather than as two
- * designs. `developerId`, `lastActivityAt` and `status` stay per-member
- * (linking is only a label) and are what actually tells them apart.
- *
- * The repo badge moved in here from the individual tabs, and now renders
- * only when the group genuinely spans repos: per member it repeated the one
- * repo the detail header already names, once per member, which is most of
- * what read as duplication in the first place.
- *
- * A group of one renders its panel bare -- the detail header above already
- * says whose design this is, when it last moved and which repo it's in.
- */
-function MemberPanel({
-  member,
-  group,
-  showRepoBadge,
-  projectsById,
-  children,
-}: {
-  member: DesignStatement;
-  group: DesignGroup;
-  showRepoBadge: boolean;
-  projectsById: Record<string, ProjectSummary>;
-  children: ReactNode;
-}) {
-  if (group.members.length === 1) return <>{children}</>;
-  const spansRepos = uniqueBy(group.members, (m) => m.projectId).length > 1;
-
-  return (
-    <div className="work-member">
-      <div className="work-member-heading">
-        {showRepoBadge && spansRepos && <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />}
-        <span>{member.developerId}</span>
-        <span className="sep">{relativeTime(member.lastActivityAt)}</span>
-        <span className="sep">{member.status}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 /** One member's declared changes, with its own claims fetched by session --
  * a linked group can span sessions (and projects), so conformance ("did the
  * code match the plan") has to be checked per member rather than once for
@@ -637,7 +587,7 @@ function DesignDetailPane({
               {group.members
                 .filter((m) => m.rawPlanExcerpt)
                 .map((member) => (
-                  <MemberPanel key={member.id} member={member} group={group} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+                  <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                     <details className="work-raw-plan">
                       <summary>View original plan text</summary>
                       <pre className="plan-text">{member.rawPlanExcerpt}</pre>
@@ -656,7 +606,7 @@ function DesignDetailPane({
               "this is a different, private space" better than proximity
               does. */}
           {group.members.map((member) => (
-            <MemberPanel key={member.id} member={member} group={group} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignComments design={member} readOnly={readOnly} />
             </MemberPanel>
           ))}
@@ -666,7 +616,7 @@ function DesignDetailPane({
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (
-            <MemberPanel key={member.id} member={member} group={group} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignChat design={member} readOnly={readOnly} />
             </MemberPanel>
           ))}
@@ -686,7 +636,7 @@ function DesignDetailPane({
             </div>
           )}
           {group.members.map((member) => (
-            <MemberPanel key={member.id} member={member} group={group} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <MemberChanges member={member} />
             </MemberPanel>
           ))}
@@ -701,7 +651,7 @@ function DesignDetailPane({
               ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
               : undefined;
             return (
-              <MemberPanel key={member.id} member={member} group={group} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                 <LatestCheckOutcome design={member} />
                 {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />

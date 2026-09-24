@@ -232,7 +232,7 @@ describe("WorkView grouped-design member panels", () => {
     // two private threads, which is exactly why they need telling apart.
     await waitFor(() => expect(panel.querySelectorAll(".design-chat")).toHaveLength(2));
 
-    const headings = panel.querySelectorAll(".work-member-heading");
+    const headings = panel.querySelectorAll(".member-panel-heading");
     expect(headings).toHaveLength(2);
     expect(headings[0].textContent).toContain("alice@example.com");
     expect(headings[1].textContent).toContain("bob@example.com");
@@ -246,7 +246,7 @@ describe("WorkView grouped-design member panels", () => {
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-tab-panel")).toBeInTheDocument());
     const panel = container.querySelector(".work-tab-panel") as HTMLElement;
-    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+    await waitFor(() => expect(panel.querySelectorAll(".member-panel-heading")).toHaveLength(2));
   });
 
   it("adds no heading for a group of one, where the detail header already says it all", async () => {
@@ -254,7 +254,7 @@ describe("WorkView grouped-design member panels", () => {
     const { container } = renderWork();
     const panel = await openAskTab(container);
     await waitFor(() => expect(panel.querySelectorAll(".design-chat")).toHaveLength(1));
-    expect(panel.querySelector(".work-member-heading")).not.toBeInTheDocument();
+    expect(panel.querySelector(".member-panel-heading")).not.toBeInTheDocument();
   });
 
   // The duplication the bug report actually named: the same repo badge
@@ -263,7 +263,7 @@ describe("WorkView grouped-design member panels", () => {
     stubApi(linkedPair());
     const { container } = renderWork(["proj-1", "proj-2"]);
     const panel = await openAskTab(container);
-    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+    await waitFor(() => expect(panel.querySelectorAll(".member-panel-heading")).toHaveLength(2));
     expect(panel.querySelector(".repo-badge")).not.toBeInTheDocument();
   });
 
@@ -274,7 +274,7 @@ describe("WorkView grouped-design member panels", () => {
     ]);
     const { container } = renderWork(["proj-1", "proj-2"]);
     const panel = await openAskTab(container);
-    await waitFor(() => expect(panel.querySelectorAll(".work-member-heading")).toHaveLength(2));
+    await waitFor(() => expect(panel.querySelectorAll(".member-panel-heading")).toHaveLength(2));
     expect(panel.querySelectorAll(".repo-badge")).toHaveLength(2);
   });
 });

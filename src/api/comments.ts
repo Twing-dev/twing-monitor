@@ -84,12 +84,23 @@ export async function escalateComment(fetcher: Fetcher, commentId: string, reaso
   });
 }
 
-/** `POST /v1/comments/:id/resolve` -- settled. Distinct from the owner
- * *acknowledging* an escalation, which only clears their session banner and
- * has no button here: acknowledging happens automatically when their agent
- * reads the comment. */
+/**
+ * `POST /v1/comments/:id/resolve` -- settled.
+ *
+ * Declares `authorKind: "human"` for the same reason `postCommentReply` does:
+ * a developer acting here and their agent acting through the CLI present the
+ * same token, so the server cannot tell them apart and the caller says which
+ * it is. Closing a comment is human-only (the server refuses an
+ * agent-declared one), and a click in this dashboard is by definition a
+ * person's.
+ *
+ * Distinct from the design owner *acknowledging* an escalation, which only
+ * clears their session banner and has no button here: acknowledging happens
+ * automatically when their agent reads the comment.
+ */
 export async function resolveComment(fetcher: Fetcher, commentId: string): Promise<{ comment: DesignComment }> {
-  return fetcher<{ comment: DesignComment }>(`/v1/comments/${commentId}/resolve`, { method: "POST" });
+  const authorKind: CommentAuthorKind = "human";
+  return fetcher<{ comment: DesignComment }>(`/v1/comments/${commentId}/resolve`, { method: "POST", body: JSON.stringify({ authorKind }) });
 }
 
 /**

@@ -37,6 +37,10 @@ function comment(overrides: Partial<DesignComment> = {}): DesignComment {
     status: "answered",
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    // The server decides who may close a comment; default the fixtures to
+    // "yours" so the existing cases still exercise the control, and the
+    // tests below override it to cover the other side.
+    canResolve: true,
     ...overrides,
   };
 }
@@ -235,5 +239,46 @@ describe("DesignComments", () => {
     );
     renderComments();
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/not a member of this project/i));
+  });
+});
+
+// Membership used to be the only check, so any project member saw a Resolve
+// button on everyone's comments -- including the design's own author, on a
+// question about their own design.
+describe("DesignComments resolve permission", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("offers Resolved to the reviewer whose question it is", async () => {
+    stubComments([comment({ canResolve: true })], { cm1: [reply()] });
+    renderComments();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^resolved$/i })).toBeInTheDocument());
+  });
+
+  it("hides it from everyone else, and says whose call it is", async () => {
+    stubComments([comment({ canResolve: false, authorId: "reviewer@example.com" })], { cm1: [reply()] });
+    renderComments();
+    await waitFor(() => expect(screen.getByText(/why 30s and not 10s/i)).toBeInTheDocument());
+
+    expect(screen.queryByRole("button", { name: /^resolved$/i })).not.toBeInTheDocument();
+    // A missing control with no explanation is the worst way to answer
+    // "why can't I close this?".
+    expect(screen.getByText(/reviewer@example\.com closes this one/i)).toBeInTheDocument();
+  });
+
+  // A hidden button on an older coordinator is a better failure than one
+  // that 403s on click.
+  it("treats a coordinator that does not say as 'not yours'", async () => {
+    stubComments([comment({ canResolve: undefined })], { cm1: [reply()] });
+    renderComments();
+    await waitFor(() => expect(screen.getByText(/why 30s and not 10s/i)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^resolved$/i })).not.toBeInTheDocument();
+  });
+
+  // Escalating is not the same act: anyone reviewing can say this needs the
+  // developer, only the asker can say it is settled.
+  it("still offers Needs the developer to someone who cannot close it", async () => {
+    stubComments([comment({ canResolve: false })], { cm1: [reply()] });
+    renderComments();
+    await waitFor(() => expect(screen.getByRole("button", { name: /needs the developer/i })).toBeInTheDocument());
   });
 });

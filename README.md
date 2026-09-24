@@ -46,7 +46,12 @@ this dashboard writes. Open a design and you get a discussion panel:
 
 The agent also recommends whether a comment needs a human, and that
 recommendation is shown — but it never acts on it. The person who asked the
-question is the only one who can judge whether it was answered.
+question is the only one who can judge whether it was answered — which is also
+why **closing a comment belongs to whoever asked it**. Not the agent, which
+replies instead; and not the design's author, who would otherwise be marking
+their own homework. You'll only see a Resolve button on your own comments —
+plus, as an escape hatch for a reviewer who's since left, on any of them if
+you're a project admin. "Resolved by" then always names who actually decided.
 
 Commits made by an agent carry a `Twing-Design:` trailer linking back to the
 design here, so a reviewer reading `git log` can open it and comment. Those

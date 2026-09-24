@@ -204,9 +204,18 @@ function CommentCard({
                 Needs the developer
               </button>
             )}
-            <button type="button" className="comment-resolve" disabled={busy} onClick={() => void run(() => resolveComment(apiFetch, comment.id))}>
-              Resolved
-            </button>
+            {/* Only the reviewer who asked (or a project admin) may close a
+                comment -- the server decides and says so per comment. Anyone
+                else gets the reason rather than a button that 403s, because
+                "why can't I close this?" is a real question with a real
+                answer: it is not yours to close. */}
+            {comment.canResolve ? (
+              <button type="button" className="comment-resolve" disabled={busy} onClick={() => void run(() => resolveComment(apiFetch, comment.id))}>
+                Resolved
+              </button>
+            ) : (
+              <span className="comment-resolve-note">{comment.authorId} closes this one</span>
+            )}
           </div>
         </div>
       )}

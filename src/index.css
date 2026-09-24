@@ -2756,3 +2756,13 @@ li:first-child > .preview-row {
   color: var(--danger);
   font-size: 0.82rem;
 }
+
+/* Shown where the Resolved button would be, to someone who did not ask the
+   question. "Why can't I close this?" is a real question with a real answer,
+   and a missing control with no explanation is the worst way to answer it. */
+.comment-resolve-note {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-style: italic;
+  align-self: center;
+}

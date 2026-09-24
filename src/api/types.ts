@@ -395,6 +395,16 @@ export interface DesignComment {
   resolvedBy?: string;
   createdAt: number;
   updatedAt: number;
+  /** Whether *this viewer* may close this comment -- computed server-side
+   * from "the reviewer who asked, or a project admin".
+   *
+   * Sent per comment rather than left to the client to work out, for two
+   * reasons: the rule lives in one place and cannot drift, and a full-auth
+   * viewer has no reliable way to know their own identity here anyway -- it
+   * lives behind their token, not in the browser. Absent on a coordinator
+   * predating this, which reads as "not allowed" below; a hidden button on
+   * an old server is a better failure than one that 403s on click. */
+  canResolve?: boolean;
 }
 
 export interface DesignCommentReply {

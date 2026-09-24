@@ -10,6 +10,7 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { MemberPanel } from "../components/MemberPanel.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignComments } from "../components/DesignComments.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -586,17 +587,12 @@ function DesignDetailPane({
               {group.members
                 .filter((m) => m.rawPlanExcerpt)
                 .map((member) => (
-                  <div key={member.id}>
-                    {showRepoBadge && (
-                      <div className="repo-badge-row">
-                        <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                      </div>
-                    )}
+                  <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                     <details className="work-raw-plan">
                       <summary>View original plan text</summary>
                       <pre className="plan-text">{member.rawPlanExcerpt}</pre>
                     </details>
-                  </div>
+                  </MemberPanel>
                 ))}
             </div>
           )}
@@ -610,14 +606,9 @@ function DesignDetailPane({
               "this is a different, private space" better than proximity
               does. */}
           {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignComments design={member} readOnly={readOnly} />
-            </div>
+            </MemberPanel>
           ))}
         </div>
       )}
@@ -625,14 +616,9 @@ function DesignDetailPane({
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignChat design={member} readOnly={readOnly} />
-            </div>
+            </MemberPanel>
           ))}
         </div>
       )}
@@ -650,14 +636,9 @@ function DesignDetailPane({
             </div>
           )}
           {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <MemberChanges member={member} />
-            </div>
+            </MemberPanel>
           ))}
         </div>
       )}
@@ -670,16 +651,11 @@ function DesignDetailPane({
               ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
               : undefined;
             return (
-              <div key={member.id}>
-                {showRepoBadge && (
-                  <div className="repo-badge-row">
-                    <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                  </div>
-                )}
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                 <LatestCheckOutcome design={member} />
                 {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />
-              </div>
+              </MemberPanel>
             );
           })}
         </div>

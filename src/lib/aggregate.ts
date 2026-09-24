@@ -52,11 +52,24 @@ export interface DesignGroup {
  * `GET /v1/designs` returns it per project) -- a caller merging several
  * projects' results must re-sort before calling this, since interleaving
  * several already-sorted lists isn't itself sorted.
+ *
+ * The same design arriving twice collapses to one member, first occurrence
+ * winning. A group listing one design twice is never meaningful, and every
+ * caller merges lists that can repeat one: WorkView appends each `before`
+ * page onto the last (an overlapping cursor re-delivers a row), and both
+ * views merge a directly-fetched focus design into an already-loaded page.
+ * Downstream this is what stops a duplicate rendering as a second,
+ * identical member panel -- one that `MemberPanel`'s own label cannot tell
+ * apart from the first, because every field in it would match -- and what
+ * stops React seeing two children under one `key`.
  */
 export function dedupeDesignsByGroup(designs: DesignStatement[]): DesignGroup[] {
   const groups = new Map<string, DesignGroup>();
+  const seenIds = new Set<string>();
 
   for (const design of designs) {
+    if (seenIds.has(design.id)) continue;
+    seenIds.add(design.id);
     const key = design.groupId ?? design.id;
     let group = groups.get(key);
     if (!group) {

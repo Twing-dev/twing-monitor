@@ -84,6 +84,36 @@ describe("dedupeDesignsByGroup", () => {
     expect(dedupeDesignsByGroup([])).toEqual([]);
   });
 
+  // The same row delivered twice -- an overlapping `before` cursor, or a
+  // focus design merged into a page that already held it. Two members with
+  // one id render as two identical panels that no label can separate, so
+  // the collapse happens here rather than at each call site.
+  it("collapses the same design arriving twice into one member", () => {
+    const a = design({ id: "a", groupId: "grp", lastActivityAt: 100 });
+    const groups = dedupeDesignsByGroup([a, { ...a }]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members.map((m) => m.id)).toEqual(["a"]);
+  });
+
+  it("keeps the first occurrence, so a stale repeat cannot overwrite a fresher one", () => {
+    const fresh = design({ id: "a", groupId: "grp", lastActivityAt: 300, summary: "current" });
+    const stale = design({ id: "a", groupId: "grp", lastActivityAt: 100, summary: "outdated" });
+    const groups = dedupeDesignsByGroup([fresh, stale]); // newest-active-first
+
+    expect(groups[0].members).toHaveLength(1);
+    expect(groups[0].members[0].summary).toBe("current");
+    expect(groups[0].lastActivityAt).toBe(300);
+  });
+
+  it("still distinguishes two different designs that share a groupId", () => {
+    const a = design({ id: "a", groupId: "grp", lastActivityAt: 100 });
+    const b = design({ id: "b", groupId: "grp", lastActivityAt: 50 });
+    const groups = dedupeDesignsByGroup([a, b, { ...a }]);
+
+    expect(groups[0].members.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+
   it("sorts groups by their max member's lastActivityAt, descending", () => {
     const old = design({ id: "old", groupId: "old", lastActivityAt: 10 });
     const recentA = design({ id: "recent-a", groupId: "recent", lastActivityAt: 20 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
 import { fetchDesigns, fetchDesignById } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
@@ -7,6 +7,7 @@ import { fetchClaims } from "../api/claims.js";
 import type { ActivityEvent, AlignmentThread, DesignChange, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
+import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
@@ -145,6 +146,10 @@ export function WorkView({
   onQueryChange: (query: string) => void;
 }) {
   const apiFetch = useApiFetch();
+  // Phone layout (2026-09): one pane at a time instead of two side by side.
+  // False on every desktop render and in jsdom, so every branch below that
+  // reads it is inert there -- see `useIsPhone`.
+  const isPhone = useIsPhone();
   const [pill, setPill] = useState<FilterPill>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
@@ -270,13 +275,19 @@ export function WorkView({
   // Auto-select the first visible row whenever the current selection drops
   // out of view (filter/search changed, or nothing selected yet) -- keeps
   // the detail pane from ever showing a row the list no longer displays.
+  //
+  // Not on a phone, where the two panes are one screen: selecting a row
+  // *navigates* to it, so auto-selecting would open the first design over
+  // the list every time the view loads or the filter changes, and the list
+  // would be unreachable. Dropping a selection that has scrolled out of
+  // view still applies -- that is the second branch below.
   useEffect(() => {
     if (focusDesignId) return; // the focus effect below owns selection while a focus id is active
     if (visibleRows.some((r) => r.group.key === selectedKey)) return;
-    setSelectedKey(visibleRows[0]?.group.key ?? null);
+    setSelectedKey(isPhone ? null : (visibleRows[0]?.group.key ?? null));
     setDetailTab("overview");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRows.map((r) => r.group.key).join(","), focusDesignId]);
+  }, [visibleRows.map((r) => r.group.key).join(","), focusDesignId, isPhone]);
 
   useEffect(() => {
     if (!focusDesignId || focusState.status !== "ready" || !focusState.data) return;
@@ -285,7 +296,25 @@ export function WorkView({
     setDetailTab("overview");
   }, [focusDesignId, focusState]);
 
+  /**
+   * The list pane's scroll offset, carried across the phone's hide/show.
+   *
+   * On a phone the list is hidden with `display: none` when a design opens,
+   * which takes it out of the layout tree and resets its `scrollTop` -- so
+   * bounding the pane (index.css) stops the *page* collapsing but does not
+   * by itself bring you back to where you were. This remembers the offset;
+   * the layout effect below puts it back.
+   *
+   * A ref rather than state: nothing renders from it, and writing it must
+   * not cause a render in the middle of a scroll.
+   */
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const listScrollRef = useRef(0);
+
   function selectRow(key: string) {
+    // Recorded before the selection changes, while the list is still the
+    // visible pane and its offset is still real.
+    if (listRef.current) listScrollRef.current = listRef.current.scrollTop;
     setSelectedKey(key);
     setDetailTab("overview");
     if (focusDesignId) onClearFocus?.();
@@ -304,6 +333,15 @@ export function WorkView({
 
   const selected = rows.find((r) => r.group.key === selectedKey);
 
+  // Restored in a *layout* effect so it happens before the browser paints --
+  // in a plain effect the list appears at the top for a frame and then jumps,
+  // which reads as a bug even though it lands correctly. Declared after
+  // `selected`, which it reads.
+  useLayoutEffect(() => {
+    if (!isPhone || selected || !listRef.current) return;
+    listRef.current.scrollTop = listScrollRef.current;
+  }, [isPhone, selected]);
+
   const neededCounterpartIds = useMemo(() => counterpartIdsForOverlaps(selected ? selected.group.members : [], openThreads), [selected, openThreads]);
   const designsById = useOnDemandDesigns(apiFetch, neededCounterpartIds);
 
@@ -317,8 +355,12 @@ export function WorkView({
   }
 
   return (
-    <div className="work-body">
-      <div className="work-pane-list">
+    // `data-phone-pane` is what the phone stylesheet keys off to show one
+    // pane at a time. Always present, and ignored entirely above 640px --
+    // the desktop rules never mention it, so both panes stay visible
+    // whatever it says.
+    <div className="work-body" data-phone-pane={selected ? "detail" : "list"}>
+      <div className="work-pane-list" ref={listRef}>
         <div className="work-filter-row">
           {PILLS.map((p) => (
             <button key={p.value} type="button" className={`work-pill${pill === p.value ? " active" : ""}`} onClick={() => setPill(p.value)}>
@@ -385,6 +427,13 @@ export function WorkView({
       </div>
 
       <div className="work-pane-detail">
+        {/* Rendered unconditionally and hidden by CSS on desktop, rather
+            than gated on `isPhone`: it keeps the desktop render tree
+            identical bar one hidden element, and it means the control
+            exists the instant a rotation makes it relevant. */}
+        <button type="button" className="work-back" onClick={() => setSelectedKey(null)}>
+          ← All designs
+        </button>
         {!selected ? (
           <p className="empty-state">Select a design to see its details.</p>
         ) : (

@@ -138,7 +138,11 @@ export function RepoDetailLayout({
   const single = projects.length === 1 ? projects[0] : undefined;
 
   return (
-    <div className="work-shell">
+    /* `work-shell-home` bounds the shell to the viewport on phones so the
+       list and detail panes scroll inside themselves. Only the home tab
+       wants that: the secondary tabs render into `.content`, which scrolls
+       the document instead. */
+    <div className={isHome ? "work-shell work-shell-home" : "work-shell"}>
       <div className="work-topbar">
         <button type="button" className="work-brand" onClick={goHome} aria-label="twing monitor, go to designs">
           <span className="dot" aria-hidden="true" />

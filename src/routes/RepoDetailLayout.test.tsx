@@ -169,6 +169,26 @@ describe("RepoDetailLayout", () => {
       expect(screen.queryByRole("button", { name: "← All repos" })).not.toBeInTheDocument();
     });
 
+    // The phone stylesheet bounds `.work-shell-home` to the viewport so
+    // WorkView's two panes scroll inside themselves. The secondary tabs
+    // render into `.content`, which has no overflow of its own, so wearing
+    // that modifier clipped them at one viewport with nothing to scroll --
+    // `overflow: hidden` still answers a programmatic scrollTop, so the
+    // content was present but unreachable by any gesture. jsdom evaluates
+    // no CSS, so this pins the class the stylesheet keys off instead.
+    it("wears the bounded-shell modifier on the home tab only", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+      const { container } = renderLayout();
+
+      const shell = () => container.querySelector(".work-shell")!;
+      await screen.findByRole("button", { name: "twing monitor, go to designs" });
+      expect(shell().classList.contains("work-shell-home")).toBe(true);
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "Team" }));
+      await screen.findByRole("heading", { name: "Team" });
+      expect(shell().classList.contains("work-shell-home")).toBe(false);
+    });
+
     it("still shows the back link when onBack is given, readOnly or not", async () => {
       vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
       renderLayout();

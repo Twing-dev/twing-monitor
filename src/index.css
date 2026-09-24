@@ -2766,3 +2766,245 @@ li:first-child > .preview-row {
   font-style: italic;
   align-self: center;
 }
+
+/* ---------------------------------------------------------------------------
+   Phone layout (2026-09)
+
+   Everything below is inside one `max-width: 640px` block, appended after
+   every existing rule and editing none of them. A desktop browser never
+   evaluates it, which is how "the desktop view does not change" is a
+   property of the file rather than a promise about it. 640px must stay in
+   step with `PHONE_MAX_WIDTH` in src/lib/breakpoints.ts -- the hook decides
+   selection, this decides visibility, and they are two halves of one
+   behaviour.
+
+   The shell needed roughly 690px for its top bar alone against a 390px
+   viewport, so the whole page scrolled sideways. The fixes, in order of how
+   much they mattered: wrap the top bar, let the tab strips scroll inside
+   themselves, show one pane at a time, and stop spending 64px of 390 on
+   side padding.
+   --------------------------------------------------------------------------- */
+
+/* The back control belongs to the phone layout only, so it is hidden by
+   default and switched on inside the query below.
+ *
+ * Declared *before* that block deliberately. Both rules are one class
+ * selector, so specificity cannot break the tie and source order decides:
+ * written afterwards, this `display: none` would win even on a phone and
+ * the back button would never appear -- leaving no way out of a design
+ * once you opened one. */
+.work-back {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  /* --- Top bar: two rows instead of one overflowing one --- */
+
+  .work-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  /* Search drops to its own full-width row. It is the one control that
+     genuinely needs the width, and `min-width: 160px` on a shared row is
+     what pushed the bar past the viewport. */
+  .work-search {
+    flex-basis: 100%;
+    max-width: none;
+    min-width: 0;
+    order: 3;
+  }
+
+  .work-topbar-spacer {
+    display: none;
+  }
+
+  .work-repo-switcher {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .work-repo-switcher span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* --- Tab strips scroll inside themselves, rather than widening the page --- */
+
+  /* The detail tabs and the conflict-stage chips genuinely overflow -- five
+     tabs with counts need ~550px -- so they swipe sideways inside
+     themselves rather than widening the page. */
+  .work-tabs,
+  .filter-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* A strip you can swipe, not a scrollbar you have to aim at. */
+    scroll-snap-type: x proximity;
+  }
+
+  .work-tabs::-webkit-scrollbar,
+  .filter-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .work-tab,
+  .filter-chip {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  /* `.work-filter-row` is deliberately NOT in that group. It already wrapped
+     (`flex-wrap: wrap` in its base rule) and was right to: it is four short
+     pills, not an open-ended strip, and they fit two-up on a phone. Making
+     it scroll pushed "All" -- the default filter -- off the right edge, and
+     stacked a 44px tap target inside a 10px-padded row so the whole thing
+     sat squeezed between the search bar and the first section heading.
+     Wrapping shows all four at once and needs no discovery. */
+  .work-filter-row {
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .work-pill {
+    /* Padding sized so the 44px tap target is the pill's natural height
+       rather than a short pill stretched to fill it. */
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    min-height: 44px;
+  }
+
+  /* --- One pane at a time --- */
+
+  /* The shell is `min-height: 100vh` by default, so it grows with its
+     content: nothing constrains the panes, their `overflow-y: auto` never
+     engages, and the *document* scrolls instead. Hiding a pane then
+     collapses the page and the browser clamps scrollTop, which is how
+     coming back from a short design used to land you at the top of the
+     list.
+   *
+   * A definite height fixes the cause -- each pane scrolls inside itself,
+   * exactly as it already does on desktop, and the page itself does not
+   * scroll at all. `dvh` because mobile browser chrome resizes the
+   * viewport and `vh` would leave a strip cut off behind it; the `vh` line
+   * first is the fallback for browsers without `dvh`.
+   *
+   * Scoped to `-home`, the modifier RepoDetailLayout sets only while
+   * WorkView is the tab. The secondary tabs (Activity, Members,
+   * Constraints, Conflicts, Hotspots) render into `.content`, which has no
+   * overflow of its own, so bounding the shell for them clipped the page
+   * at one viewport with no way to scroll -- `overflow: hidden` still
+   * answers a programmatic scrollTop, so the content was there but
+   * unreachable by any gesture. They keep the default `min-height: 100vh`
+   * and scroll the document, exactly as they do on desktop. */
+  .work-shell-home {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .work-body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .work-pane-list,
+  .work-pane-detail {
+    width: 100%;
+    max-height: none;
+    border-right: none;
+    /* `min-height: 0` is what actually lets these scroll: a flex item's
+       default `min-height: auto` refuses to shrink below its content, so
+       without it the pane grows and the overflow never engages however
+       bounded the shell is. */
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* `data-phone-pane` follows the selection (WorkView). Hidden rather than
+     unmounted, so list scroll position survives a trip into a design and
+     back -- losing your place in a long list on every tap is the thing that
+     makes a phone list unusable. */
+  .work-body[data-phone-pane="detail"] .work-pane-list {
+    display: none;
+  }
+
+  .work-body[data-phone-pane="list"] .work-pane-detail {
+    display: none;
+  }
+
+  .work-back {
+    display: block;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    padding: 14px 0 6px;
+    cursor: pointer;
+  }
+
+  /* --- Give the content the width back --- */
+
+  .content,
+  .work-pane-detail,
+  .work-page-header {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .repo-list-view {
+    padding: 24px 16px;
+  }
+
+  /* --- Tap targets. 32px is below both platforms' minimum. --- */
+
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .work-tab,
+  .filter-chip {
+    min-height: 44px;
+  }
+
+  .work-row {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  /* --- Long identifiers wrap instead of widening the page --- */
+
+  .preview-meta {
+    white-space: normal;
+    flex-wrap: wrap;
+  }
+
+  .detail-kv {
+    /* `max-content 1fr` lets a long term set the column width; on a phone
+       the terms go above their values instead. */
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+
+  .detail-kv dd {
+    margin: 0 0 8px;
+  }
+
+  .work-detail-title,
+  .card-summary,
+  code {
+    overflow-wrap: anywhere;
+  }
+
+  .work-detail-title {
+    white-space: normal;
+  }
+}

@@ -189,7 +189,7 @@ export function LoginScreen() {
         </form>
         <p className="login-hint">
           Continue with GitHub signs you in as the same identity your CLI uses. A token is only needed if you don\'t use GitHub -- run{" "}
-          <code>twing init</code> in your repo, then <code>twing servers --show-token</code> to get one.
+          <code>$HOME/.twing/bin/twing servers --show-token</code> to get one after twing has set up your repo.
         </p>
         {/* Public "observe twing getting built" demo (2026-08-28): a plain
             link, not a button/action -- /observe is its own unauthenticated

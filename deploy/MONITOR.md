@@ -19,14 +19,14 @@ curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-monitor/main/deploy
   --coordinator https://twing.example.com
 ```
 
-The coordinator must allow the dashboard origin in CORS. Set this in the
-coordinator's `server.env`, then recreate its server container:
+The coordinator must allow the dashboard origin in CORS. The supported server
+installer updates that setting for you:
 
 ```sh
-TWING_SERVE_CORS_ORIGINS=https://monitor.example.com
+curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-cli/main/deploy/install-server.sh | sh -s -- upgrade \
+  --monitor-url https://monitor.example.com
 ```
 
-If the coordinator already has origins configured, use a comma-separated list.
 Without this setting, browsers block the dashboard's `/v1/*` API calls even
 though both URLs are reachable.
 
@@ -38,10 +38,15 @@ curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-monitor/main/deploy
   --coordinator http://10.0.0.25:8787
 ```
 
-Set `TWING_SERVE_CORS_ORIGINS=http://<monitor-host>:8080`, replacing
-`<monitor-host>` with the private DNS name or IP users browse to. HTTP exposes
-personal access tokens and API traffic; do not publish this mode to the
-internet.
+Configure the matching origin with the server installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-cli/main/deploy/install-server.sh | sh -s -- upgrade \
+  --monitor-url http://<monitor-host>:8080
+```
+
+HTTP exposes personal access tokens and API traffic; do not publish this mode
+to the internet.
 
 Use a custom installation directory when required:
 

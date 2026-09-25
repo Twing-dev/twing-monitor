@@ -11,6 +11,7 @@ Usage:
   twing-monitor upgrade [options]
   twing-monitor status [--dir <path>]
   twing-monitor stop [--dir <path>]
+  twing-monitor uninstall [--dir <path>]
 
 Install options:
   --domain <domain>          Public HTTPS domain for the dashboard
@@ -22,6 +23,9 @@ Install options:
   --bind <address>           Direct HTTP bind address (default: 0.0.0.0)
 
 Upgrade options:
+  --dir <path>               Existing installation directory
+
+Uninstall options:
   --dir <path>               Existing installation directory
 
 The dashboard is built from the current main branch during install and upgrade.
@@ -58,6 +62,14 @@ TWING_HTTP_PORT=$http_port
 TWING_COMPOSE_PROJECT=$project
 EOF
   mv "$tmp" "$file"
+}
+
+write_install_marker() {
+  local file="$1" project="$2"
+  cat >"$file" <<EOF
+TWING_MONITOR_INSTALLATION=1
+TWING_COMPOSE_PROJECT=$project
+EOF
 }
 
 write_compose_file() {
@@ -160,6 +172,14 @@ install_monitor() {
   [[ "$bind" != *$'\n'* && "$bind" != *$'\r'* ]] || die "invalid bind address"
   install_dir="$(absolute_path "$install_dir")"
   [[ ! -e "$install_dir/.env" ]] || die "$install_dir already contains a monitor installation; use upgrade"
+  if [[ -e "$install_dir" ]]; then
+    [[ -d "$install_dir" && ! -L "$install_dir" ]] || die "$install_dir must be a directory"
+    local entry
+    for entry in "$install_dir"/* "$install_dir"/.[!.]* "$install_dir"/..?*; do
+      [[ -e "$entry" || -L "$entry" ]] || continue
+      [[ "$entry" == "$install_dir/twing-monitor" && -f "$entry" && ! -L "$entry" ]] || die "$install_dir is not empty"
+    done
+  fi
 
   local stamp image project
   stamp="$(date -u +%Y%m%d%H%M%S)"
@@ -170,6 +190,7 @@ install_monitor() {
   write_compose_file "$install_dir/compose.yaml" "$transport" "$bind" "$port" "$http_port"
   [[ "$transport" == "https" ]] && write_caddyfile "$install_dir/Caddyfile" "$domain"
   write_stack_env "$install_dir/.env" "$image" "$transport" "$domain" "$coordinator" "$bind" "$port" "$http_port" "$project"
+  write_install_marker "$install_dir/.twing-monitor-installation" "$project"
   compose up -d
   echo "twing-monitor: installed successfully"
   show_cors_guidance "$transport" "$domain" "$port"
@@ -226,6 +247,31 @@ simple_dir_option() {
   [[ -f "$install_dir/.env" ]] || die "no monitor installation at $install_dir"
 }
 
+validate_owned_installation() {
+  [[ -d "$install_dir" && ! -L "$install_dir" ]] || die "no monitor installation at $install_dir"
+  install_dir="$(cd -P "$install_dir" && pwd)"
+  case "$install_dir" in
+    /|"$HOME"|"$HOME/.twing") die "refusing to remove unsafe installation directory $install_dir" ;;
+  esac
+
+  local env_file="$install_dir/.env" marker="$install_dir/.twing-monitor-installation"
+  [[ -f "$env_file" && ! -L "$env_file" && -f "$install_dir/compose.yaml" && ! -L "$install_dir/compose.yaml" ]] || die "no monitor installation at $install_dir"
+  [[ -f "$marker" && ! -L "$marker" ]] || die "$install_dir is not a monitor installation created by this installer"
+  [[ "$(read_setting "$marker" TWING_MONITOR_INSTALLATION)" == "1" ]] || die "$install_dir is not a monitor installation created by this installer"
+  local project marker_project
+  project="$(read_setting "$env_file" TWING_COMPOSE_PROJECT)"
+  marker_project="$(read_setting "$marker" TWING_COMPOSE_PROJECT)"
+  [[ -n "$project" && "$project" == "$marker_project" ]] || die "$install_dir has an invalid monitor installation marker"
+}
+
+uninstall_monitor() {
+  simple_dir_option "$@"
+  validate_owned_installation
+  compose down --volumes --remove-orphans
+  rm -rf -- "$install_dir"
+  echo "twing-monitor: uninstalled $install_dir"
+}
+
 command -v docker >/dev/null 2>&1 || die "docker is required"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
 command="${1:-}"
@@ -236,6 +282,7 @@ case "$command" in
   upgrade) upgrade_monitor "$@" ;;
   status) simple_dir_option "$@"; compose ps ;;
   stop) simple_dir_option "$@"; compose down ;;
+  uninstall) uninstall_monitor "$@" ;;
   -h|--help|help) usage ;;
   *) die "unknown command: $command" ;;
 esac

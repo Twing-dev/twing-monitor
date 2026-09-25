@@ -65,3 +65,22 @@ curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-monitor/main/deploy
 
 Add `--dir /srv/twing-monitor` to every lifecycle command for a custom
 installation.
+
+## Uninstall
+
+Uninstall stops the generated Compose stack, removes its volumes and network,
+then removes only the monitor installation directory. It refuses directories
+without the installation marker created by this installer.
+Installations created before this marker was introduced are intentionally not
+deleted automatically.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-monitor/main/deploy/install-monitor.sh | sh -s -- uninstall
+```
+
+For a custom installation directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Twing-dev/twing-monitor/main/deploy/install-monitor.sh | sh -s -- uninstall \
+  --dir /srv/twing-monitor
+```

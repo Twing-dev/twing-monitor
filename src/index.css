@@ -882,6 +882,35 @@ button {
   overflow: hidden;
 }
 
+/* The pane's one-line answer to "what do I do about this". Only rendered
+   when there's something to say (see `designVerdict`), so it can afford to
+   be loud -- a bar that's present on every design would stop being read on
+   the ones that matter. Text stays on `--text` rather than the tone
+   colour: this is a full sentence at body size, not a chip. */
+.work-verdict {
+  border-left: 3px solid;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.work-verdict b {
+  font-weight: 800;
+}
+
+.work-verdict.critical {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.work-verdict.warn {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+}
+
 .work-detail-meta {
   display: flex;
   align-items: center;

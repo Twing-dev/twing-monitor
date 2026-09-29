@@ -148,6 +148,30 @@ describe("WorkView (desktop baseline)", () => {
     });
   });
 
+  // The pane used to state a design's status, its section and its conflict
+  // count without ever saying what any of it meant you should do.
+  describe("detail pane verdict", () => {
+    it("leads with what a flagged design needs, on every tab", async () => {
+      stubApi([design({ status: "flagged" })]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
+
+      const pane = detailPane(container);
+      expect(within(pane).getByText(/needs a decision/i)).toBeInTheDocument();
+
+      // Sits above the tab strip, so switching tabs doesn't hide it.
+      await userEvent.click(within(pane).getByRole("button", { name: "Activity" }));
+      await waitFor(() => expect(within(detailPane(container)).getByText(/needs a decision/i)).toBeInTheDocument());
+    });
+
+    it("stays silent on a design with nothing wrong", async () => {
+      stubApi([design()]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
+      expect(detailPane(container).querySelector(".work-verdict")).not.toBeInTheDocument();
+    });
+  });
+
   it("shows both panes at once", async () => {
     stubApi([design()]);
     const { container } = renderWork();

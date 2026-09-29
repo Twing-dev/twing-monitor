@@ -18,6 +18,7 @@ import { relativeTime } from "../lib/time.js";
 import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
+import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
@@ -125,6 +126,46 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
   if (primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap) return "attention";
   if (primary.status === "closed" || primary.status === "superseded" || primary.status === "expired") return "resolved";
   return "progress";
+}
+
+/**
+ * The one-line answer to "so what do I do about this design", for the top
+ * of the detail pane.
+ *
+ * Reads the same three inputs as `sectionFor`, in the same order, on
+ * purpose: a pane that said "nothing to do" while the list had filed the
+ * row under Conflicts would be worse than the silence it replaces. If it
+ * renders, the row is in the attention section, and vice versa.
+ *
+ * Labels and explanations come from `conflictKindInfo` rather than being
+ * written again here -- that module exists specifically because four
+ * copies of this vocabulary had already drifted apart (see its doc
+ * comment), and a banner is not the place to start a fifth.
+ *
+ * Returns null for a design with nothing wrong. A "nothing to do" note on
+ * every healthy design would train people to skip the banner on the ones
+ * where it says something.
+ */
+function designVerdict(
+  primary: DesignStatement,
+  flags: { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean },
+): { tone: "critical" | "warn"; label: string; text: string } | null {
+  // `flagged` is the coordinator's own block. It can come from more than
+  // one bucket and the status alone doesn't say which, so this points at
+  // the Conflict tab -- which fetches the verdict and names it -- instead
+  // of guessing a bucket here.
+  if (primary.status === "flagged") {
+    return { tone: "critical", label: "Needs a decision.", text: "This design is flagged and won't clear until someone resolves it. The Conflict tab has the specifics." };
+  }
+  if (flags.anySemanticOverlap) {
+    const info = conflictKindInfo("llm_divergence");
+    return { tone: "critical", label: `${info.label}.`, text: `${info.explanation} Worth settling before more of this gets built.` };
+  }
+  if (flags.anyUnresolvedWarning) {
+    const info = conflictKindInfo("file_overlap");
+    return { tone: "warn", label: `${info.label}.`, text: info.explanation };
+  }
+  return null;
 }
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
@@ -547,6 +588,7 @@ function DesignDetailPane({
   const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary);
   const restPoints = points.slice(1);
   const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
+  const verdict = designVerdict(primary, flags);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -580,6 +622,15 @@ function DesignDetailPane({
           <span className={`status-badge tone-neutral`}>{primary.status}</span>
         </div>
       </div>
+
+      {/* Above the tabs rather than inside Overview: the thing this design
+          needs from you doesn't stop being true because you clicked
+          Activity. */}
+      {verdict && (
+        <div className={`work-verdict ${verdict.tone}`} role="status">
+          <b>{verdict.label}</b> {verdict.text}
+        </div>
+      )}
 
       <div className="work-tabs">
         <button type="button" className={`work-tab${tab === "overview" ? " active" : ""}`} onClick={() => onTabChange("overview")}>

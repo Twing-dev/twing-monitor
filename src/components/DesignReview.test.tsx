@@ -5,6 +5,7 @@ import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { DesignReview, HighlightableText } from "./DesignReview.js";
 import type { DesignComment, DesignCommentReply, DesignStatement } from "../api/types.js";
+import { bulletOffsets } from "../lib/reviewAnchors.js";
 
 const design: DesignStatement = {
   id: "design-1",
@@ -157,6 +158,48 @@ describe("DesignReview", () => {
       body: "per host or global?",
       anchor: { field: "summary", quote: "retry budget", prefix: "Add a ", suffix: " to the HTTP client, capped at 30s." },
     });
+  });
+
+  // Found in review: context used to come from the bullet alone, so selecting
+  // a whole bullet that appears twice sent empty context and the highlight
+  // settled on the first occurrence, whichever one the reviewer picked.
+  it("anchors a repeated bullet to the one the reviewer selected", async () => {
+    const user = userEvent.setup();
+    const repeated = { ...design, summary: "Retry on timeout. Then log it. Retry on timeout." };
+    const bullets = ["Retry on timeout.", "Then log it.", "Retry on timeout."];
+    const offsets = bulletOffsets(repeated.summary, bullets);
+    const renderBullets = () => (
+      <ServerProvider>
+        <DesignReview designs={[repeated]}>
+          <ul>
+            {bullets.map((b, i) => (
+              <li key={i} data-testid={`bullet-${i}`}>
+                <HighlightableText designId={repeated.id} field="summary" text={b} offset={offsets[i]} />
+              </li>
+            ))}
+          </ul>
+        </DesignReview>
+      </ServerProvider>
+    );
+
+    const calls = stubReview([]);
+    saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+    const { unmount } = render(renderBullets());
+    await screen.findByText(/No comments yet/);
+    selectText(screen.getByTestId("bullet-2"), "Retry on timeout.");
+    await user.click(await screen.findByRole("button", { name: "Comment" }));
+    await user.type(screen.getByLabelText("Your comment"), "the second one");
+    await user.click(screen.getByRole("button", { name: "Comment" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const { anchor } = JSON.parse(calls.find((c) => c.method === "POST")!.body!);
+    expect(anchor).toEqual({ field: "summary", quote: "Retry on timeout.", prefix: "Retry on timeout. Then log it. ", suffix: "" });
+    unmount();
+
+    // Rendered back, the highlight lands on the bullet that was selected.
+    stubReview([comment({ anchor })]);
+    render(renderBullets());
+    await waitFor(() => expect(screen.getByTestId("bullet-2").querySelector("mark")).not.toBeNull());
+    expect(screen.getByTestId("bullet-0").querySelector("mark")).toBeNull();
   });
 
   it("offers nothing for a selection outside the design's text", async () => {

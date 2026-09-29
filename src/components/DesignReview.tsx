@@ -38,7 +38,7 @@ import { useApiFetch } from "../api/client.js";
 import { fetchDesignComments, postCommentReply, postDesignComment, resolveComment } from "../api/comments.js";
 import type { CommentAnchor, CommentAnchorField, DesignComment, DesignCommentReply, DesignStatement } from "../api/types.js";
 import { relativeTime } from "../lib/time.js";
-import { blockKey, CONTEXT_CHARS, locateComment, segmentText, type LocatedComment, type TextRange } from "../lib/reviewAnchors.js";
+import { anchorSourceText, blockKey, CONTEXT_CHARS, locateComment, segmentText, type LocatedComment, type TextRange } from "../lib/reviewAnchors.js";
 
 /**
  * How often an open review refreshes. The thing being waited on is a person
@@ -104,7 +104,7 @@ export function HighlightableText({ designId, field, changeId, text, offset = 0 
   const ranges = offset < 0 ? [] : (ctx.rangesByBlock.get(blockKey(designId, field, changeId)) ?? []);
   const segments = segmentText(text, Math.max(0, offset), ranges);
   return (
-    <span className="review-block" data-review-block="" data-design-id={designId} data-field={field} data-change-id={changeId ?? ""}>
+    <span className="review-block" data-review-block="" data-design-id={designId} data-field={field} data-change-id={changeId ?? ""} data-offset={offset}>
       {segments.map((segment, i) =>
         segment.commentIds.length === 0 ? (
           segment.text
@@ -141,8 +141,16 @@ function closestBlock(node: Node | null): HTMLElement | null {
  * not something that can be commented on: empty, outside the design's text,
  * or spanning two runs (a quote has to come from one field to be found
  * again).
+ *
+ * The context either side is taken from the field's *whole* text, not from
+ * the run the selection is in. The overview renders the summary as bullets,
+ * and a quote is later looked up across the whole summary: a reviewer who
+ * selects an entire bullet that appears twice would otherwise send empty
+ * context, and the lookup would settle on the first occurrence whichever one
+ * they picked. Found in review. `sourceFor` returns the field's text; a run
+ * with no known place in it (offset < 0) falls back to its own text.
  */
-function readSelection(scope: HTMLElement): PendingSelection | null {
+function readSelection(scope: HTMLElement, sourceFor: (designId: string, field: CommentAnchorField, changeId?: string) => string | undefined): PendingSelection | null {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
@@ -156,15 +164,24 @@ function readSelection(scope: HTMLElement): PendingSelection | null {
   const quote = raw.trim();
   if (!quote) return null;
 
-  const text = block.textContent ?? "";
-  const start = before.toString().length + (raw.length - raw.trimStart().length);
-  const end = start + quote.length;
+  const designId = block.dataset.designId ?? "";
   const field = block.dataset.field as CommentAnchorField;
   const changeId = block.dataset.changeId || undefined;
+  const blockText = block.textContent ?? "";
+  const localStart = before.toString().length + (raw.length - raw.trimStart().length);
+
+  // Place the run inside its field's full text when it verifiably sits
+  // there; otherwise its own text is the best context available.
+  const offset = Number(block.dataset.offset ?? "0");
+  const source = sourceFor(designId, field, changeId);
+  const placed = source !== undefined && offset >= 0 && source.slice(offset, offset + blockText.length) === blockText;
+  const text = placed ? source : blockText;
+  const start = (placed ? offset : 0) + localStart;
+  const end = start + quote.length;
   const rect = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : undefined;
 
   return {
-    designId: block.dataset.designId ?? "",
+    designId,
     anchor: {
       field,
       ...(field === "change" && changeId ? { changeId } : {}),
@@ -260,8 +277,13 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
   // the button appears once the reviewer has finished dragging.
   const onSelectionDone = useCallback(() => {
     if (readOnly || !scopeRef.current) return;
-    setPending(readSelection(scopeRef.current));
-  }, [readOnly]);
+    setPending(
+      readSelection(scopeRef.current, (designId, field, changeId) => {
+        const design = designsById.get(designId);
+        return design ? anchorSourceText(design, field, changeId) : undefined;
+      }),
+    );
+  }, [readOnly, designsById]);
 
   // A click anywhere that is not the button itself dismisses it.
   useEffect(() => {

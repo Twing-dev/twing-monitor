@@ -743,8 +743,27 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-size: 0.7rem;
   color: var(--text-dim);
+}
+
+/* The developer id is the only elastic thing in the row -- it's a raw
+   address (often a ~50-char GitHub noreply one), so without this it sets
+   the row's intrinsic width and shoves the timestamp onto a second line
+   and the severity badge off the pane edge. Everything else in the meta
+   row is short and fixed, so it all refuses to shrink and this absorbs
+   the overflow instead. */
+.work-row-meta .dev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-row-meta .sep {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .work-row-meta .sep::before {
@@ -774,11 +793,13 @@ button {
 }
 
 .work-badge {
+  flex-shrink: 0;
   font-size: 0.62rem;
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 100px;
   margin-left: auto;
+  white-space: nowrap;
 }
 
 .work-badge.conflict {

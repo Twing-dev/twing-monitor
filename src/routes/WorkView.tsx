@@ -405,7 +405,7 @@ export function WorkView({
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
-                        <span>{primary.developerId}</span>
+                        <span className="dev">{primary.developerId}</span>
                         <span className="sep">{relativeTime(primary.lastActivityAt)}</span>
                         {primary.status === "flagged" && <span className="work-badge conflict">flagged</span>}
                         {primary.status !== "flagged" && flags.anySemanticOverlap && <span className="work-badge conflict">overlap</span>}

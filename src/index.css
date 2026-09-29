@@ -686,17 +686,35 @@ button {
   color: var(--danger);
 }
 
-.work-section-heading .n {
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 1px 7px;
-  font-size: 0.66rem;
+/* Reveals the rest of an already-loaded section from inside its own
+   heading. Sits opposite the label so the three sections' expanders line
+   up down one edge instead of interrupting the list as three full-width
+   buttons -- which, alongside the server-side "Load older", put four
+   near-identical controls on one screen. */
+.section-expand {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.section-expand:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* Reveals the rest of an already-loaded section (Conflicts/In progress/
    Resolved each cap at SECTION_PAGE_SIZE) -- distinct from .load-more-button,
-   which fetches an older page from the server. */
+   which fetches an older page from the server. Only rendered under an
+   active filter pill now, where there's no section heading to host the
+   expander above. */
 .section-load-more-button {
   display: block;
   width: calc(100% - 28px);

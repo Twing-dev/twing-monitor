@@ -394,9 +394,19 @@ export function WorkView({
               const remaining = inSection.length - shown.length;
               return (
                 <div key={section}>
+                  {/* No count here: the filter pill directly above this
+                      carries the same number for the same set, and the two
+                      sat close enough to read as one control repeated. The
+                      heading earns its place as a scroll landmark, so it
+                      keeps the label and hosts the expander. */}
                   {pill === "all" && (
                     <div className={`work-section-heading${section === "attention" ? " attention" : ""}`}>
-                      {SECTION_HEADING[section]} <span className="n">{inSection.length}</span>
+                      {SECTION_HEADING[section]}
+                      {remaining > 0 && (
+                        <button type="button" className="section-expand" onClick={() => setExpandedSections((prev) => ({ ...prev, [section]: true }))}>
+                          +{remaining} more
+                        </button>
+                      )}
                     </div>
                   )}
                   {shown.map(({ group, primary, flags, section: rowSection }) => (
@@ -418,7 +428,12 @@ export function WorkView({
                       </div>
                     </button>
                   ))}
-                  {remaining > 0 && (
+                  {/* Only when a pill is active, since then there's no
+                      heading to hang the expander off -- and only one
+                      section is on screen, so it's one button rather than
+                      the three that used to stack up in the "all" view
+                      alongside the server-side "Load older". */}
+                  {pill !== "all" && remaining > 0 && (
                     <button
                       type="button"
                       className="section-load-more-button"

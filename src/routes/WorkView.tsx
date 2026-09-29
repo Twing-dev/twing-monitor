@@ -10,6 +10,7 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { MemberPanel } from "../components/MemberPanel.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignComments } from "../components/DesignComments.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -523,6 +524,9 @@ function DesignDetailPane({
   // already uses, just counted per member instead of collapsed to a
   // boolean.
   const conflictMemberCount = group.members.filter((m) => m.status === "flagged" || findSemanticOverlapThread(openThreads, m.id) || flags.anyUnresolvedWarning).length;
+  /** Every member's declared changes, for the group-level stat tiles. A group
+   * of one yields exactly `primary.changes`, so the common case is unchanged. */
+  const groupChanges = group.members.flatMap((m) => m.changes ?? []);
 
   const activityState = useAsyncData(
     () =>
@@ -611,9 +615,18 @@ function DesignDetailPane({
               it's doing -> what it actually changes -> what people asked about
               it, which is the order a reviewer works in. */}
           <div className="work-detail-changes">
-            {hasStructuredChanges(primary.changes) && (
+            {/* Says up front that this row is several linked designs, so the
+                stacked panels below read as a list of designs rather than as
+                one design's content repeated. Absent for a group of one --
+                the overwhelmingly common case, unchanged. */}
+            {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
+            {/* Counted across every member, not just `primary`: with one
+                labelled panel per design below, tiles describing only the
+                first would be a headline number for a fraction of what
+                follows. Identical to `primary.changes` for a group of one. */}
+            {hasStructuredChanges(groupChanges) && (
               <div className="work-change-grid">
-                {changeTiles(primary.changes).map((t) => (
+                {changeTiles(groupChanges).map((t) => (
                   <div key={t.label} className="work-change-stat">
                     <div className="n">{t.n}</div>
                     <div className="l">{t.label}</div>
@@ -621,50 +634,32 @@ function DesignDetailPane({
                 ))}
               </div>
             )}
+
+            {/* One panel per member, holding *both* that design's declared
+                changes and its discussion. Deliberately a single loop rather
+                than the two it replaced: as two, every design's name printed
+                twice -- once over the changes stack, once over the comments
+                stack -- and a design's own discussion sat several screens
+                away from the changes it was about. Comments, moved out of
+                their own tab (2026-09), belong with the design they discuss;
+                Ask stays a separate tab, since a private per-reviewer chat
+                reads oddly stacked under a public thread. */}
             {group.members.map((member) => (
-              <div key={member.id}>
-                {showRepoBadge && (
-                  <div className="repo-badge-row">
-                    <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                  </div>
-                )}
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                 <MemberChanges member={member} />
-              </div>
+                <DesignComments design={member} readOnly={readOnly} />
+              </MemberPanel>
             ))}
           </div>
-
-          {/* Comments, moved out of its own tab (2026-09) -- always visible
-              at the bottom of Overview instead of requiring a click. Public
-              discussion belongs with the design it's about. Ask stays a
-              separate tab, not inlined alongside it -- a private,
-              per-reviewer chat reads oddly stacked directly under a
-              public discussion thread, and a distinct tab reinforces
-              "this is a different, private space" better than proximity
-              does. */}
-          {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
-              <DesignComments design={member} readOnly={readOnly} />
-            </div>
-          ))}
         </div>
       )}
 
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignChat design={member} readOnly={readOnly} />
-            </div>
+            </MemberPanel>
           ))}
         </div>
       )}
@@ -677,16 +672,11 @@ function DesignDetailPane({
               ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
               : undefined;
             return (
-              <div key={member.id}>
-                {showRepoBadge && (
-                  <div className="repo-badge-row">
-                    <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                  </div>
-                )}
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                 <LatestCheckOutcome design={member} />
                 {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />
-              </div>
+              </MemberPanel>
             );
           })}
         </div>

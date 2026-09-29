@@ -928,6 +928,55 @@ button {
   color: var(--text);
 }
 
+/* "4 linked designs" -- only rendered for a group with more than one member,
+   so the stacked panels below read as a list of separate designs rather than
+   as one design's content repeated. */
+.work-group-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+/* One member's panel inside a grouped (groupId-linked) design's body. The
+   separator draws above every panel after the first, so two stacked panels
+   read as two designs instead of the same one rendered twice. Absent entirely
+   for a group of one -- MemberPanel returns its children bare there. */
+.member-panel + .member-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+/* The member's own summary -- the field that actually distinguishes siblings,
+   since a linked chain is usually one developer's consecutive work and the
+   metadata line below barely varies. Weighted like `.design-comments h3` so it
+   reads as the panel's heading rather than a caption. */
+.member-panel-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.4;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.member-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.member-panel-heading .sep::before {
+  content: "·";
+  margin-right: 7px;
+  color: var(--border);
+}
+
 .work-change-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

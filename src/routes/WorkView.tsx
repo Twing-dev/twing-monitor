@@ -538,6 +538,15 @@ function DesignDetailPane({
   const primary = group.members[0];
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
+  // The header takes the design's own first point, and the summary below
+  // takes what's left. Previously both started from the same sentence: the
+  // header ellipsised it, then the first bullet printed it again in full
+  // directly underneath -- and a design with nothing to split printed its
+  // summary verbatim twice. `deriveTitle` still covers that unsplittable
+  // case, where it's the only thing that can shorten the text at all.
+  const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary);
+  const restPoints = points.slice(1);
+  const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -560,7 +569,7 @@ function DesignDetailPane({
     <>
       <div className="work-detail-header">
         <div className="work-detail-title" title={primary.summary}>
-          {deriveTitle(primary.summary)}
+          {headline}
         </div>
         <div className="work-detail-meta">
           {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
@@ -591,15 +600,22 @@ function DesignDetailPane({
 
       {tab === "overview" && (
         <div className="work-tab-panel">
-          <h3>What this design says it&rsquo;s doing</h3>
-          {points.length > 0 ? (
-            <ul className="summary-bullets">
-              {points.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>{primary.summary}</p>
+          {/* Nothing to render at all when the headline above was the whole
+              summary -- an empty heading over a repeat of the title is worse
+              than no section. */}
+          {(restPoints.length > 0 || showProse) && (
+            <>
+              <h3>What this design says it&rsquo;s doing</h3>
+              {restPoints.length > 0 ? (
+                <ul className="summary-bullets">
+                  {restPoints.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{primary.summary}</p>
+              )}
+            </>
           )}
 
           {/* Collapsed by default, on purpose: `summary` above is already an

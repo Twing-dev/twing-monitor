@@ -864,15 +864,22 @@ button {
   flex-wrap: wrap;
 }
 
+/* Wraps rather than ellipsising on one line. A design's headline is the
+   whole thing a reviewer is here to judge, and the pane is wide enough to
+   hold it -- a single line clipped it at roughly half its length while the
+   rest of the same sentence sat directly underneath in the summary. Clamped
+   to three lines for the rare runaway; `title` holds the full text. */
 .work-detail-title {
   font-size: 1.2rem;
   font-weight: 800;
   line-height: 1.35;
   flex: 1 1 100%;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .work-detail-meta {

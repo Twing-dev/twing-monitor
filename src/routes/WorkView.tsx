@@ -102,17 +102,22 @@ function designFlags(group: DesignGroup, latestChecks: Map<string, { verdict: st
  * change tab -- same underlying counts `blastRadius` (designConformance.ts)
  * joins into one line for a list row, just kept as separate tiles here since
  * the detail pane has the room for them. */
-function changeTiles(changes: DesignChange[]): { n: string; label: string }[] {
+function changeTiles(changes: DesignChange[]): { n: string; label: string; tone?: "warn" }[] {
   const files = new Set(changes.map((c) => pathOfTarget(c.target)));
   const renames = changes.filter((c) => c.action === "rename" || c.action === "move").length;
   const kinds = new Set(changes.map(kindOf));
-  const tiles = [
+  const tiles: { n: string; label: string; tone?: "warn" }[] = [
     { n: String(changes.length), label: changes.length === 1 ? "change" : "changes" },
     { n: String(files.size), label: files.size === 1 ? "file" : "files" },
   ];
   if (renames > 0) tiles.push({ n: String(renames), label: renames === 1 ? "rename" : "renames" });
-  if (kinds.has("schema")) tiles.push({ n: "✓", label: "schema" });
-  if (kinds.has("api")) tiles.push({ n: "✓", label: "API" });
+  // Reach, not a count. These used to render as `✓` over "schema"/"API" --
+  // a tick in the same slot that holds "8" beside it, which reads as a check
+  // that passed when the fact is the opposite one: this design reaches a
+  // contract other people's work depends on. Named and toned as a warning
+  // instead, since it's the highest-signal thing in the row when present.
+  if (kinds.has("schema")) tiles.push({ n: "Schema", label: "touched", tone: "warn" });
+  if (kinds.has("api")) tiles.push({ n: "API", label: "touched", tone: "warn" });
   return tiles;
 }
 
@@ -627,7 +632,7 @@ function DesignDetailPane({
             {hasStructuredChanges(groupChanges) && (
               <div className="work-change-grid">
                 {changeTiles(groupChanges).map((t) => (
-                  <div key={t.label} className="work-change-stat">
+                  <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
                     <div className="n">{t.n}</div>
                     <div className="l">{t.label}</div>
                   </div>

@@ -173,6 +173,34 @@ describe("WorkView (desktop baseline)", () => {
     expect(within(tabs).getByText(/ask/i)).toBeInTheDocument();
   });
 
+  // Design change stopped being its own tab (2026-09) -- its content is a
+  // section at the bottom of Overview now. These two pin both halves of that:
+  // the tab is gone, and the content it held still renders without one.
+  it("no longer offers a Design change tab", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-tabs")).toBeInTheDocument());
+    const tabs = container.querySelector(".work-tabs") as HTMLElement;
+    expect(within(tabs).queryByText(/design change/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the declared scope in Overview, with no tab to click", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    // The fixture declares `touches` and no structured `changes`, and the stub
+    // answers /v1/claims with an empty page -- so this is the legacy
+    // `PathList` rendering, reached without touching the tab strip.
+    await waitFor(() => expect(within(detailPane(container)).getByText("src/net/retry.ts")).toBeInTheDocument());
+    const changes = container.querySelector(".work-detail-changes")!;
+    expect(changes).toBeInTheDocument();
+
+    // Order is the point of the merge, not just presence: what it changes
+    // reads between the summary above it and the Discussion below it.
+    // DOCUMENT_POSITION_FOLLOWING (4) means the comments panel comes after.
+    const comments = container.querySelector(".design-comments")!;
+    expect(changes.compareDocumentPosition(comments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   // The panes are replaced wholesale by an error message -- worth pinning,
   // because the phone layout below keys off which pane is showing and must
   // not assume one is always present.

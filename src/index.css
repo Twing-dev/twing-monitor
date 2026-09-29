@@ -900,6 +900,34 @@ button {
   margin-top: 8px;
 }
 
+/* What the design declares it will change, once it stopped being its own
+   "Design change" tab (2026-09, WorkView) and became a section at the bottom
+   of Overview. Same separation values as `.design-comments` below it, so the
+   two appended sections read as siblings rather than as one styled block and
+   one afterthought. */
+.work-detail-changes {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Overrides `.detail-field h3`'s small uppercase caption treatment, exactly as
+   `.design-comments h3` and `.design-chat h3` already do. As the only thing in
+   its own tab, a caption was fine; sitting under "What this design says it's
+   doing" it has to read as that heading's peer or it disappears into the page.
+   Applies to every field heading in this section, which is one heading for a
+   structured design ("What's changing") and the Creates/Touches/Depends-on
+   trio for a legacy one -- in both cases the section's own structure, not a
+   caption on a field. The conformance block's toggle is a button, not an `h3`,
+   so it keeps its own treatment either way. */
+.work-detail-changes .detail-field > h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
 .work-change-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

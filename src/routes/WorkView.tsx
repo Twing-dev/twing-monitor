@@ -123,7 +123,14 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
-type DetailTab = "overview" | "changes" | "conflict" | "ask" | "activity";
+/** "changes" was its own tab until 2026-09: Overview said what a design
+ * *says* it's doing and Design change said what it *declares it will change*,
+ * which are two halves of one question -- a reviewer needs both at once, and a
+ * tab made them compare from memory. The change content now renders at the
+ * bottom of Overview instead, directly above the Discussion. Same components
+ * and the same order `DesignDetail.tsx` (the older single-page composite)
+ * already rendered them in. */
+type DetailTab = "overview" | "conflict" | "ask" | "activity";
 
 export function WorkView({
   projectIds,
@@ -545,9 +552,6 @@ function DesignDetailPane({
         <button type="button" className={`work-tab${tab === "overview" ? " active" : ""}`} onClick={() => onTabChange("overview")}>
           Overview
         </button>
-        <button type="button" className={`work-tab${tab === "changes" ? " active" : ""}`} onClick={() => onTabChange("changes")}>
-          Design change
-        </button>
         <button type="button" className={`work-tab${tab === "ask" ? " active" : ""}`} onClick={() => onTabChange("ask")}>
           Ask
         </button>
@@ -601,6 +605,34 @@ function DesignDetailPane({
             </div>
           )}
 
+          {/* What the design declares it will change, merged in from its own
+              "Design change" tab (2026-09) -- see DetailTab's doc comment for
+              why. Sits above the Discussion, so one scroll reads what it says
+              it's doing -> what it actually changes -> what people asked about
+              it, which is the order a reviewer works in. */}
+          <div className="work-detail-changes">
+            {hasStructuredChanges(primary.changes) && (
+              <div className="work-change-grid">
+                {changeTiles(primary.changes).map((t) => (
+                  <div key={t.label} className="work-change-stat">
+                    <div className="n">{t.n}</div>
+                    <div className="l">{t.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {group.members.map((member) => (
+              <div key={member.id}>
+                {showRepoBadge && (
+                  <div className="repo-badge-row">
+                    <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                  </div>
+                )}
+                <MemberChanges member={member} />
+              </div>
+            ))}
+          </div>
+
           {/* Comments, moved out of its own tab (2026-09) -- always visible
               at the bottom of Overview instead of requiring a click. Public
               discussion belongs with the design it's about. Ask stays a
@@ -632,31 +664,6 @@ function DesignDetailPane({
                 </div>
               )}
               <DesignChat design={member} readOnly={readOnly} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === "changes" && (
-        <div className="work-tab-panel">
-          {hasStructuredChanges(primary.changes) && (
-            <div className="work-change-grid">
-              {changeTiles(primary.changes).map((t) => (
-                <div key={t.label} className="work-change-stat">
-                  <div className="n">{t.n}</div>
-                  <div className="l">{t.label}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
-              <MemberChanges member={member} />
             </div>
           ))}
         </div>

@@ -364,10 +364,18 @@ button {
   margin-bottom: 18px;
 }
 
+/* Same neutral palette as `.repo-badge`, which labels the same thing (which
+   repo a row belongs to) further down the page -- these were accent-pink,
+   which made a row of inert labels the loudest element on the screen and
+   left it competing with the conflict badges for the eye. Pink now means
+   brand and selection; severity owns red and amber. Kept a separate rule
+   from `.repo-badge` rather than merged: this one sits in the top bar at a
+   larger size with its own padding, and `.repo-badge` carries flex
+   behaviour that only makes sense inside a row. */
 .repo-chip {
   display: inline-flex;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--border);
+  color: var(--text-dim);
   border-radius: 100px;
   padding: 4px 12px;
   font-size: 0.8rem;
@@ -800,6 +808,16 @@ button {
   border-radius: 100px;
   margin-left: auto;
   white-space: nowrap;
+}
+
+/* Three severities, three weights. `flagged` (the coordinator blocked this
+   design) and `overlap` (two designs touch the same ground, advisory) both
+   rendered as the same tinted red, so the one that needs a decision looked
+   identical to the one that just needs reading. Solid fill matches
+   `.work-tab .tab-count`, the other place a blocking count is shown. */
+.work-badge.flagged {
+  background: var(--danger);
+  color: #fff;
 }
 
 .work-badge.conflict {

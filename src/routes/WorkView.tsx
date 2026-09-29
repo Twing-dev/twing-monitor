@@ -11,8 +11,9 @@ import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
-import { DesignComments } from "../components/DesignComments.js";
+import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
+import { bulletOffsets } from "../lib/reviewAnchors.js";
 import { relativeTime } from "../lib/time.js";
 import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
@@ -462,6 +463,31 @@ export function WorkView({
  * code match the plan") has to be checked per member rather than once for
  * the group. Mirrors DesignDetail's own top-level claims fetch, just scoped
  * to whichever member this is. */
+/** A member's original plan text -- collapsed, since the summary above is
+ * the paraphrase most readers want, but opened by itself (once) when an open
+ * review comment is anchored in it: a highlight nobody can see is a comment
+ * nobody can place. */
+function RawPlan({ designId, text }: { designId: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  const hasAnchors = useHasReviewAnchors(designId, "plan");
+  const openedForAnchors = useRef(false);
+  useEffect(() => {
+    if (hasAnchors && !openedForAnchors.current) {
+      openedForAnchors.current = true;
+      setOpen(true);
+    }
+  }, [hasAnchors]);
+
+  return (
+    <details className="work-raw-plan" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>View original plan text</summary>
+      <pre className="plan-text">
+        <HighlightableText designId={designId} field="plan" text={text} />
+      </pre>
+    </details>
+  );
+}
+
 function MemberChanges({ member }: { member: DesignStatement }) {
   const apiFetch = useApiFetch();
   const claimsState = useAsyncData(() => fetchClaims(apiFetch, member.projectId, member.sessionId), [apiFetch, member.projectId, member.sessionId]);
@@ -469,7 +495,7 @@ function MemberChanges({ member }: { member: DesignStatement }) {
   return (
     <>
       {hasStructuredChanges(member.changes) ? (
-        <DeclaredChanges changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
+        <DeclaredChanges designId={member.id} changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
       ) : (
         <>
           <PathList title="Creates" paths={member.creates} />
@@ -510,6 +536,9 @@ function DesignDetailPane({
   const primary = group.members[0];
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
+  // Where each bullet sits in the summary, so a highlight located against
+  // the whole summary lands on the right bullet.
+  const pointOffsets = bulletOffsets(primary.summary, points);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -561,17 +590,26 @@ function DesignDetailPane({
         </button>
       </div>
 
+      {/* One review scope around both tabs a reviewer highlights in, so
+          switching between them keeps the rail (and its drafts) rather than
+          reloading it. */}
+      {(tab === "overview" || tab === "changes") && (
+        <DesignReview designs={group.members} readOnly={readOnly}>
       {tab === "overview" && (
         <div className="work-tab-panel">
           <h3>What this design says it&rsquo;s doing</h3>
           {points.length > 0 ? (
             <ul className="summary-bullets">
               {points.map((line, i) => (
-                <li key={i}>{line}</li>
+                <li key={i}>
+                  <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i]} />
+                </li>
               ))}
             </ul>
           ) : (
-            <p>{primary.summary}</p>
+            <p>
+              <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+            </p>
           )}
 
           {/* Collapsed by default, on purpose: `summary` above is already an
@@ -592,48 +630,11 @@ function DesignDetailPane({
                         <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
                       </div>
                     )}
-                    <details className="work-raw-plan">
-                      <summary>View original plan text</summary>
-                      <pre className="plan-text">{member.rawPlanExcerpt}</pre>
-                    </details>
+                    <RawPlan designId={member.id} text={member.rawPlanExcerpt ?? ""} />
                   </div>
                 ))}
             </div>
           )}
-
-          {/* Comments, moved out of its own tab (2026-09) -- always visible
-              at the bottom of Overview instead of requiring a click. Public
-              discussion belongs with the design it's about. Ask stays a
-              separate tab, not inlined alongside it -- a private,
-              per-reviewer chat reads oddly stacked directly under a
-              public discussion thread, and a distinct tab reinforces
-              "this is a different, private space" better than proximity
-              does. */}
-          {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
-              <DesignComments design={member} readOnly={readOnly} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === "ask" && (
-        <div className="work-tab-panel">
-          {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
-              <DesignChat design={member} readOnly={readOnly} />
-            </div>
-          ))}
         </div>
       )}
 
@@ -657,6 +658,26 @@ function DesignDetailPane({
                 </div>
               )}
               <MemberChanges member={member} />
+            </div>
+          ))}
+        </div>
+      )}
+        </DesignReview>
+      )}
+
+      {/* The private Ask chat stays its own tab: a per-reviewer conversation
+          reads oddly beside the public review, and a distinct tab says "this
+          is a different, private space" better than proximity does. */}
+      {tab === "ask" && (
+        <div className="work-tab-panel">
+          {group.members.map((member) => (
+            <div key={member.id}>
+              {showRepoBadge && (
+                <div className="repo-badge-row">
+                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                </div>
+              )}
+              <DesignChat design={member} readOnly={readOnly} />
             </div>
           ))}
         </div>

@@ -2342,88 +2342,285 @@ li:first-child > .preview-row {
 }
 
 /* ---------------------------------------------------------------------------
-   Design review comments (2026-09)
+   Design review (2026-09, reworked 2026-09-27)
 
-   The dashboard's first write surface. Styled to read as a conversation
-   rather than as another record table -- everything else here is machine
-   output, and this is people talking about work that has not happened yet.
+   Highlight part of a design, comment on it, resolve it -- the way a shared
+   document works. The design's own text sits on the left with the comments'
+   words highlighted in it; the rail on the right holds the comments. Below
+   ~1180px the rail drops under the text rather than squeezing it.
 
-   The one load-bearing visual decision: an agent's reply is tinted and a
-   person's is not. A reviewer has to be able to tell, at a glance and without
-   reading a label, whether the thing answering them is a model or the
-   developer they asked for. The escalation recommendation gets a third
-   treatment again, because it is neither an answer nor a person -- it is the
-   model saying it cannot do this one.
+   The highlight is the warm amber of "somebody is waiting", the same colour
+   an open-comment chip earns on a list row; the active one deepens so the
+   card you clicked and the words it is about read as one thing.
    --------------------------------------------------------------------------- */
 
-.design-comments {
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 28px;
+  align-items: start;
+}
+
+.review-content {
+  min-width: 0;
+}
+
+/* The overview's reading width still applies to the text itself; the rail
+   is what uses the rest of the pane. */
+.review-layout .work-tab-panel {
+  max-width: 720px;
+}
+
+@media (max-width: 1180px) {
+  .review-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.review-mark {
+  background: var(--warning-bg);
+  border-bottom: 2px solid var(--warning);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+
+.review-mark.active {
+  background: #ffdf9e;
+}
+
+/* Floats under the selection the reviewer just made. */
+.review-float {
+  position: fixed;
+  z-index: 50;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 6px 14px;
+  box-shadow: 0 4px 14px rgba(33, 31, 46, 0.18);
+  cursor: pointer;
+}
+
+.review-rail {
+  position: sticky;
+  top: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
+  padding-top: 18px;
+  min-width: 0;
 }
 
-/* Overrides .detail-field h3's small uppercase label treatment -- this is
-   a section heading someone scrolls to and reads, not a field caption, so
-   it gets the same visual weight as "What this design says it's doing"
-   above it instead of disappearing into the page. */
-.design-comments h3 {
+@media (max-width: 1180px) {
+  .review-rail {
+    position: static;
+    margin-top: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+}
+
+.review-rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.review-rail-head h3 {
+  margin: 0;
   font-size: 1rem;
   font-weight: 800;
-  text-transform: none;
-  letter-spacing: normal;
   color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
-.comment-count {
+.review-count {
+  font-size: 0.74rem;
   font-weight: 700;
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--accent);
-  background: var(--accent-dim);
-  margin-left: 0;
-  padding: 2px 10px;
-  border-radius: 100px;
-  font-size: 0.72rem;
+  color: var(--warning);
 }
 
-.comment-list {
+.review-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.review-link {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 4px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.review-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.review-resolved-toggle {
+  margin-left: 0;
+  align-self: flex-start;
+  font-size: 0.8rem;
+}
+
+.review-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.comment-card {
+.review-card,
+.review-composer {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px;
 }
 
-/* An escalated comment is the only state anyone is being waited on for, so
-   it is the only one that gets an edge. */
-.comment-card.comment-escalated {
-  border-left: 3px solid var(--warning);
+.review-card {
+  cursor: pointer;
 }
 
-.comment-card.comment-resolved {
-  opacity: 0.68;
+.review-card.active {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px var(--warning-bg);
 }
 
-.comment-head {
+.review-card-resolved {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.review-card-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 6px;
+}
+
+.review-quote {
+  margin: 0 0 8px;
+  padding: 4px 0 4px 10px;
+  border-left: 3px solid var(--warning);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The words are no longer in the design: struck through, so nobody goes
+   looking for them, but kept, because they are what the comment is about. */
+.review-quote.outdated {
+  border-left-color: var(--border);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-dim);
+}
+
+.review-quote-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  margin-bottom: 2px;
+}
+
+.review-whole {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.review-tag {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.68rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.review-tag-outdated {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.review-tag-changed {
+  margin: 0 0 8px;
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.review-resolved-note {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--good);
+}
+
+.review-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-color: var(--accent);
+}
+
+.review-composer textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.review-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.review-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-composer-actions button[type="submit"] {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 7px 14px;
+}
+
+.review-composer-actions button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .comment-author {
@@ -2437,41 +2634,6 @@ li:first-child > .preview-row {
   color: var(--text-dim);
   font-size: 0.74rem;
   font-family: var(--font-mono);
-}
-
-.comment-status {
-  font-size: 0.72rem;
-  border-radius: 999px;
-  padding: 2px 8px;
-  text-transform: lowercase;
-}
-
-.comment-status-open {
-  background: var(--bg);
-  color: var(--text-dim);
-}
-
-.comment-status-answered {
-  background: var(--accent-dim);
-  color: var(--text);
-}
-
-.comment-status-escalated {
-  background: var(--warning-bg);
-  color: var(--warning);
-}
-
-.comment-status-resolved {
-  background: var(--good-bg);
-  color: var(--good);
-}
-
-.comment-anchor {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 0.78rem;
 }
 
 .comment-body {
@@ -2497,18 +2659,6 @@ li:first-child > .preview-row {
   background: var(--bg);
 }
 
-/* Tinted so a reviewer never has to read the label to know a model wrote
-   this. */
-.comment-reply-agent {
-  background: var(--accent-dim);
-}
-
-/* Neither an answer nor a person: the model saying it cannot do this one. */
-.comment-reply-recommendation {
-  background: var(--warning-bg);
-  border: 1px dashed var(--warning);
-}
-
 .comment-reply-meta {
   display: flex;
   justify-content: space-between;
@@ -2526,29 +2676,21 @@ li:first-child > .preview-row {
   white-space: pre-wrap;
 }
 
-.comment-escalated-note {
-  margin: 10px 0 0;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-
 .comment-actions {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  cursor: default;
 }
 
-.comment-reply-form,
-.comment-new-form {
+.comment-reply-form {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.comment-reply-form textarea,
-.comment-new-form textarea {
+.comment-reply-form textarea {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -2560,15 +2702,13 @@ li:first-child > .preview-row {
   resize: vertical;
 }
 
-.comment-reply-form textarea:focus,
-.comment-new-form textarea:focus {
+.comment-reply-form textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
 
 .comment-reply-form button,
-.comment-new-form button,
-.comment-decision button {
+.comment-resolve {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-hover);
@@ -2579,57 +2719,18 @@ li:first-child > .preview-row {
 }
 
 .comment-reply-form button:hover:not(:disabled),
-.comment-new-form button:hover:not(:disabled),
-.comment-decision button:hover:not(:disabled) {
+.comment-resolve:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
 .comment-reply-form button:disabled,
-.comment-new-form button:disabled,
-.comment-decision button:disabled {
+.comment-resolve:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.comment-decision {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.comment-escalate {
-  background: var(--warning-bg);
-}
-
 .comment-resolve {
   background: var(--good-bg);
-}
-
-.comment-anchor-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-}
-
-.comment-anchor-picker select {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  padding: 6px 8px;
-}
-
-.comment-new-form label:first-child {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
 }
 
 .comment-error {
@@ -2666,8 +2767,8 @@ li:first-child > .preview-row {
 }
 
 /* Overrides .detail-field h3's small uppercase label treatment, matching
-   .design-comments h3 -- this reads as a section someone scrolls to and
-   uses, not a field caption. */
+   the review rail's heading -- this reads as a section someone scrolls to
+   and uses, not a field caption. */
 .design-chat h3 {
   font-size: 1rem;
   font-weight: 800;

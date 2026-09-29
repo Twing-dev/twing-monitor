@@ -1,17 +1,11 @@
 /**
- * The notification bell (2026-09): design discussions waiting on you.
+ * The notification bell (2026-09): design review activity that involves you.
  *
- * Until this existed, the only way to learn that a review had reached you was
- * a banner at the start of your next coding session -- and only for
- * escalations on designs you own. A reviewer who asked a question never found
- * out it had been answered. The dashboard is where people already are, and it
- * said nothing.
- *
- * **Only human actions appear here**, filtered server-side. That is the whole
- * reason the feed is usable: every comment automatically triggers the
- * coordinator's answer and often a second `[needs a human]` reply after it,
- * so a bell that counted agent activity would show three items for every one
- * thing that actually happened.
+ * A design's owner also hears about open comments from their coding session;
+ * this is how everyone else finds out -- a reviewer whose question was
+ * answered, a participant whose thread moved. The dashboard is where people
+ * already are. Every item is a person's action: nothing answers review
+ * comments on anyone's behalf (2026-09-27).
  *
  * The panel polls only while it is open. Closed, the badge refreshes on the
  * slow cadence -- a number nobody is looking at does not need to be seconds
@@ -40,8 +34,6 @@ function verb(item: NotificationItem): string {
       return "commented on";
     case "design_comment_replied":
       return "replied on";
-    case "design_comment_escalated":
-      return "escalated a question on";
     case "design_comment_resolved":
       return "resolved a question on";
   }
@@ -117,9 +109,8 @@ export function NotificationBell({ onOpenDesign }: { onOpenDesign: (designId: st
     const id = ++requestId.current;
     try {
       // Marking seen returns the feed already updated, so the badge clears
-      // in one round trip. An escalation still waiting on you survives it
-      // and keeps counting -- which is why this takes the response rather
-      // than assuming zero.
+      // in one round trip -- and the response, not an assumed zero, is what
+      // the badge shows.
       const next = await markNotificationsSeen(apiFetch);
       if (id !== requestId.current) return;
       setFeed(next);
@@ -153,8 +144,8 @@ export function NotificationBell({ onOpenDesign }: { onOpenDesign: (designId: st
       {open && (
         <div className="notif-panel">
           <div className="notif-panel-head">
-            <strong>Discussions</strong>
-            <span className="notif-panel-sub">Only people's comments, escalations and replies — never the agent's answers.</span>
+            <strong>Design review</strong>
+            <span className="notif-panel-sub">Comments, replies and resolves on designs you own or are discussing.</span>
           </div>
 
           {error && <p className="notif-empty">Couldn't load notifications: {error}</p>}

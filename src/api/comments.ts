@@ -15,13 +15,13 @@
  * write none of it.
  */
 
-import type { DesignComment, DesignCommentReply, CommentAuthorKind } from "./types.js";
+import type { CommentAnchor, DesignComment, DesignCommentReply } from "./types.js";
 import type { Fetcher } from "./client.js";
 
 export interface DesignCommentsResponse {
   items: DesignComment[];
   /** Keyed by comment id. Fetched with the comments rather than per comment,
-   * so rendering a design's whole discussion is one request. */
+   * so rendering a design's whole review is one request. */
   replies: Record<string, DesignCommentReply[]>;
 }
 
@@ -32,75 +32,39 @@ export async function fetchDesignComments(fetcher: Fetcher, designId: string): P
 }
 
 /**
- * `POST /v1/designs/:id/comments`.
+ * `POST /v1/designs/:id/comments`, optionally anchored to highlighted text.
  *
- * Returns as soon as the comment is stored -- the coordinator's first-pass
- * answer runs fire-and-forget behind it, so the comment comes back `open` and
- * becomes `answered` a few seconds later. Callers poll rather than wait; that
- * latency is a model call and blocking the reviewer on it would make leaving
- * a comment feel like submitting a form to a slow server.
+ * The coordinator checks the quote against the design as it reads *now* and
+ * answers 409 when the words are gone -- an agent amended the design while
+ * the reviewer was reading it. Nothing answers the comment; the design's
+ * owner is told it exists and answers it here.
  */
-export async function postDesignComment(
-  fetcher: Fetcher,
-  designId: string,
-  body: string,
-  targetChangeId?: string,
-): Promise<{ comment: DesignComment }> {
+export async function postDesignComment(fetcher: Fetcher, designId: string, body: string, anchor?: CommentAnchor): Promise<{ comment: DesignComment }> {
   return fetcher<{ comment: DesignComment }>(`/v1/designs/${designId}/comments`, {
     method: "POST",
-    body: JSON.stringify({ body, ...(targetChangeId ? { targetChangeId } : {}) }),
+    body: JSON.stringify({ body, ...(anchor ? { anchor } : {}) }),
   });
 }
 
-/** `POST /v1/comments/:id/replies`. Always `authorKind: "human"` from here --
- * a reply typed into this dashboard is by definition a person's. An agent
- * replies through `twing design comment reply`, which declares `"agent"`. The
- * token cannot tell the two apart, which is why either side has to say. */
+/** `POST /v1/comments/:id/replies`. Refused (409) on a resolved comment: a
+ * settled question is a new comment, not a reopened one. */
 export async function postCommentReply(fetcher: Fetcher, commentId: string, message: string): Promise<{ reply: DesignCommentReply }> {
-  const authorKind: CommentAuthorKind = "human";
   return fetcher<{ reply: DesignCommentReply }>(`/v1/comments/${commentId}/replies`, {
     method: "POST",
-    body: JSON.stringify({ message, authorKind }),
+    body: JSON.stringify({ message }),
   });
 }
 
 /**
- * `POST /v1/comments/:id/escalate` -- the reviewer's decision that the
- * agent's answer wasn't enough.
+ * `POST /v1/comments/:id/resolve` -- settled, by the person who asked (or a
+ * project admin; the server decides and says so per comment as `canResolve`).
  *
- * Deliberately a human action with a button behind it, not something the
- * model does on its own confidence. The coordinator's answer carries a
- * recommendation (posted as a `[needs a human]` reply), but acting on it
- * belongs to the person who asked the question: they are the only one who can
- * judge whether their own question was answered.
- *
- * The design's owner sees this as a non-blocking banner at the start of their
- * next Claude Code / Codex / OpenCode session.
- */
-export async function escalateComment(fetcher: Fetcher, commentId: string, reason?: string): Promise<{ comment: DesignComment }> {
-  return fetcher<{ comment: DesignComment }>(`/v1/comments/${commentId}/escalate`, {
-    method: "POST",
-    body: JSON.stringify(reason ? { reason } : {}),
-  });
-}
-
-/**
- * `POST /v1/comments/:id/resolve` -- settled.
- *
- * Declares `authorKind: "human"` for the same reason `postCommentReply` does:
- * a developer acting here and their agent acting through the CLI present the
- * same token, so the server cannot tell them apart and the caller says which
- * it is. Closing a comment is human-only (the server refuses an
- * agent-declared one), and a click in this dashboard is by definition a
+ * Declares `authorKind: "human"` because the server refuses an
+ * agent-declared resolve, and a click in this dashboard is by definition a
  * person's.
- *
- * Distinct from the design owner *acknowledging* an escalation, which only
- * clears their session banner and has no button here: acknowledging happens
- * automatically when their agent reads the comment.
  */
 export async function resolveComment(fetcher: Fetcher, commentId: string): Promise<{ comment: DesignComment }> {
-  const authorKind: CommentAuthorKind = "human";
-  return fetcher<{ comment: DesignComment }>(`/v1/comments/${commentId}/resolve`, { method: "POST", body: JSON.stringify({ authorKind }) });
+  return fetcher<{ comment: DesignComment }>(`/v1/comments/${commentId}/resolve`, { method: "POST", body: JSON.stringify({ authorKind: "human" }) });
 }
 
 /**

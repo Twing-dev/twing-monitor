@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
 import { repoLabel } from "../lib/repoLabel.js";
-import { type TabId, buildShareUrl, parseUrlState, pushUrlState } from "../lib/urlState.js";
+import { type TabId, buildShareUrl, parseUrlState, pushUrlState, replaceUrlState } from "../lib/urlState.js";
 import { WorkView } from "./WorkView.js";
 import { ConflictsView } from "./ConflictsView.js";
 import { HotspotsView } from "./HotspotsView.js";
@@ -235,6 +235,15 @@ export function RepoDetailLayout({
           projectsById={projectsById}
           focusDesignId={focusDesignId}
           onClearFocus={() => setFocusDesignId(undefined)}
+          // The open design lives in the URL, so the address bar is always a
+          // link to what is on screen. replaceState rather than pushState:
+          // browsing the list is not navigation, and a history entry per
+          // click would make Back step through every row looked at.
+          onSelectionChange={(designId) => {
+            const url = parseUrlState();
+            if ((url.tab !== "designs" && url.tab !== "overview") || url.focusId === designId) return;
+            replaceUrlState({ repoIds: projectIds, tab: "designs", focusId: designId });
+          }}
           readOnly={readOnly}
           query={query}
           onQueryChange={setQuery}

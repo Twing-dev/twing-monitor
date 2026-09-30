@@ -16,7 +16,7 @@ import { DesignReview, HighlightableText, useHasReviewAnchors } from "../compone
 import { DesignChat } from "../components/DesignChat.js";
 import { bulletOffsets } from "../lib/reviewAnchors.js";
 import { relativeTime } from "../lib/time.js";
-import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
+import { deriveTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
@@ -607,18 +607,20 @@ function DesignDetailPane({
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
   // The header takes the design's own first point, and the summary below
-  // takes what's left.
+  // takes what's left. A summary that doesn't split into points has no
+  // "rest", so the header shows a short title of it and the body shows the
+  // whole thing -- that is the design's content, and the only text in this
+  // pane a reviewer can highlight, so it has to be on screen.
   //
-  // A summary that splits into points leaves the rest for the body. One that
-  // doesn't split leaves nothing, so the header carries it whole -- its own
-  // text, not `deriveTitle`'s. That clamp is sized for a list row, where the
-  // title shares a line with a repo, an author and a timestamp; in a header
-  // three lines wide it only ever cut a sentence a few characters short and
-  // left the body to reprint the whole thing underneath. Overflow past three
-  // lines is handled in CSS, and the full summary is on the `title`
-  // attribute either way.
-  const headline = points.length > 0 ? points[0] : (primary.summary ?? "").trim();
+  // `DETAIL_TITLE_CHARS`, not the list row's budget: a row's title stands in
+  // for a summary that is nowhere else on screen, while this one sits
+  // directly above it. At the row's 120 the two were near-identical and the
+  // pane read as the same sentence printed twice.
+  const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary, DETAIL_TITLE_CHARS);
   const restPoints = points.slice(1);
+  // Nothing to add when the header already shows the summary in full: a
+  // short one is never clamped, so the body would repeat it exactly.
+  const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
   const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
   // the whole summary lands on the right bullet. Indexed against `points`,
@@ -697,21 +699,27 @@ function DesignDetailPane({
             {/* Nothing to render at all when the header above was the whole
                 summary -- an empty heading over a repeat of the title is worse
                 than no section, and repeating it in full is worse than both. */}
-            {restPoints.length > 0 && (
+            {(restPoints.length > 0 || showProse) && (
               <>
                 <h3>What this design says it&rsquo;s doing</h3>
-                <ul className="summary-bullets">
-                  {restPoints.map((line, i) => (
-                    <li key={i}>
-                      {/* `restPoints` is `points` minus the one the header
-                          took, so bullet `i` is point `i + 1`. The offset has
-                          to be read at that index in the unsliced list, or
-                          every highlight anchored in the summary resolves one
-                          bullet early. */}
-                      <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
-                    </li>
-                  ))}
-                </ul>
+                {restPoints.length > 0 ? (
+                  <ul className="summary-bullets">
+                    {restPoints.map((line, i) => (
+                      <li key={i}>
+                        {/* `restPoints` is `points` minus the one the header
+                            took, so bullet `i` is point `i + 1`. The offset has
+                            to be read at that index in the unsliced list, or
+                            every highlight anchored in the summary resolves one
+                            bullet early. */}
+                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+                  </p>
+                )}
               </>
             )}
 

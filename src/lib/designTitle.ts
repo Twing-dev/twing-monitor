@@ -29,14 +29,26 @@ import { toBullets } from "./summaryBullets.js";
  * all) -- a safety net, not the primary mechanism. */
 const MAX_TITLE_CHARS = 120;
 
-function hardClamp(text: string): string {
-  if (text.length <= MAX_TITLE_CHARS) return text;
-  const cut = text.slice(0, MAX_TITLE_CHARS);
+/** What a detail header gets instead, and why it isn't the same number.
+ *
+ * A list row's title *stands in for* the summary -- the summary is nowhere
+ * else on screen, so the title is allowed to be nearly all of it. A detail
+ * header sits directly above the summary, so at 120 a one-sentence design
+ * showed a 113-character "title" over the same 190-character sentence and
+ * the pane read as the text printed twice. Short enough here that the
+ * header is clearly a heading and the summary below it is clearly the
+ * content. */
+export const DETAIL_TITLE_CHARS = 72;
+
+function hardClamp(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
   const lastSpace = cut.lastIndexOf(" ");
   // Only break on a word boundary if there's a reasonable amount of text
   // left after doing so -- otherwise a single very-long leading word would
-  // clip down to almost nothing.
-  return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  // clip down to almost nothing. A third of the budget, so this holds at
+  // either size.
+  return `${(lastSpace > max / 3 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 /** The first paragraph -- everything before the first blank line, or the
@@ -47,7 +59,7 @@ function firstParagraph(text: string): string {
   return text.split(/\n\s*\n/)[0].trim();
 }
 
-export function deriveTitle(summary: string | null | undefined): string {
+export function deriveTitle(summary: string | null | undefined, max: number = MAX_TITLE_CHARS): string {
   // `summary` is a required field on the wire, but this reads an external
   // API response -- a system boundary is exactly where a loose/legacy row
   // (or a test's own loose fixture) missing it shouldn't crash the row
@@ -69,9 +81,9 @@ export function deriveTitle(summary: string | null | undefined): string {
   const sentenceCut = bullets.length > 0 ? bullets[0].length : -1;
 
   const cut = Math.min(...[dashIndex, sentenceCut].filter((i) => i > 0));
-  if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim());
+  if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim(), max);
 
-  return hardClamp(head);
+  return hardClamp(head, max);
 }
 
 /** The summary's full text, as a list of points instead of one paragraph

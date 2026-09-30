@@ -325,7 +325,9 @@ export function WorkView({
   }, [visibleRows.map((r) => r.group.key).join(","), focusDesignId, isPhone]);
 
   useEffect(() => {
-    if (!focusDesignId || focusState.status !== "ready" || !focusState.data) return;
+    // `design` checked too, not just `data`: a response without one (a proxy's
+    // own JSON) crashed this effect and took the page down with it.
+    if (!focusDesignId || focusState.status !== "ready" || !focusState.data?.design) return;
     const key = focusState.data.design.groupId ?? focusState.data.design.id;
     setSelectedKey(key);
     setDetailTab("overview");

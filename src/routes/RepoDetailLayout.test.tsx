@@ -172,6 +172,34 @@ describe("RepoDetailLayout", () => {
       expect(window.history.length, "browsing the list is not navigation -- no history entry per click").toBe(historyLength);
     });
 
+    // Found in review: a row click clears the layout's focus id, so the
+    // header link and a trip through Team rebuilt the URL without the open
+    // design -- the pane still showed it, the address bar named the first.
+    it("keeps the open design in the URL through the header link and a trip to another tab", async () => {
+      const user = userEvent.setup();
+      stubDesigns();
+      window.history.replaceState(null, "", "?repos=proj-1&tab=designs");
+      const { container } = renderLayout();
+
+      const row = await waitFor(() => {
+        const el = [...container.querySelectorAll(".work-row")].find((r) => r.textContent?.includes("The design being shared"));
+        expect(el).toBeTruthy();
+        return el as HTMLElement;
+      });
+      await user.click(row);
+      await waitFor(() => expect(focus()).toBe("design-2"));
+
+      await user.click(screen.getByRole("button", { name: "twing monitor, go to designs" }));
+      expect(focus()).toBe("design-2");
+      expect(container.querySelector(".work-detail-title")?.textContent).toBe("The design being shared");
+
+      await user.click(screen.getByRole("button", { name: "Team" }));
+      await screen.findByRole("heading", { name: "Team" });
+      await user.click(screen.getByRole("button", { name: "twing monitor, go to designs" }));
+      await waitFor(() => expect(container.querySelector(".work-detail-title")?.textContent).toBe("The design being shared"));
+      expect(focus()).toBe("design-2");
+    });
+
     it("a link to a design opens that design, not the first row", async () => {
       stubDesigns();
       window.history.replaceState(null, "", "?repos=proj-1&tab=designs&focus=design-2");

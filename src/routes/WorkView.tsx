@@ -126,6 +126,24 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
 }
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
+
+/** Every status that puts a design in Conflicts or In progress. */
+const ACTIVE_STATUSES: DesignStatement["status"][] = ["open", "flagged", "dormant"];
+
+/** Every design in one status, following the cursor to the end -- only for
+ * the active statuses, which stay small, never for the history. */
+async function fetchAllDesigns(apiFetch: Parameters<typeof fetchDesigns>[0], projectId: string, status: string): Promise<DesignStatement[]> {
+  const out: DesignStatement[] = [];
+  let before: number | undefined;
+  for (;;) {
+    const page = await fetchDesigns(apiFetch, projectId, { status, before, limit: 100 });
+    out.push(...page.items);
+    // Stops on a cursor that doesn't move back, not only on none: one bad
+    // response must not spin this forever and hang the page.
+    if (page.nextBefore === undefined || (before !== undefined && page.nextBefore >= before)) return out;
+    before = page.nextBefore;
+  }
+}
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 /** "changes" was its own tab until 2026-09: Overview said what a design
  * *says* it's doing and Design change said what it *declares it will change*,
@@ -189,10 +207,23 @@ export function WorkView({
     // match (app.ts), so sending the string "all" (rather than omitting the
     // key) would filter to zero designs every time, silently. Every status
     // is exactly what an omitted filter already means server-side.
-    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, {}).then((page) => [pid, page] as const)))
+    //
+    // Every active design is loaded in full, and only the history is paged.
+    // Found live: the first page is the 20 most recently *created* designs,
+    // and active ones are a few among hundreds of resolved -- twing-monitor
+    // showed 5 of its 13 in-progress designs (every dormant one sat on a
+    // later page) and counted 5. They are the point of this screen, and
+    // few enough to fetch whole.
+    Promise.all(
+      projectIds.map((pid) =>
+        Promise.all([fetchDesigns(apiFetch, pid, {}), ...ACTIVE_STATUSES.map((status) => fetchAllDesigns(apiFetch, pid, status))]).then(
+          ([page, ...active]) => [pid, { items: uniqueBy([...active.flat(), ...page.items], (d) => d.id), nextBefore: page.nextBefore }] as const,
+        ),
+      ),
+    )
       .then((results) => {
         if (cancelled) return;
-        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
+        setPages(Object.fromEntries(results));
         setListState({ status: "ready" });
       })
       .catch((err: unknown) => {
@@ -216,7 +247,9 @@ export function WorkView({
       );
       setPages((prev) => {
         const next = { ...prev };
-        for (const [pid, page] of results) next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        // De-duplicated: the active designs on an older page are already
+        // loaded.
+        for (const [pid, page] of results) next[pid] = { items: uniqueBy([...(prev[pid]?.items ?? []), ...page.items], (d) => d.id), nextBefore: page.nextBefore };
         return next;
       });
     } catch (err) {

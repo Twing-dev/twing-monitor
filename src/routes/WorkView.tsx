@@ -244,15 +244,29 @@ export function WorkView({
     [apiFetch, focusDesignId, refreshKey],
   );
 
+  // The open design's linked designs, which can live in repos this view
+  // isn't showing. Loaded for whatever is selected, not only for a focus
+  // link: found live, a two-repo design showed one plan when clicked in the
+  // list and two after a refresh, because only the focus lookup ever brought
+  // in the other repo's half. Declared before `selectedDesignId` exists, so
+  // it is keyed on state that already does.
+  const [linkedFor, setLinkedFor] = useState<string | undefined>(undefined);
+  const linkedState = useAsyncData(
+    () => (!linkedFor || linkedFor === focusDesignId ? Promise.resolve(undefined) : fetchDesignById(apiFetch, linkedFor).catch(() => undefined)),
+    [apiFetch, linkedFor, focusDesignId, refreshKey],
+  );
+
   const allItems = useMemo(() => {
-    if (focusState.status !== "ready" || !focusState.data) return items;
     // Normalized rather than trusted: a response without `groupMembers` (an
     // older coordinator, a proxy's own JSON) must not take the pane down --
-    // the focused design itself is still worth showing.
-    const extra = [focusState.data.design, ...(Array.isArray(focusState.data.groupMembers) ? focusState.data.groupMembers : [])];
+    // the design itself is still worth showing.
+    const extra = [focusState, linkedState].flatMap((s) =>
+      s.status === "ready" && s.data?.design ? [s.data.design, ...(Array.isArray(s.data.groupMembers) ? s.data.groupMembers : [])] : [],
+    );
+    if (extra.length === 0) return items;
     const known = new Set(items.map((d) => d.id));
-    return [...items, ...extra.filter((d) => !known.has(d.id))];
-  }, [items, focusState]);
+    return [...items, ...extra.filter((d) => !known.has(d.id) && (known.add(d.id), true))];
+  }, [items, focusState, linkedState]);
 
   const groups = useMemo(() => dedupeDesignsByGroup(allItems), [allItems]);
 
@@ -362,6 +376,8 @@ export function WorkView({
   const selectedDesignId = selected?.group.members[0]?.id;
   useEffect(() => {
     onSelectionChange?.(selectedDesignId);
+    // Only a design with a group can have linked designs to load.
+    setLinkedFor(selected?.group.members[0]?.groupId ? selectedDesignId : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDesignId]);
 
@@ -579,6 +595,17 @@ function DesignDetailPane({
   /** Every member's declared changes, for the group-level stat tiles. A group
    * of one yields exactly `primary.changes`, so the common case is unchanged. */
   const groupChanges = group.members.flatMap((m) => m.changes ?? []);
+  /** Repo labels wherever members come from more than one repo -- not only
+   * when several repos are selected, since a linked design reaches into
+   * repos the viewer never picked. */
+  const labelRepos = showRepoBadge || uniqueBy(group.members, (m) => m.projectId).length > 1;
+  const plans: { text: string; members: DesignStatement[] }[] = [];
+  for (const m of group.members) {
+    if (!m.rawPlanExcerpt) continue;
+    const same = plans.find((p) => p.text === m.rawPlanExcerpt);
+    if (same) same.members.push(m);
+    else plans.push({ text: m.rawPlanExcerpt, members: [m] });
+  }
 
   const activityState = useAsyncData(
     () =>
@@ -595,7 +622,7 @@ function DesignDetailPane({
           {deriveTitle(primary.summary)}
         </div>
         <div className="work-detail-meta">
-          {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+          {labelRepos && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
           <span>
             <b>{primary.developerId}</b>
           </span>
@@ -655,20 +682,24 @@ function DesignDetailPane({
                 plan. Every design carries its plan here -- an ExitPlanMode plan
                 or a template's `plan:`; the coordinator refuses to register one
                 without (2026-09-29). */}
-            {group.members.some((m) => m.rawPlanExcerpt) && (
+            {/* One block per distinct plan, not per member: a multi-repo
+                registration gives every repo's design the same plan, and
+                repeating it unlabelled read as a rendering bug. Each block
+                names every repo it covers whenever the design spans repos. */}
+            {plans.length > 0 && (
               <div className="work-raw-plans">
-                {group.members
-                  .filter((m) => m.rawPlanExcerpt)
-                  .map((member) => (
-                    <div key={member.id}>
-                      {showRepoBadge && (
-                        <div className="repo-badge-row">
-                          <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                        </div>
-                      )}
-                      <RawPlan designId={member.id} text={member.rawPlanExcerpt ?? ""} />
-                    </div>
-                  ))}
+                {plans.map(({ text, members }) => (
+                  <div key={members[0].id}>
+                    {labelRepos && (
+                      <div className="repo-badge-row">
+                        {uniqueBy(members, (m) => m.projectId).map((m) => (
+                          <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />
+                        ))}
+                      </div>
+                    )}
+                    <RawPlan designId={members[0].id} text={text} />
+                  </div>
+                ))}
               </div>
             )}
 
@@ -708,7 +739,7 @@ function DesignDetailPane({
                   comment is against itself rather than needing a panel to say
                   it. */}
               {group.members.map((member) => (
-                <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+                <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={labelRepos} projectsById={projectsById}>
                   <MemberChanges member={member} />
                 </MemberPanel>
               ))}
@@ -723,7 +754,7 @@ function DesignDetailPane({
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (
-            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={labelRepos} projectsById={projectsById}>
               <DesignChat design={member} readOnly={readOnly} />
             </MemberPanel>
           ))}
@@ -738,7 +769,7 @@ function DesignDetailPane({
               ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
               : undefined;
             return (
-              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={labelRepos} projectsById={projectsById}>
                 <LatestCheckOutcome design={member} />
                 {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />

@@ -1,4 +1,4 @@
-import { Fragment, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchClaims } from "../api/claims.js";
 import { fetchActivity } from "../api/activity.js";
@@ -12,7 +12,7 @@ import { relativeTime } from "../lib/time.js";
 import { computeConformance, groupByKind, hasStructuredChanges, kindDescription, kindLabel, pathOfTarget } from "../lib/designConformance.js";
 import { conflictKindInfo, isConflictBucket } from "../lib/conflictKind.js";
 import { StatusBadge } from "./StatusBadge.js";
-import { DesignComments } from "./DesignComments.js";
+import { DesignReview, HighlightableText, useHasReviewAnchors } from "./DesignReview.js";
 import { DesignChat } from "./DesignChat.js";
 
 /** A design's involvement in an open, semantic-conflict-origin alignment
@@ -38,7 +38,7 @@ export interface SemanticOverlap {
  * its `from` inline rather than in the intent text, because "only the name
  * changed" is the actual claim being made and it is what a reviewer checks.
  */
-function ChangeRow({ change, conformance }: { change: DesignChange; conformance?: "matched" | "not_yet_edited" }) {
+function ChangeRow({ change, conformance, designId }: { change: DesignChange; conformance?: "matched" | "not_yet_edited"; designId?: string }) {
   const path = pathOfTarget(change.target);
   const symbol = change.target.length > path.length ? change.target.slice(path.length + 2) : undefined;
   return (
@@ -60,7 +60,9 @@ function ChangeRow({ change, conformance }: { change: DesignChange; conformance?
           </span>
         )}
       </div>
-      <p className="change-intent">{change.intent}</p>
+      {/* The intent is the prose half of a change, so it is what a reviewer
+          highlights to comment on this one change (design review). */}
+      <p className="change-intent">{designId ? <HighlightableText designId={designId} field="change" changeId={change.id} text={change.intent} /> : change.intent}</p>
     </li>
   );
 }
@@ -77,11 +79,28 @@ function ChangeRow({ change, conformance }: { change: DesignChange; conformance?
 function KindSection({
   group,
   stateByChangeId,
+  designId,
 }: {
   group: { kind: string; changes: DesignChange[] };
   stateByChangeId: Map<string, "matched" | "not_yet_edited">;
+  designId?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // A section holding an open review comment's highlight opens by itself:
+  // a highlight nobody can see is a comment nobody can place. Once only --
+  // after that, open and closed are the reader's to choose.
+  const hasAnchors = useHasReviewAnchors(
+    designId,
+    "change",
+    group.changes.map((c) => c.id),
+  );
+  const openedForAnchors = useRef(false);
+  useEffect(() => {
+    if (hasAnchors && !openedForAnchors.current) {
+      openedForAnchors.current = true;
+      setOpen(true);
+    }
+  }, [hasAnchors]);
   const count = group.changes.length;
   const label = kindLabel(group.kind);
   const description = kindDescription(group.kind);
@@ -115,7 +134,7 @@ function KindSection({
           {description && <p className="kind-description">{description}</p>}
           <ul className="change-list">
             {group.changes.map((change) => (
-              <ChangeRow key={change.id} change={change} conformance={stateByChangeId.get(change.id)} />
+              <ChangeRow key={change.id} change={change} conformance={stateByChangeId.get(change.id)} designId={designId} />
             ))}
           </ul>
         </div>
@@ -128,7 +147,7 @@ function KindSection({
  * there's something to expand. See `groupByKind`'s doc comment for why the
  * empty ones are shown rather than omitted -- "no database changes" is the
  * answer a reader came for, and an omitted section can't say it. */
-export function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; claims: Claim[] }) {
+export function DeclaredChanges({ changes, claims, designId }: { changes: DesignChange[]; claims: Claim[]; designId?: string }) {
   const [conformanceOpen, setConformanceOpen] = useState(false);
   const report = computeConformance(changes, claims);
   const stateByChangeId = new Map(report.declared.map((row) => [row.change.id, row.state]));
@@ -140,7 +159,7 @@ export function DeclaredChanges({ changes, claims }: { changes: DesignChange[]; 
         <h3>What&rsquo;s changing</h3>
         <div className="kind-list">
           {groupByKind(changes).map((group) => (
-            <KindSection key={group.kind} group={group} stateByChangeId={stateByChangeId} />
+            <KindSection key={group.kind} group={group} stateByChangeId={stateByChangeId} designId={designId} />
           ))}
         </div>
       </div>
@@ -501,48 +520,49 @@ export function DesignDetail({
       {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} onOpenTab={onOpenTab} />}
       <ResolveActions design={design} onResolved={onResolved} readOnly={readOnly} />
 
-      {/* Suppressed once the declaration itself survived the round trip, for
-          the same reason the path lists below are. `rawPlanText` is only a
-          *carrier*: `design register --from` sends it so a template still
-          reaches a coordinator too old to have a `changes` column. When that
-          column did its job, the raw YAML is the same items over again,
-          unstructured and unlinked to claims -- so the structured rendering
-          supersedes it rather than sitting above it. An ExitPlanMode
-          registration has prose here and no `changes` at all, and that is the
-          case this block still exists for. */}
-      {design.rawPlanExcerpt && !hasStructuredChanges(design.changes) && (
-        <div className="detail-field">
-          <h3>Plan text</h3>
-          <pre className="plan-text">{design.rawPlanExcerpt}</pre>
-        </div>
-      )}
+      {/* The design's own words are what a reviewer highlights and comments
+          on, so they sit inside the review scope with its rail beside them
+          -- above the bookkeeping block, which is reference material. */}
+      <DesignReview designs={[design]} readOnly={readOnly}>
+        {/* The design's architecture: an ExitPlanMode plan, or a template's
+            `plan:` -- every design has one since 2026-09-29, when the
+            coordinator started refusing registrations without. Shown beside
+            the structured changes, not instead of them: the plan says how
+            and why, the changes say which files. (It used to be hidden
+            whenever `changes` existed, back when `register --from` sent its
+            YAML here as a carrier for coordinators with no `changes`
+            column.) */}
+        {design.rawPlanExcerpt && (
+          <div className="detail-field">
+            <h3>Plan text</h3>
+            <pre className="plan-text">
+              <HighlightableText designId={design.id} field="plan" text={design.rawPlanExcerpt} />
+            </pre>
+          </div>
+        )}
 
-      {/* Two renderings of the same question, chosen by whether this
-          design was registered from a template. The structured one
-          supersedes the path lists entirely rather than sitting alongside
-          them -- `creates`/`touches` are *derived* from `changes` for a
-          --from registration (core's `deriveScope`), so showing both would
-          print the same paths twice, once with the verb and once without.
-          `dependsOn` has no structured equivalent and is shown either
-          way. */}
-      {hasStructuredChanges(design.changes) ? (
-        <DeclaredChanges changes={design.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
-      ) : (
-        <>
-          <PathList title="Creates" paths={design.creates} />
-          <PathList title="Touches" paths={design.touches} />
-        </>
-      )}
-      <PathList title="Depends on" paths={design.dependsOn} />
+        {/* Two renderings of the same question, chosen by whether this
+            design was registered from a template. The structured one
+            supersedes the path lists entirely rather than sitting alongside
+            them -- `creates`/`touches` are *derived* from `changes` for a
+            --from registration (core's `deriveScope`), so showing both would
+            print the same paths twice, once with the verb and once without.
+            `dependsOn` has no structured equivalent and is shown either
+            way. */}
+        {hasStructuredChanges(design.changes) ? (
+          <DeclaredChanges designId={design.id} changes={design.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
+        ) : (
+          <>
+            <PathList title="Creates" paths={design.creates} />
+            <PathList title="Touches" paths={design.touches} />
+          </>
+        )}
+        <PathList title="Depends on" paths={design.dependsOn} />
+      </DesignReview>
 
-      {/* Above the bookkeeping block on purpose: the discussion is what a
-          reviewer came here to have, while session ids and scope versions
-          are reference material they look up occasionally. */}
-      <DesignComments design={design} readOnly={readOnly} />
-
-      {/* Below the discussion, not above it: feedback the developer will act
-          on is the point of this page, and a private chat is the thing you
-          do on the way to leaving some. */}
+      {/* Below the review, not above it: feedback the developer will act on
+          is the point of this page, and a private chat is the thing you do
+          on the way to leaving some. */}
       <DesignChat design={design} readOnly={readOnly} />
 
       <div className="detail-field detail-bookkeeping">

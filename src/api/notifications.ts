@@ -13,9 +13,9 @@
 
 import type { Fetcher } from "./client.js";
 
-/** The four event kinds that reach a bell. Agent activity is filtered out
- * server-side and never appears here -- see `notification-store.ts`. */
-export type NotificationKind = "design_comment_posted" | "design_comment_replied" | "design_comment_escalated" | "design_comment_resolved";
+/** The three event kinds that reach a bell -- all of them a person's, since
+ * nothing answers review comments on anyone's behalf (2026-09-27). */
+export type NotificationKind = "design_comment_posted" | "design_comment_replied" | "design_comment_resolved";
 
 export interface NotificationItem {
   /** The activity event's own id -- stable, so rows can key on it. */
@@ -29,8 +29,7 @@ export interface NotificationItem {
   designSummary: string;
   commentId: string;
   excerpt: string;
-  /** Still counting toward the badge -- newer than the read cursor, or an
-   * escalation still waiting on you. */
+  /** Still counting toward the badge -- newer than the read cursor. */
   unread: boolean;
 }
 
@@ -49,9 +48,7 @@ export async function fetchNotifications(fetcher: Fetcher, limit = 50): Promise<
  * `POST /v1/notifications/seen` -- marks everything currently visible read.
  *
  * Returns the feed already updated, so opening the panel is one round trip
- * rather than a write followed by a re-fetch. An escalation still waiting on
- * you deliberately survives this and keeps counting, which is why the
- * response is worth reading rather than assuming the count is now zero.
+ * rather than a write followed by a re-fetch.
  */
 export async function markNotificationsSeen(fetcher: Fetcher): Promise<NotificationFeed> {
   return fetcher<NotificationFeed>("/v1/notifications/seen", { method: "POST" });

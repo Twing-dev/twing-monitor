@@ -1,13 +1,7 @@
 /**
- * The bell's own rules. The feed's rules -- who is notified of what, and why
- * an agent's answer never is -- belong to the server and are tested there
- * (`notification-store.test.ts` in twing-cli); these are the things that can
- * only go wrong in the browser.
- *
- * The one that matters most is the escalation case: a stray click on the
- * bell marks everything seen, and the badge going quiet while somebody is
- * still blocked waiting on you is the failure this whole feature exists to
- * prevent.
+ * The bell's own rules. The feed's rules -- who is notified of what -- belong
+ * to the server and are tested there (`notification-store.test.ts` in
+ * twing-cli); these are the things that can only go wrong in the browser.
  */
 
 import { afterEach, expect, it, vi } from "vitest";
@@ -112,20 +106,19 @@ it("explains the empty state instead of opening a blank panel", async () => {
 });
 
 /**
- * The whole point of the escalation exemption: opening the panel marks
- * everything seen, but an escalation is *state* -- somebody is blocked --
- * and has to keep counting until it is acknowledged or resolved. The server
- * decides that and says so in the `seen` response; this asserts the
- * component believes the response rather than assuming zero.
+ * Opening the panel marks everything seen, and the `seen` response carries
+ * the count as the server now has it -- something may have landed between
+ * the badge's last poll and the click. The badge shows that response rather
+ * than assuming zero.
  */
-it("keeps the badge when the server says an escalation is still waiting", async () => {
+it("shows the count the server returns after marking seen, not an assumed zero", async () => {
   const user = userEvent.setup();
-  const escalation = makeItem({ id: "evt-2", kind: "design_comment_escalated", unread: true });
-  stubFeed({ items: [escalation], unreadCount: 1 }, { items: [escalation], unreadCount: 1 });
+  const reply = makeItem({ id: "evt-2", kind: "design_comment_replied", unread: true });
+  stubFeed({ items: [reply], unreadCount: 1 }, { items: [reply], unreadCount: 1 });
   renderBell();
 
   await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
-  await screen.findByText(/escalated a question on/);
+  await screen.findByText(/replied on/);
   expect(screen.getByRole("button", { name: "Notifications, 1 unread" })).toBeInTheDocument();
 });
 

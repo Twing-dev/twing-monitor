@@ -306,7 +306,11 @@ describe("WorkView (desktop baseline)", () => {
   });
 
   it("shows the declared scope in Overview, with no tab to click", async () => {
-    stubApi([design()]);
+    // Two points on purpose. The header takes the first and the body renders
+    // what's left, so a one-sentence summary (the bare `design()` fixture)
+    // renders no summary block at all, and there would be no "above" for the
+    // ordering assertion below to mean anything against.
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
     const { container } = renderWork();
     // The fixture declares `touches` and no structured `changes`, and the stub
     // answers /v1/claims with an empty page -- so this is the legacy
@@ -316,10 +320,33 @@ describe("WorkView (desktop baseline)", () => {
     expect(changes).toBeInTheDocument();
 
     // Order is the point of the merge, not just presence: what it changes
-    // reads between the summary above it and the Discussion below it.
-    // DOCUMENT_POSITION_FOLLOWING (4) means the comments panel comes after.
-    const comments = container.querySelector(".design-comments")!;
-    expect(changes.compareDocumentPosition(comments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // reads after the summary saying what it's doing.
+    // DOCUMENT_POSITION_FOLLOWING (4) means the changes come after.
+    const summary = container.querySelector('[data-field="summary"]')!;
+    expect(summary.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // And it sits inside the review scope, not merely below it: a declared
+    // change has to be highlightable like the summary is, which only holds
+    // while it renders within `DesignReview`'s content side.
+    expect(container.querySelector(".review-content")).toContainElement(changes as HTMLElement);
+  });
+
+  // The seam between the de-duplicated header and anchored review comments:
+  // the body renders `points` minus the one the header took, so a bullet's
+  // highlight offset has to be read one further along the unsliced list. Off
+  // by one here and every summary comment resolves against the wrong bullet --
+  // silently, with nothing failing anywhere.
+  it("offsets a body bullet past the point the header took", async () => {
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector('[data-field="summary"]')).toBeInTheDocument());
+
+    const blocks = Array.from(container.querySelectorAll('.summary-bullets [data-field="summary"]'));
+    expect(blocks).toHaveLength(1);
+    // The header shows the first point, so the single body bullet is the
+    // second -- its offset must be where that sentence actually starts, not 0.
+    expect(blocks[0].textContent).toContain("Cap the delay");
+    expect(Number(blocks[0].getAttribute("data-offset"))).toBeGreaterThan(0);
   });
 
   // The panes are replaced wholesale by an error message -- worth pinning,

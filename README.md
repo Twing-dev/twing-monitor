@@ -10,8 +10,11 @@ threads, members, and constraints.
   them.
 - Review project activity, pending reviews, alignment threads, members, and
   constraints.
-- Comment on a design or one declared change. The coordinator can answer from
-  the design first; escalate the comment when a developer needs to respond.
+- Review a design the way you would a shared document: highlight part of its
+  overview, plan or declared changes and comment on it. People answer; nothing
+  answers on anyone's behalf. The design's owner is told in their coding
+  session (Claude Code, Codex or OpenCode) that comments are waiting, and their
+  next edit in that repository pauses once so they hear about it.
 - Ask a private question about a design. Answers are grounded in the captured
   session when the repository opted into session capture; transcripts are not
   sent to the browser.

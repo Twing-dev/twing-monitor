@@ -12,8 +12,9 @@ import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { MemberPanel } from "../components/MemberPanel.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
-import { DesignComments } from "../components/DesignComments.js";
+import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
+import { bulletOffsets } from "../lib/reviewAnchors.js";
 import { relativeTime } from "../lib/time.js";
 import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
@@ -174,7 +175,8 @@ type LoadState = { status: "loading" } | { status: "error"; message: string } | 
  * *says* it's doing and Design change said what it *declares it will change*,
  * which are two halves of one question -- a reviewer needs both at once, and a
  * tab made them compare from memory. The change content now renders at the
- * bottom of Overview instead, directly above the Discussion. Same components
+ * bottom of Overview instead, inside the same review scope as the summary, so
+ * a declared change can be highlighted and commented on too. Same components
  * and the same order `DesignDetail.tsx` (the older single-page composite)
  * already rendered them in. */
 type DetailTab = "overview" | "conflict" | "ask" | "activity";
@@ -531,6 +533,31 @@ export function WorkView({
  * code match the plan") has to be checked per member rather than once for
  * the group. Mirrors DesignDetail's own top-level claims fetch, just scoped
  * to whichever member this is. */
+/** A member's original plan text -- collapsed, since the summary above is
+ * the paraphrase most readers want, but opened by itself (once) when an open
+ * review comment is anchored in it: a highlight nobody can see is a comment
+ * nobody can place. */
+function RawPlan({ designId, text }: { designId: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  const hasAnchors = useHasReviewAnchors(designId, "plan");
+  const openedForAnchors = useRef(false);
+  useEffect(() => {
+    if (hasAnchors && !openedForAnchors.current) {
+      openedForAnchors.current = true;
+      setOpen(true);
+    }
+  }, [hasAnchors]);
+
+  return (
+    <details className="work-raw-plan" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>View original plan text</summary>
+      <pre className="plan-text">
+        <HighlightableText designId={designId} field="plan" text={text} />
+      </pre>
+    </details>
+  );
+}
+
 function MemberChanges({ member }: { member: DesignStatement }) {
   const apiFetch = useApiFetch();
   const claimsState = useAsyncData(() => fetchClaims(apiFetch, member.projectId, member.sessionId), [apiFetch, member.projectId, member.sessionId]);
@@ -538,7 +565,7 @@ function MemberChanges({ member }: { member: DesignStatement }) {
   return (
     <>
       {hasStructuredChanges(member.changes) ? (
-        <DeclaredChanges changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
+        <DeclaredChanges designId={member.id} changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
       ) : (
         <>
           <PathList title="Creates" paths={member.creates} />
@@ -589,6 +616,11 @@ function DesignDetailPane({
   const restPoints = points.slice(1);
   const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
   const verdict = designVerdict(primary, flags);
+  // Where each bullet sits in the summary, so a highlight located against
+  // the whole summary lands on the right bullet. Indexed against `points`,
+  // which still holds the one the header took -- see where the bullets
+  // render for why that matters.
+  const pointOffsets = bulletOffsets(primary.summary, points);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -649,98 +681,117 @@ function DesignDetailPane({
         </button>
       </div>
 
+      {/* One review scope around everything Overview renders -- the summary,
+          the original plan text, and the declared changes -- so a reviewer can
+          highlight any of it and every comment lands in the same rail. With
+          "Design change" folded into Overview there is only one tab left to
+          scope, but the wrapper stays outside `work-tab-panel`: the rail sits
+          beside the whole panel, not inside its flow. */}
       {tab === "overview" && (
-        <div className="work-tab-panel">
-          {/* Nothing to render at all when the headline above was the whole
-              summary -- an empty heading over a repeat of the title is worse
-              than no section. */}
-          {(restPoints.length > 0 || showProse) && (
-            <>
-              <h3>What this design says it&rsquo;s doing</h3>
-              {restPoints.length > 0 ? (
-                <ul className="summary-bullets">
-                  {restPoints.map((line, i) => (
-                    <li key={i}>{line}</li>
+        <DesignReview designs={group.members} readOnly={readOnly}>
+          <div className="work-tab-panel">
+            {/* Nothing to render at all when the headline above was the whole
+                summary -- an empty heading over a repeat of the title is worse
+                than no section. */}
+            {(restPoints.length > 0 || showProse) && (
+              <>
+                <h3>What this design says it&rsquo;s doing</h3>
+                {restPoints.length > 0 ? (
+                  <ul className="summary-bullets">
+                    {restPoints.map((line, i) => (
+                      <li key={i}>
+                        {/* `restPoints` is `points` minus the one the header
+                            took, so bullet `i` is point `i + 1`. The offset has
+                            to be read at that index in the unsliced list, or
+                            every highlight anchored in the summary resolves one
+                            bullet early. */}
+                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Collapsed by default, on purpose: `summary` above is already an
+                LLM-generated paraphrase of this, produced once at registration
+                (design-extract.ts) -- most readers want that, not the raw
+                plan. Every design carries its plan here -- an ExitPlanMode plan
+                or a template's `plan:`; the coordinator refuses to register one
+                without (2026-09-29). */}
+            {group.members.some((m) => m.rawPlanExcerpt) && (
+              <div className="work-raw-plans">
+                {group.members
+                  .filter((m) => m.rawPlanExcerpt)
+                  .map((member) => (
+                    <div key={member.id}>
+                      {showRepoBadge && (
+                        <div className="repo-badge-row">
+                          <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                        </div>
+                      )}
+                      <RawPlan designId={member.id} text={member.rawPlanExcerpt ?? ""} />
+                    </div>
                   ))}
-                </ul>
-              ) : (
-                <p>{primary.summary}</p>
-              )}
-            </>
-          )}
-
-          {/* Collapsed by default, on purpose: `summary` above is already an
-              LLM-generated paraphrase of this, produced once at registration
-              (design-extract.ts) -- most readers want that, not the raw
-              plan. Only present at all for an ExitPlanMode registration
-              (never set on a structured/plain one, DesignStatement's own
-              doc comment), so a member with none renders nothing rather
-              than an empty toggle. */}
-          {group.members.some((m) => m.rawPlanExcerpt) && (
-            <div className="work-raw-plans">
-              {group.members
-                .filter((m) => m.rawPlanExcerpt)
-                .map((member) => (
-                  <div key={member.id}>
-                    {showRepoBadge && (
-                      <div className="repo-badge-row">
-                        <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                      </div>
-                    )}
-                    <details className="work-raw-plan">
-                      <summary>View original plan text</summary>
-                      <pre className="plan-text">{member.rawPlanExcerpt}</pre>
-                    </details>
-                  </div>
-                ))}
-            </div>
-          )}
-
-          {/* What the design declares it will change, merged in from its own
-              "Design change" tab (2026-09) -- see DetailTab's doc comment for
-              why. Sits above the Discussion, so one scroll reads what it says
-              it's doing -> what it actually changes -> what people asked about
-              it, which is the order a reviewer works in. */}
-          <div className="work-detail-changes">
-            {/* Says up front that this row is several linked designs, so the
-                stacked panels below read as a list of designs rather than as
-                one design's content repeated. Absent for a group of one --
-                the overwhelmingly common case, unchanged. */}
-            {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
-            {/* Counted across every member, not just `primary`: with one
-                labelled panel per design below, tiles describing only the
-                first would be a headline number for a fraction of what
-                follows. Identical to `primary.changes` for a group of one. */}
-            {hasStructuredChanges(groupChanges) && (
-              <div className="work-change-grid">
-                {changeTiles(groupChanges).map((t) => (
-                  <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
-                    <div className="n">{t.n}</div>
-                    <div className="l">{t.label}</div>
-                  </div>
-                ))}
               </div>
             )}
 
-            {/* One panel per member, holding *both* that design's declared
-                changes and its discussion. Deliberately a single loop rather
-                than the two it replaced: as two, every design's name printed
-                twice -- once over the changes stack, once over the comments
-                stack -- and a design's own discussion sat several screens
-                away from the changes it was about. Comments, moved out of
-                their own tab (2026-09), belong with the design they discuss;
-                Ask stays a separate tab, since a private per-reviewer chat
-                reads oddly stacked under a public thread. */}
-            {group.members.map((member) => (
-              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
-                <MemberChanges member={member} />
-                <DesignComments design={member} readOnly={readOnly} />
-              </MemberPanel>
-            ))}
+            {/* What the design declares it will change, merged in from its own
+                "Design change" tab (2026-09) -- see DetailTab's doc comment for
+                why. Sits last, so one scroll reads what the design says it's
+                doing -> what it actually changes, which is the order a reviewer
+                works in. Inside the review scope along with the rest: a
+                declared change is as commentable as the summary above it. */}
+            <div className="work-detail-changes">
+              {/* Says up front that this row is several linked designs, so the
+                  stacked panels below read as a list of designs rather than as
+                  one design's content repeated. Absent for a group of one --
+                  the overwhelmingly common case, unchanged. */}
+              {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
+              {/* Counted across every member, not just `primary`: with one
+                  labelled panel per design below, tiles describing only the
+                  first would be a headline number for a fraction of what
+                  follows. Identical to `primary.changes` for a group of one. */}
+              {hasStructuredChanges(groupChanges) && (
+                <div className="work-change-grid">
+                  {changeTiles(groupChanges).map((t) => (
+                    /* Keyed on value *and* label: "Schema touched" and "API
+                       touched" share a label, so the label alone stopped being
+                       unique once those two became named warnings rather than
+                       ticks. */
+                    <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
+                      <div className="n">{t.n}</div>
+                      <div className="l">{t.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* One labelled panel per member, so a linked group's stacked
+                  changes read as several designs rather than as one design's
+                  content repeated. Only the declared changes sit in the panel
+                  now: the discussion that used to share it became the review
+                  rail, which spans the whole tab and is handed every member
+                  (`designs={group.members}`), so it says which design a
+                  comment is against itself rather than needing a panel to say
+                  it. */}
+              {group.members.map((member) => (
+                <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
+                  <MemberChanges member={member} />
+                </MemberPanel>
+              ))}
+            </div>
           </div>
-        </div>
+        </DesignReview>
       )}
 
+      {/* The private Ask chat stays its own tab: a per-reviewer conversation
+          reads oddly beside the public review, and a distinct tab says "this
+          is a different, private space" better than proximity does. */}
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (

@@ -11,6 +11,8 @@ import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { MemberPanel } from "../components/MemberPanel.js";
+import { CopyLinkButton } from "../components/CopyLinkButton.js";
+import { buildShareUrl } from "../lib/urlState.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -140,6 +142,7 @@ export function WorkView({
   projectsById,
   focusDesignId,
   onClearFocus,
+  onSelectionChange,
   readOnly,
   query,
   onQueryChange,
@@ -148,6 +151,11 @@ export function WorkView({
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
   onClearFocus?: () => void;
+  /** The design now open in the detail pane (its group's first member), or
+   * `undefined` when none is. The layout writes it to the URL, so a link
+   * copied from the address bar opens this design rather than the first
+   * row. */
+  onSelectionChange?: (designId: string | undefined) => void;
   readOnly?: boolean;
   /** Rendered in the shared top bar (RepoDetailLayout), not here -- lifted
    * up so it can sit next to the repo switcher the way the design mockup
@@ -238,7 +246,10 @@ export function WorkView({
 
   const allItems = useMemo(() => {
     if (focusState.status !== "ready" || !focusState.data) return items;
-    const extra = [focusState.data.design, ...focusState.data.groupMembers];
+    // Normalized rather than trusted: a response without `groupMembers` (an
+    // older coordinator, a proxy's own JSON) must not take the pane down --
+    // the focused design itself is still worth showing.
+    const extra = [focusState.data.design, ...(Array.isArray(focusState.data.groupMembers) ? focusState.data.groupMembers : [])];
     const known = new Set(items.map((d) => d.id));
     return [...items, ...extra.filter((d) => !known.has(d.id))];
   }, [items, focusState]);
@@ -342,6 +353,17 @@ export function WorkView({
   }
 
   const selected = rows.find((r) => r.group.key === selectedKey);
+
+  // Tell the layout which design is open, however it got opened -- a click,
+  // the automatic first-row selection, or a focus link. Found live: nothing
+  // wrote the selection to the URL, so a link copied from the address bar
+  // opened the first design (or the one the page was first opened with)
+  // instead of the one on screen.
+  const selectedDesignId = selected?.group.members[0]?.id;
+  useEffect(() => {
+    onSelectionChange?.(selectedDesignId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDesignId]);
 
   // Restored in a *layout* effect so it happens before the browser paints --
   // in a plain effect the list appears at the top for a frame and then jumps,
@@ -579,6 +601,10 @@ function DesignDetailPane({
           </span>
           <span>updated {relativeTime(primary.lastActivityAt)}</span>
           <span className={`status-badge tone-neutral`}>{primary.status}</span>
+          {/* A link to this design for a teammate -- the same URL the address
+              bar now carries, scoped to this design's own repo whatever the
+              viewer's repo selection. */}
+          <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
         </div>
       </div>
 

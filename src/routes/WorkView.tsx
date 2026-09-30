@@ -124,7 +124,15 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
-type DetailTab = "overview" | "changes" | "conflict" | "ask" | "activity";
+/** "changes" was its own tab until 2026-09: Overview said what a design
+ * *says* it's doing and Design change said what it *declares it will change*,
+ * which are two halves of one question -- a reviewer needs both at once, and a
+ * tab made them compare from memory. The change content now renders at the
+ * bottom of Overview instead, inside the same review scope as the summary, so
+ * a declared change can be highlighted and commented on too. Same components
+ * and the same order `DesignDetail.tsx` (the older single-page composite)
+ * already rendered them in. */
+type DetailTab = "overview" | "conflict" | "ask" | "activity";
 
 export function WorkView({
   projectIds,
@@ -574,9 +582,6 @@ function DesignDetailPane({
         <button type="button" className={`work-tab${tab === "overview" ? " active" : ""}`} onClick={() => onTabChange("overview")}>
           Overview
         </button>
-        <button type="button" className={`work-tab${tab === "changes" ? " active" : ""}`} onClick={() => onTabChange("changes")}>
-          Design change
-        </button>
         <button type="button" className={`work-tab${tab === "ask" ? " active" : ""}`} onClick={() => onTabChange("ask")}>
           Ask
         </button>
@@ -590,77 +595,82 @@ function DesignDetailPane({
         </button>
       </div>
 
-      {/* One review scope around both tabs a reviewer highlights in, so
-          switching between them keeps the rail (and its drafts) rather than
-          reloading it. */}
-      {(tab === "overview" || tab === "changes") && (
-        <DesignReview designs={group.members} readOnly={readOnly}>
+      {/* One review scope around everything Overview renders -- the summary,
+          the original plan text, and the declared changes -- so a reviewer can
+          highlight any of it and every comment lands in the same rail. With
+          "Design change" folded into Overview there is only one tab left to
+          scope, but the wrapper stays outside `work-tab-panel`: the rail sits
+          beside the whole panel, not inside its flow. */}
       {tab === "overview" && (
-        <div className="work-tab-panel">
-          <h3>What this design says it&rsquo;s doing</h3>
-          {points.length > 0 ? (
-            <ul className="summary-bullets">
-              {points.map((line, i) => (
-                <li key={i}>
-                  <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i]} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>
-              <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
-            </p>
-          )}
-
-          {/* Collapsed by default, on purpose: `summary` above is already an
-              LLM-generated paraphrase of this, produced once at registration
-              (design-extract.ts) -- most readers want that, not the raw
-              plan. Every design carries its plan here -- an ExitPlanMode plan
-              or a template's `plan:`; the coordinator refuses to register one
-              without (2026-09-29). */}
-          {group.members.some((m) => m.rawPlanExcerpt) && (
-            <div className="work-raw-plans">
-              {group.members
-                .filter((m) => m.rawPlanExcerpt)
-                .map((member) => (
-                  <div key={member.id}>
-                    {showRepoBadge && (
-                      <div className="repo-badge-row">
-                        <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                      </div>
-                    )}
-                    <RawPlan designId={member.id} text={member.rawPlanExcerpt ?? ""} />
-                  </div>
+        <DesignReview designs={group.members} readOnly={readOnly}>
+          <div className="work-tab-panel">
+            <h3>What this design says it&rsquo;s doing</h3>
+            {points.length > 0 ? (
+              <ul className="summary-bullets">
+                {points.map((line, i) => (
+                  <li key={i}>
+                    <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i]} />
+                  </li>
                 ))}
-            </div>
-          )}
-        </div>
-      )}
+              </ul>
+            ) : (
+              <p>
+                <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+              </p>
+            )}
 
-      {tab === "changes" && (
-        <div className="work-tab-panel">
-          {hasStructuredChanges(primary.changes) && (
-            <div className="work-change-grid">
-              {changeTiles(primary.changes).map((t) => (
-                <div key={t.label} className="work-change-stat">
-                  <div className="n">{t.n}</div>
-                  <div className="l">{t.label}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+            {/* Collapsed by default, on purpose: `summary` above is already an
+                LLM-generated paraphrase of this, produced once at registration
+                (design-extract.ts) -- most readers want that, not the raw
+                plan. Every design carries its plan here -- an ExitPlanMode plan
+                or a template's `plan:`; the coordinator refuses to register one
+                without (2026-09-29). */}
+            {group.members.some((m) => m.rawPlanExcerpt) && (
+              <div className="work-raw-plans">
+                {group.members
+                  .filter((m) => m.rawPlanExcerpt)
+                  .map((member) => (
+                    <div key={member.id}>
+                      {showRepoBadge && (
+                        <div className="repo-badge-row">
+                          <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                        </div>
+                      )}
+                      <RawPlan designId={member.id} text={member.rawPlanExcerpt ?? ""} />
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* What the design declares it will change, merged in from its own
+                "Design change" tab (2026-09) -- see DetailTab's doc comment for
+                why. Sits last, so one scroll reads what the design says it's
+                doing -> what it actually changes, which is the order a reviewer
+                works in. Inside the review scope along with the rest: a
+                declared change is as commentable as the summary above it. */}
+            <div className="work-detail-changes">
+              {hasStructuredChanges(primary.changes) && (
+                <div className="work-change-grid">
+                  {changeTiles(primary.changes).map((t) => (
+                    <div key={t.label} className="work-change-stat">
+                      <div className="n">{t.n}</div>
+                      <div className="l">{t.label}</div>
+                    </div>
+                  ))}
                 </div>
               )}
-              <MemberChanges member={member} />
+              {group.members.map((member) => (
+                <div key={member.id}>
+                  {showRepoBadge && (
+                    <div className="repo-badge-row">
+                      <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                    </div>
+                  )}
+                  <MemberChanges member={member} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
         </DesignReview>
       )}
 

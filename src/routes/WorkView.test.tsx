@@ -173,6 +173,41 @@ describe("WorkView (desktop baseline)", () => {
     expect(within(tabs).getByText(/ask/i)).toBeInTheDocument();
   });
 
+  // Design change stopped being its own tab (2026-09) -- its content is a
+  // section at the bottom of Overview now. These two pin both halves of that:
+  // the tab is gone, and the content it held still renders without one.
+  it("no longer offers a Design change tab", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-tabs")).toBeInTheDocument());
+    const tabs = container.querySelector(".work-tabs") as HTMLElement;
+    expect(within(tabs).queryByText(/design change/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the declared scope in Overview, with no tab to click", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    // The fixture declares `touches` and no structured `changes`, and the stub
+    // answers /v1/claims with an empty page -- so this is the legacy
+    // `PathList` rendering, reached without touching the tab strip.
+    await waitFor(() => expect(within(detailPane(container)).getByText("src/net/retry.ts")).toBeInTheDocument());
+    const changes = container.querySelector(".work-detail-changes")!;
+    expect(changes).toBeInTheDocument();
+
+    // Order is the point of the merge, not just presence: what it changes
+    // reads after the summary saying what it's doing. Anchored on the
+    // summary's review block rather than `.summary-bullets`, which only
+    // renders when the summary splits into more than one point.
+    // DOCUMENT_POSITION_FOLLOWING (4) means the changes come after.
+    const summary = container.querySelector('[data-field="summary"]')!;
+    expect(summary.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // And it sits inside the review scope, not merely below it: a declared
+    // change has to be highlightable like the summary is, which only holds
+    // while it renders within `DesignReview`'s content side.
+    expect(container.querySelector(".review-content")).toContainElement(changes as HTMLElement);
+  });
+
   // The panes are replaced wholesale by an error message -- worth pinning,
   // because the phone layout below keys off which pane is showing and must
   // not assume one is always present.

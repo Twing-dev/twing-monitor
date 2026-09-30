@@ -108,10 +108,9 @@ describe("RepoDetailLayout", () => {
     // owned by someone else and is "flagged", not "open", so it's only
     // visible at all because focusDesignId bypasses the list's filters.
     await waitFor(() => expect(screen.getAllByText("A design owned by someone else, currently flagged").length).toBeGreaterThan(0));
-    // Touches live under the "Design change" tab now, not inline with
-    // everything else -- arrives on Overview by default, same as any other
-    // freshly-selected row.
-    await user.click(screen.getByRole("button", { name: "Design change" }));
+    // Touches are back on Overview itself (2026-09: the "Design change" tab
+    // was merged into the bottom of it), so they need no second click --
+    // landing on the right design is all this cross-link has to do.
     expect(await screen.findByText("src/x.ts")).toBeInTheDocument();
   });
 

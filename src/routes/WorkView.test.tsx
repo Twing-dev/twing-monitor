@@ -294,6 +294,37 @@ describe("WorkView (desktop baseline)", () => {
     expect(within(tabs).getByText(/ask/i)).toBeInTheDocument();
   });
 
+  // A summary with no split in it goes in the header and nowhere else.
+  // Regression: the header used a 120-character clamp, so a longer
+  // unsplittable summary always differed from its own text, the "is there
+  // anything left to show" test passed, and the body reprinted the whole
+  // thing -- 11 characters of new information under a near-identical title.
+  it("does not reprint an unsplittable summary under the header", async () => {
+    const long =
+      "Resolve PR #17's conflict with its rebased base so the six UI defect fixes and the linked-group labels plus review rail all survive";
+    expect(long.length).toBeGreaterThan(120); // the clamp is what used to trip
+    stubApi([design({ summary: long })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).toBe(long));
+
+    // The header carries it whole, so the Overview body says nothing further.
+    expect(within(detailPane(container)).queryByText(/what this design says/i)).not.toBeInTheDocument();
+    expect(container.querySelector(".summary-bullets")).not.toBeInTheDocument();
+    // And it appears once in the detail pane, not twice.
+    expect(within(detailPane(container)).getAllByText(long)).toHaveLength(1);
+  });
+
+  // The splittable case still splits: header takes point one, body takes the
+  // rest. Pinned alongside the above so "don't reprint" can't be satisfied by
+  // rendering nothing at all.
+  it("still puts the remaining points in the body when the summary splits", async () => {
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".summary-bullets")).toBeInTheDocument());
+    expect(openDesignTitle(container)).toContain("Add retry backoff");
+    expect(container.querySelector(".summary-bullets")?.textContent).toContain("Cap the delay");
+  });
+
   // Design change stopped being its own tab (2026-09) -- its content is a
   // section at the bottom of Overview now. These two pin both halves of that:
   // the tab is gone, and the content it held still renders without one.

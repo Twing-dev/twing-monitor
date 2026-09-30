@@ -607,14 +607,18 @@ function DesignDetailPane({
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
   // The header takes the design's own first point, and the summary below
-  // takes what's left. Previously both started from the same sentence: the
-  // header ellipsised it, then the first bullet printed it again in full
-  // directly underneath -- and a design with nothing to split printed its
-  // summary verbatim twice. `deriveTitle` still covers that unsplittable
-  // case, where it's the only thing that can shorten the text at all.
-  const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary);
+  // takes what's left.
+  //
+  // A summary that splits into points leaves the rest for the body. One that
+  // doesn't split leaves nothing, so the header carries it whole -- its own
+  // text, not `deriveTitle`'s. That clamp is sized for a list row, where the
+  // title shares a line with a repo, an author and a timestamp; in a header
+  // three lines wide it only ever cut a sentence a few characters short and
+  // left the body to reprint the whole thing underneath. Overflow past three
+  // lines is handled in CSS, and the full summary is on the `title`
+  // attribute either way.
+  const headline = points.length > 0 ? points[0] : (primary.summary ?? "").trim();
   const restPoints = points.slice(1);
-  const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
   const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
   // the whole summary lands on the right bullet. Indexed against `points`,
@@ -690,30 +694,24 @@ function DesignDetailPane({
       {tab === "overview" && (
         <DesignReview designs={group.members} readOnly={readOnly}>
           <div className="work-tab-panel">
-            {/* Nothing to render at all when the headline above was the whole
+            {/* Nothing to render at all when the header above was the whole
                 summary -- an empty heading over a repeat of the title is worse
-                than no section. */}
-            {(restPoints.length > 0 || showProse) && (
+                than no section, and repeating it in full is worse than both. */}
+            {restPoints.length > 0 && (
               <>
                 <h3>What this design says it&rsquo;s doing</h3>
-                {restPoints.length > 0 ? (
-                  <ul className="summary-bullets">
-                    {restPoints.map((line, i) => (
-                      <li key={i}>
-                        {/* `restPoints` is `points` minus the one the header
-                            took, so bullet `i` is point `i + 1`. The offset has
-                            to be read at that index in the unsliced list, or
-                            every highlight anchored in the summary resolves one
-                            bullet early. */}
-                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>
-                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
-                  </p>
-                )}
+                <ul className="summary-bullets">
+                  {restPoints.map((line, i) => (
+                    <li key={i}>
+                      {/* `restPoints` is `points` minus the one the header
+                          took, so bullet `i` is point `i + 1`. The offset has
+                          to be read at that index in the unsliced list, or
+                          every highlight anchored in the summary resolves one
+                          bullet early. */}
+                      <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
+                    </li>
+                  ))}
+                </ul>
               </>
             )}
 

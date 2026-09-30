@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../api/types.js";
 import { repoLabel } from "../lib/repoLabel.js";
 import { type TabId, buildShareUrl, parseUrlState, pushUrlState, replaceUrlState } from "../lib/urlState.js";
@@ -79,6 +79,12 @@ export function RepoDetailLayout({
     return u.tab === "conflicts" ? u.focusId : undefined;
   });
 
+  // The design actually open in WorkView. Not the same as focusDesignId:
+  // that is an instruction to WorkView ("open this"), cleared as soon as a
+  // row is clicked, so rebuilding the URL from it alone dropped whatever was
+  // on screen. A ref, since nothing renders from it.
+  const selectedDesignIdRef = useRef<string | undefined>(focusDesignId);
+
   const projectIds = projects.map((p) => p.projectId);
   const isHome = tab === "overview" || tab === "designs";
   // Lives here, not in WorkView, because it renders in the shared top bar
@@ -88,7 +94,7 @@ export function RepoDetailLayout({
   const [query, setQuery] = useState("");
 
   function focusIdForTab(t: TabId): string | undefined {
-    if (t === "designs" || t === "overview") return focusDesignId;
+    if (t === "designs" || t === "overview") return selectedDesignIdRef.current ?? focusDesignId;
     if (t === "conflicts") return focusConflictId;
     return undefined;
   }
@@ -119,6 +125,9 @@ export function RepoDetailLayout({
   }
 
   function openTab(next: TabId) {
+    // Coming back to the list remounts WorkView, which would otherwise fall
+    // back to the first row -- reopen the design that was on screen.
+    if (next === "designs" || next === "overview") setFocusDesignId(selectedDesignIdRef.current ?? focusDesignId);
     setTab(next);
     pushUrlState({ repoIds: projectIds, tab: next, focusId: focusIdForTab(next) });
   }
@@ -240,6 +249,7 @@ export function RepoDetailLayout({
           // browsing the list is not navigation, and a history entry per
           // click would make Back step through every row looked at.
           onSelectionChange={(designId) => {
+            selectedDesignIdRef.current = designId;
             const url = parseUrlState();
             if ((url.tab !== "designs" && url.tab !== "overview") || url.focusId === designId) return;
             replaceUrlState({ repoIds: projectIds, tab: "designs", focusId: designId });

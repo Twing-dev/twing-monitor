@@ -325,6 +325,49 @@ describe("WorkView (desktop baseline)", () => {
     expect(container.querySelector(".summary-bullets")?.textContent).toContain("Cap the delay");
   });
 
+  // Why the reprint survived a test suite that already covered it.
+  //
+  // The guard was `headline !== summary`, and `headline` came from
+  // `deriveTitle`, which leaves a summary alone until it passes 120
+  // characters and clamps it after that. Under the threshold the two strings
+  // matched and the guard correctly said "nothing left to show"; over it the
+  // clamp made them differ and the body reprinted the whole summary. Both
+  // halves were tested -- `designTitle.test.ts` covers the clamp, and the
+  // detail-pane tests covered the guard -- but never together: every fixture
+  // in this file was 36 characters or fewer, so nothing ever made
+  // `deriveTitle` modify anything. Real summaries run 125-190.
+  //
+  // Whether a design has a second point to show has nothing to do with how
+  // long its first one is, so both sides of that threshold are pinned to
+  // behave identically. The length assertions are part of the test on
+  // purpose: a fixture edited down under 120 would otherwise go on passing
+  // while silently covering nothing.
+  describe("summary length does not change what the detail pane shows", () => {
+    const UNDER_CLAMP = "Move the retry budget out of the sync client and into the shared transport layer so that every caller shares one policy";
+    const OVER_CLAMP = `${UNDER_CLAMP} now`;
+
+    it("keeps its fixtures either side of the 120-character clamp", () => {
+      expect(UNDER_CLAMP.length).toBeLessThanOrEqual(120);
+      expect(OVER_CLAMP.length).toBeGreaterThan(120);
+    });
+
+    for (const [label, summary] of [
+      ["under", UNDER_CLAMP],
+      ["over", OVER_CLAMP],
+    ] as const) {
+      it(`shows a summary ${label} the clamp once, in the header, with no section beneath it`, async () => {
+        stubApi([design({ summary })]);
+        const { container } = renderWork();
+        // The header carries it whole either way -- not a clamped copy.
+        await waitFor(() => expect(openDesignTitle(container)).toBe(summary));
+
+        const pane = detailPane(container);
+        expect(within(pane).getAllByText(summary)).toHaveLength(1);
+        expect(within(pane).queryByText(/what this design says it/i)).not.toBeInTheDocument();
+      });
+    }
+  });
+
   // Design change stopped being its own tab (2026-09) -- its content is a
   // section at the bottom of Overview now. These two pin both halves of that:
   // the tab is gone, and the content it held still renders without one.

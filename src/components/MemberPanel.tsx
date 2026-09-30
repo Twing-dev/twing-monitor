@@ -9,15 +9,21 @@ import { RepoBadge } from "./RepoBadge.js";
  * Labels one member's panel inside a grouped design's body, for a group that
  * has more than one member.
  *
- * `WorkView`'s detail tabs stack one panel per member -- comments, chat and
- * declared changes are all per design even though a `--group`-linked chain is
- * one logical unit of work (`dedupeDesignsByGroup`). Nothing in those panels
- * said *which* member it was, though: `DesignComments`/`DesignChat` each render
- * a fixed heading of their own ("Discussion", "Ask this design"), so four
- * members read as one panel rendered four times rather than as four designs.
- * Observed live on a real four-member group -- four "What's changing" and four
- * "Discussion" blocks under a single title taken from `members[0]`, with the
- * other three designs given no on-screen existence at all.
+ * `WorkView`'s detail tabs stack one panel per member -- chat and declared
+ * changes are per design even though a `--group`-linked chain is one logical
+ * unit of work (`dedupeDesignsByGroup`). Nothing in those panels said *which*
+ * member it was, though: `DesignChat` renders a fixed heading of its own
+ * ("Ask this design"), so four members read as one panel rendered four times
+ * rather than as four designs. Observed live on a real four-member group --
+ * four "What's changing" and four "Discussion" blocks under a single title
+ * taken from `members[0]`, with the other three designs given no on-screen
+ * existence at all.
+ *
+ * The "Discussion" half of that is gone since design review v2 (2026-09):
+ * comments left `DesignComments` for a rail beside the whole tab, which is
+ * handed every member of the group and names the design each comment is
+ * against. Changes and chat still stack per member, so the label is still
+ * what tells them apart.
  *
  * **`summary` is the load-bearing label here**, not the metadata beside it. A
  * linked chain is typically one developer's consecutive work in one session, so

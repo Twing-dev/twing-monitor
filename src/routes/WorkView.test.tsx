@@ -261,10 +261,17 @@ describe("WorkView (desktop baseline)", () => {
     expect(changes).toBeInTheDocument();
 
     // Order is the point of the merge, not just presence: what it changes
-    // reads between the summary above it and the Discussion below it.
-    // DOCUMENT_POSITION_FOLLOWING (4) means the comments panel comes after.
-    const comments = container.querySelector(".design-comments")!;
-    expect(changes.compareDocumentPosition(comments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // reads after the summary saying what it's doing. Anchored on the
+    // summary's review block rather than `.summary-bullets`, which only
+    // renders when the summary splits into more than one point.
+    // DOCUMENT_POSITION_FOLLOWING (4) means the changes come after.
+    const summary = container.querySelector('[data-field="summary"]')!;
+    expect(summary.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // And it sits inside the review scope, not merely below it: a declared
+    // change has to be highlightable like the summary is, which only holds
+    // while it renders within `DesignReview`'s content side.
+    expect(container.querySelector(".review-content")).toContainElement(changes as HTMLElement);
   });
 
   // The panes are replaced wholesale by an error message -- worth pinning,

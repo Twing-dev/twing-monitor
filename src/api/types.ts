@@ -347,27 +347,37 @@ export interface ProjectMember {
  * Design review comments (2026-09) -- mirrors `DesignComment` in twing-cli's
  * `packages/core/src/types.ts`.
  *
- * This is the first channel in twing that runs human -> agent, and the first
- * thing this dashboard *writes*. Everything else here reads: claims, designs
- * and alignment threads are all machine-produced records of what agents did.
- * A comment is a person asking a question about work that has not been done
- * yet, which is the one moment where redirecting an agent is nearly free.
+ * The first thing this dashboard *writes*. Everything else here reads:
+ * claims, designs and alignment threads are all machine-produced records of
+ * what agents did. A comment is a person highlighting part of a design and
+ * asking about it before the work is done, which is the one moment where
+ * redirecting an agent is nearly free. Since 2026-09-27 comments are
+ * answered and resolved by people only; the design's owner hears about open
+ * ones from their coding sessions.
  */
-export type CommentAuthorKind = "human" | "agent";
+
+/** Which text a highlight was taken from: the overview (`summary`), the
+ * original plan text (`plan`), or one declared change's intent (`change`,
+ * with `changeId`). */
+export type CommentAnchorField = "summary" | "plan" | "change";
 
 /**
- * Four states on one axis: how far has this got toward being answered?
- *
- *  - `open` -- posted; the coordinator's first-pass answer hasn't landed yet.
- *  - `answered` -- the agent took its pass. The reviewer now decides whether
- *    that was enough.
- *  - `escalated` -- it wasn't, and the design's owner has been pulled in.
- *    The only state that reaches anyone's coding session.
- *  - `resolved` -- settled.
- *
- * `escalated` is not a failure and not terminal.
+ * What a comment is attached to: the highlighted words and a little of what
+ * surrounded them. A quote rather than offsets, because a design is edited in
+ * place -- so a reader looks the quote up in the design's *current* text,
+ * and shows the comment as outdated (with the words it was about) when it is
+ * no longer there. `prefix`/`suffix` only pick between repeats.
  */
-export type DesignCommentStatus = "open" | "answered" | "escalated" | "resolved";
+export interface CommentAnchor {
+  field: CommentAnchorField;
+  changeId?: string;
+  quote: string;
+  prefix?: string;
+  suffix?: string;
+}
+
+/** Open until the person who asked (or a project admin) resolves it. */
+export type DesignCommentStatus = "open" | "resolved";
 
 export interface DesignComment {
   id: string;
@@ -375,22 +385,12 @@ export interface DesignComment {
   designId: string;
   authorId: string;
   body: string;
-  /** The `DesignChange.id` this comment was left against, when it was left
-   * against one specific declared change rather than the design as a whole.
-   *
-   * Not guaranteed to resolve: an amendment can drop the change id out from
-   * under a comment that named it. A reader that can't resolve it must show
-   * the comment unanchored rather than hide it -- losing the anchor must
-   * never lose the question. */
-  targetChangeId?: string;
+  /** Absent for a comment on the design as a whole. */
+  anchor?: CommentAnchor;
+  /** The design's `scopeVersion` when the comment was left. Behind the
+   * design's current one means the design was edited since. */
+  designVersion: number;
   status: DesignCommentStatus;
-  agentAnsweredAt?: number;
-  escalatedAt?: number;
-  escalatedBy?: string;
-  /** Set once the design's owner (or their agent, by running `twing design
-   * comments`) has seen the escalation. Distinct from `resolvedAt`:
-   * acknowledging is "I have seen this", resolving is "this is settled". */
-  acknowledgedAt?: number;
   resolvedAt?: number;
   resolvedBy?: string;
   createdAt: number;
@@ -409,9 +409,6 @@ export interface DesignComment {
 
 export interface DesignCommentReply {
   commentId: string;
-  authorKind: CommentAuthorKind;
-  /** Absent for the coordinator's own first-pass answer, which no developer
-   * authored. */
   authorId?: string;
   message: string;
   ts: number;

@@ -164,6 +164,72 @@ describe("WorkView (desktop baseline)", () => {
     expect(screen.queryByText("Completely unrelated")).not.toBeInTheDocument();
   });
 
+  // A `--group`-linked chain renders one panel per member, because comments
+  // and declared changes are per design. Until now those panels carried no
+  // name, status or date, so four designs read as one panel rendered four
+  // times -- see MemberPanel.
+  describe("a linked group's stacked member panels", () => {
+    const linked = [
+      design({ id: "d-1", groupId: "g-1", summary: "Add enforced release workflows", status: "flagged" }),
+      design({ id: "d-2", groupId: "g-1", summary: "Make Codex trust tests independent", status: "open" }),
+    ];
+
+    it("names every member, not just the one the header uses", async () => {
+      stubApi(linked);
+      const { container } = renderWork();
+      await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBeGreaterThan(0));
+      const pane = detailPane(container);
+      // Both summaries reachable without expanding anything. The header shows
+      // only `members[0]`, so the second one is the regression this pins.
+      expect(within(pane).getAllByText("Add enforced release workflows").length).toBeGreaterThan(0);
+      expect(within(pane).getAllByText("Make Codex trust tests independent").length).toBeGreaterThan(0);
+    });
+
+    it("shows each member's own status", async () => {
+      stubApi(linked);
+      const { container } = renderWork();
+      await waitFor(() => expect(container.querySelectorAll(".member-panel-heading").length).toBeGreaterThan(0));
+      const headings = Array.from(container.querySelectorAll(".member-panel-heading")).map((h) => h.textContent ?? "");
+      expect(headings.some((h) => h.includes("flagged"))).toBe(true);
+      expect(headings.some((h) => h.includes("open"))).toBe(true);
+    });
+
+    it("says how many designs are linked", async () => {
+      stubApi(linked);
+      const { container } = renderWork();
+      await waitFor(() => expect(within(detailPane(container)).getByText(/2 linked designs/i)).toBeInTheDocument());
+    });
+
+    // The common case, and the one that must not regress: a lone design keeps
+    // the bare rendering it has always had.
+    it("labels nothing when the group has one member", async () => {
+      stubApi([design()]);
+      const { container } = renderWork();
+      await waitFor(() => expect(container.querySelector(".work-detail-changes")).toBeInTheDocument());
+      expect(container.querySelector(".member-panel")).not.toBeInTheDocument();
+      expect(within(detailPane(container)).queryByText(/linked designs/i)).not.toBeInTheDocument();
+    });
+
+    // The badge is a cross-repo label (that is what groupId is for). Within one
+    // repo it repeated the header's own repo once per member, which was most of
+    // what read as duplication.
+    it("omits the repo badge when every member is in the same repo", async () => {
+      stubApi(linked);
+      const { container } = renderWork(["proj-1", "proj-2"]);
+      await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBeGreaterThan(0));
+      for (const panel of container.querySelectorAll(".member-panel-heading")) {
+        expect(panel.querySelector(".repo-badge")).toBeNull();
+      }
+    });
+
+    it("keeps the repo badge when the group really does span repos", async () => {
+      stubApi([linked[0], design({ id: "d-2", groupId: "g-1", projectId: "proj-2", summary: "Sibling in another repo" })]);
+      const { container } = renderWork(["proj-1", "proj-2"]);
+      await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBeGreaterThan(0));
+      expect(container.querySelector(".member-panel-heading .repo-badge")).toBeInTheDocument();
+    });
+  });
+
   it("renders the detail tab strip for the selected design", async () => {
     stubApi([design()]);
     const { container } = renderWork();

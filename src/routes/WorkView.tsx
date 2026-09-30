@@ -10,6 +10,7 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
+import { MemberPanel } from "../components/MemberPanel.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -553,6 +554,9 @@ function DesignDetailPane({
   // already uses, just counted per member instead of collapsed to a
   // boolean.
   const conflictMemberCount = group.members.filter((m) => m.status === "flagged" || findSemanticOverlapThread(openThreads, m.id) || flags.anyUnresolvedWarning).length;
+  /** Every member's declared changes, for the group-level stat tiles. A group
+   * of one yields exactly `primary.changes`, so the common case is unchanged. */
+  const groupChanges = group.members.flatMap((m) => m.changes ?? []);
 
   const activityState = useAsyncData(
     () =>
@@ -649,9 +653,18 @@ function DesignDetailPane({
                 works in. Inside the review scope along with the rest: a
                 declared change is as commentable as the summary above it. */}
             <div className="work-detail-changes">
-              {hasStructuredChanges(primary.changes) && (
+              {/* Says up front that this row is several linked designs, so the
+                  stacked panels below read as a list of designs rather than as
+                  one design's content repeated. Absent for a group of one --
+                  the overwhelmingly common case, unchanged. */}
+              {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
+              {/* Counted across every member, not just `primary`: with one
+                  labelled panel per design below, tiles describing only the
+                  first would be a headline number for a fraction of what
+                  follows. Identical to `primary.changes` for a group of one. */}
+              {hasStructuredChanges(groupChanges) && (
                 <div className="work-change-grid">
-                  {changeTiles(primary.changes).map((t) => (
+                  {changeTiles(groupChanges).map((t) => (
                     <div key={t.label} className="work-change-stat">
                       <div className="n">{t.n}</div>
                       <div className="l">{t.label}</div>
@@ -659,15 +672,19 @@ function DesignDetailPane({
                   ))}
                 </div>
               )}
+
+              {/* One labelled panel per member, so a linked group's stacked
+                  changes read as several designs rather than as one design's
+                  content repeated. Only the declared changes sit in the panel
+                  now: the discussion that used to share it became the review
+                  rail, which spans the whole tab and is handed every member
+                  (`designs={group.members}`), so it says which design a
+                  comment is against itself rather than needing a panel to say
+                  it. */}
               {group.members.map((member) => (
-                <div key={member.id}>
-                  {showRepoBadge && (
-                    <div className="repo-badge-row">
-                      <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                    </div>
-                  )}
+                <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                   <MemberChanges member={member} />
-                </div>
+                </MemberPanel>
               ))}
             </div>
           </div>
@@ -680,14 +697,9 @@ function DesignDetailPane({
       {tab === "ask" && (
         <div className="work-tab-panel">
           {group.members.map((member) => (
-            <div key={member.id}>
-              {showRepoBadge && (
-                <div className="repo-badge-row">
-                  <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                </div>
-              )}
+            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
               <DesignChat design={member} readOnly={readOnly} />
-            </div>
+            </MemberPanel>
           ))}
         </div>
       )}
@@ -700,16 +712,11 @@ function DesignDetailPane({
               ? { thread: semanticThread, counterpart: designsById[semanticThread.initiatingDesignId === member.id ? semanticThread.designId! : semanticThread.initiatingDesignId!] }
               : undefined;
             return (
-              <div key={member.id}>
-                {showRepoBadge && (
-                  <div className="repo-badge-row">
-                    <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                  </div>
-                )}
+              <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
                 <LatestCheckOutcome design={member} />
                 {semanticOverlap && <SemanticOverlapNote overlap={semanticOverlap} onOpenDesign={onOpenDesign} />}
                 <ResolveActions design={member} onResolved={onResolved} readOnly={readOnly} />
-              </div>
+              </MemberPanel>
             );
           })}
         </div>

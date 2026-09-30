@@ -61,9 +61,10 @@ function detailPane(container: HTMLElement): HTMLElement {
   return container.querySelector(".work-pane-detail") as HTMLElement;
 }
 
-/** Which design the detail pane is showing. The summary appears twice in
- * that pane -- as the title and again in the Overview body -- so "is this
- * design open" has to ask the title rather than the pane as a whole. */
+/** Which design the detail pane is showing. Asks the title specifically
+ * rather than the pane as a whole: the pane also holds the rest of the
+ * summary, the declared changes and the discussion, any of which can quote
+ * the same words back. */
 function openDesignTitle(container: HTMLElement): string {
   return container.querySelector(".work-detail-title")?.textContent?.trim() ?? "";
 }
@@ -115,6 +116,60 @@ describe("WorkView (desktop baseline)", () => {
     // goes stale.
     await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
     expect(within(detailPane(container)).queryByText(/select a design to see its details/i)).not.toBeInTheDocument();
+  });
+
+  // The detail pane used to print a design's opening sentence twice: once
+  // ellipsised into the title, once in full as the first thing under "What
+  // this design says it's doing". Both halves of the fix are pinned here --
+  // the title carries the first point, and the body carries only what's
+  // left of the summary.
+  describe("detail pane summary", () => {
+    it("shows a single-sentence summary once, with no empty overview section under it", async () => {
+      stubApi([design()]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
+
+      const pane = detailPane(container);
+      expect(within(pane).getAllByText("Add retry backoff to the sync client")).toHaveLength(1);
+      expect(within(pane).queryByText(/what this design says it/i)).not.toBeInTheDocument();
+    });
+
+    it("puts the first point in the title and only the remaining ones in the body", async () => {
+      const summary = "Record the group a design was born into, so a stacked design is attributable.\n\nUpdate (2026-09-29): also bump the packages so this ships under a version that identifies it.";
+      stubApi([design({ summary })]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Record the group a design was born into, so a stacked design is attributable."));
+
+      const pane = detailPane(container);
+      // The headline is in the title and nowhere else in the pane...
+      expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
+      // ...and the amendment, which the title can't show, is still readable.
+      expect(within(pane).getByText(/also bump the packages/)).toBeInTheDocument();
+    });
+  });
+
+  // The pane used to state a design's status, its section and its conflict
+  // count without ever saying what any of it meant you should do.
+  describe("detail pane verdict", () => {
+    it("leads with what a flagged design needs, on every tab", async () => {
+      stubApi([design({ status: "flagged" })]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
+
+      const pane = detailPane(container);
+      expect(within(pane).getByText(/needs a decision/i)).toBeInTheDocument();
+
+      // Sits above the tab strip, so switching tabs doesn't hide it.
+      await userEvent.click(within(pane).getByRole("button", { name: "Activity" }));
+      await waitFor(() => expect(within(detailPane(container)).getByText(/needs a decision/i)).toBeInTheDocument());
+    });
+
+    it("stays silent on a design with nothing wrong", async () => {
+      stubApi([design()]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe("Add retry backoff to the sync client"));
+      expect(detailPane(container).querySelector(".work-verdict")).not.toBeInTheDocument();
+    });
   });
 
   it("shows both panes at once", async () => {
@@ -251,7 +306,11 @@ describe("WorkView (desktop baseline)", () => {
   });
 
   it("shows the declared scope in Overview, with no tab to click", async () => {
-    stubApi([design()]);
+    // Two points on purpose. The header takes the first and the body renders
+    // what's left, so a one-sentence summary (the bare `design()` fixture)
+    // renders no summary block at all, and there would be no "above" for the
+    // ordering assertion below to mean anything against.
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
     const { container } = renderWork();
     // The fixture declares `touches` and no structured `changes`, and the stub
     // answers /v1/claims with an empty page -- so this is the legacy
@@ -261,9 +320,7 @@ describe("WorkView (desktop baseline)", () => {
     expect(changes).toBeInTheDocument();
 
     // Order is the point of the merge, not just presence: what it changes
-    // reads after the summary saying what it's doing. Anchored on the
-    // summary's review block rather than `.summary-bullets`, which only
-    // renders when the summary splits into more than one point.
+    // reads after the summary saying what it's doing.
     // DOCUMENT_POSITION_FOLLOWING (4) means the changes come after.
     const summary = container.querySelector('[data-field="summary"]')!;
     expect(summary.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -272,6 +329,24 @@ describe("WorkView (desktop baseline)", () => {
     // change has to be highlightable like the summary is, which only holds
     // while it renders within `DesignReview`'s content side.
     expect(container.querySelector(".review-content")).toContainElement(changes as HTMLElement);
+  });
+
+  // The seam between the de-duplicated header and anchored review comments:
+  // the body renders `points` minus the one the header took, so a bullet's
+  // highlight offset has to be read one further along the unsliced list. Off
+  // by one here and every summary comment resolves against the wrong bullet --
+  // silently, with nothing failing anywhere.
+  it("offsets a body bullet past the point the header took", async () => {
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector('[data-field="summary"]')).toBeInTheDocument());
+
+    const blocks = Array.from(container.querySelectorAll('.summary-bullets [data-field="summary"]'));
+    expect(blocks).toHaveLength(1);
+    // The header shows the first point, so the single body bullet is the
+    // second -- its offset must be where that sentence actually starts, not 0.
+    expect(blocks[0].textContent).toContain("Cap the delay");
+    expect(Number(blocks[0].getAttribute("data-offset"))).toBeGreaterThan(0);
   });
 
   // The panes are replaced wholesale by an error message -- worth pinning,

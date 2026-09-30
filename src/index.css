@@ -364,10 +364,18 @@ button {
   margin-bottom: 18px;
 }
 
+/* Same neutral palette as `.repo-badge`, which labels the same thing (which
+   repo a row belongs to) further down the page -- these were accent-pink,
+   which made a row of inert labels the loudest element on the screen and
+   left it competing with the conflict badges for the eye. Pink now means
+   brand and selection; severity owns red and amber. Kept a separate rule
+   from `.repo-badge` rather than merged: this one sits in the top bar at a
+   larger size with its own padding, and `.repo-badge` carries flex
+   behaviour that only makes sense inside a row. */
 .repo-chip {
   display: inline-flex;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--border);
+  color: var(--text-dim);
   border-radius: 100px;
   padding: 4px 12px;
   font-size: 0.8rem;
@@ -678,17 +686,35 @@ button {
   color: var(--danger);
 }
 
-.work-section-heading .n {
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 1px 7px;
-  font-size: 0.66rem;
+/* Reveals the rest of an already-loaded section from inside its own
+   heading. Sits opposite the label so the three sections' expanders line
+   up down one edge instead of interrupting the list as three full-width
+   buttons -- which, alongside the server-side "Load older", put four
+   near-identical controls on one screen. */
+.section-expand {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.section-expand:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* Reveals the rest of an already-loaded section (Conflicts/In progress/
    Resolved each cap at SECTION_PAGE_SIZE) -- distinct from .load-more-button,
-   which fetches an older page from the server. */
+   which fetches an older page from the server. Only rendered under an
+   active filter pill now, where there's no section heading to host the
+   expander above. */
 .section-load-more-button {
   display: block;
   width: calc(100% - 28px);
@@ -743,8 +769,27 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-size: 0.7rem;
   color: var(--text-dim);
+}
+
+/* The developer id is the only elastic thing in the row -- it's a raw
+   address (often a ~50-char GitHub noreply one), so without this it sets
+   the row's intrinsic width and shoves the timestamp onto a second line
+   and the severity badge off the pane edge. Everything else in the meta
+   row is short and fixed, so it all refuses to shrink and this absorbs
+   the overflow instead. */
+.work-row-meta .dev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-row-meta .sep {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .work-row-meta .sep::before {
@@ -774,11 +819,23 @@ button {
 }
 
 .work-badge {
+  flex-shrink: 0;
   font-size: 0.62rem;
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 100px;
   margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Three severities, three weights. `flagged` (the coordinator blocked this
+   design) and `overlap` (two designs touch the same ground, advisory) both
+   rendered as the same tinted red, so the one that needs a decision looked
+   identical to the one that just needs reading. Solid fill matches
+   `.work-tab .tab-count`, the other place a blocking count is shown. */
+.work-badge.flagged {
+  background: var(--danger);
+  color: #fff;
 }
 
 .work-badge.conflict {
@@ -807,15 +864,51 @@ button {
   flex-wrap: wrap;
 }
 
+/* Wraps rather than ellipsising on one line. A design's headline is the
+   whole thing a reviewer is here to judge, and the pane is wide enough to
+   hold it -- a single line clipped it at roughly half its length while the
+   rest of the same sentence sat directly underneath in the summary. Clamped
+   to three lines for the rare runaway; `title` holds the full text. */
 .work-detail-title {
   font-size: 1.2rem;
   font-weight: 800;
   line-height: 1.35;
   flex: 1 1 100%;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+/* The pane's one-line answer to "what do I do about this". Only rendered
+   when there's something to say (see `designVerdict`), so it can afford to
+   be loud -- a bar that's present on every design would stop being read on
+   the ones that matter. Text stays on `--text` rather than the tone
+   colour: this is a full sentence at body size, not a chip. */
+.work-verdict {
+  border-left: 3px solid;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.work-verdict b {
+  font-weight: 800;
+}
+
+.work-verdict.critical {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.work-verdict.warn {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
 }
 
 .work-detail-meta {
@@ -989,6 +1082,15 @@ button {
   border-radius: 10px;
   padding: 12px 14px;
   background: var(--surface-hover);
+}
+
+/* A reach flag rather than a count. Tinted and bordered amber so it reads
+   as a warning at a glance, but the text itself stays on the default
+   near-black -- `--warning` on `--warning-bg` is fine for the 0.62rem
+   `.work-badge.warn` chip and not for a tile this size. */
+.work-change-stat.warn {
+  border-color: var(--warning);
+  background: var(--warning-bg);
 }
 
 .work-change-stat .n {

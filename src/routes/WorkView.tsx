@@ -19,6 +19,7 @@ import { relativeTime } from "../lib/time.js";
 import { deriveTitle, toDesignPoints } from "../lib/designTitle.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
+import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
@@ -103,17 +104,22 @@ function designFlags(group: DesignGroup, latestChecks: Map<string, { verdict: st
  * change tab -- same underlying counts `blastRadius` (designConformance.ts)
  * joins into one line for a list row, just kept as separate tiles here since
  * the detail pane has the room for them. */
-function changeTiles(changes: DesignChange[]): { n: string; label: string }[] {
+function changeTiles(changes: DesignChange[]): { n: string; label: string; tone?: "warn" }[] {
   const files = new Set(changes.map((c) => pathOfTarget(c.target)));
   const renames = changes.filter((c) => c.action === "rename" || c.action === "move").length;
   const kinds = new Set(changes.map(kindOf));
-  const tiles = [
+  const tiles: { n: string; label: string; tone?: "warn" }[] = [
     { n: String(changes.length), label: changes.length === 1 ? "change" : "changes" },
     { n: String(files.size), label: files.size === 1 ? "file" : "files" },
   ];
   if (renames > 0) tiles.push({ n: String(renames), label: renames === 1 ? "rename" : "renames" });
-  if (kinds.has("schema")) tiles.push({ n: "✓", label: "schema" });
-  if (kinds.has("api")) tiles.push({ n: "✓", label: "API" });
+  // Reach, not a count. These used to render as `✓` over "schema"/"API" --
+  // a tick in the same slot that holds "8" beside it, which reads as a check
+  // that passed when the fact is the opposite one: this design reaches a
+  // contract other people's work depends on. Named and toned as a warning
+  // instead, since it's the highest-signal thing in the row when present.
+  if (kinds.has("schema")) tiles.push({ n: "Schema", label: "touched", tone: "warn" });
+  if (kinds.has("api")) tiles.push({ n: "API", label: "touched", tone: "warn" });
   return tiles;
 }
 
@@ -121,6 +127,46 @@ function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boo
   if (primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap) return "attention";
   if (primary.status === "closed" || primary.status === "superseded" || primary.status === "expired") return "resolved";
   return "progress";
+}
+
+/**
+ * The one-line answer to "so what do I do about this design", for the top
+ * of the detail pane.
+ *
+ * Reads the same three inputs as `sectionFor`, in the same order, on
+ * purpose: a pane that said "nothing to do" while the list had filed the
+ * row under Conflicts would be worse than the silence it replaces. If it
+ * renders, the row is in the attention section, and vice versa.
+ *
+ * Labels and explanations come from `conflictKindInfo` rather than being
+ * written again here -- that module exists specifically because four
+ * copies of this vocabulary had already drifted apart (see its doc
+ * comment), and a banner is not the place to start a fifth.
+ *
+ * Returns null for a design with nothing wrong. A "nothing to do" note on
+ * every healthy design would train people to skip the banner on the ones
+ * where it says something.
+ */
+function designVerdict(
+  primary: DesignStatement,
+  flags: { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean },
+): { tone: "critical" | "warn"; label: string; text: string } | null {
+  // `flagged` is the coordinator's own block. It can come from more than
+  // one bucket and the status alone doesn't say which, so this points at
+  // the Conflict tab -- which fetches the verdict and names it -- instead
+  // of guessing a bucket here.
+  if (primary.status === "flagged") {
+    return { tone: "critical", label: "Needs a decision.", text: "This design is flagged and won't clear until someone resolves it. The Conflict tab has the specifics." };
+  }
+  if (flags.anySemanticOverlap) {
+    const info = conflictKindInfo("llm_divergence");
+    return { tone: "critical", label: `${info.label}.`, text: `${info.explanation} Worth settling before more of this gets built.` };
+  }
+  if (flags.anyUnresolvedWarning) {
+    const info = conflictKindInfo("file_overlap");
+    return { tone: "warn", label: `${info.label}.`, text: info.explanation };
+  }
+  return null;
 }
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
@@ -391,9 +437,19 @@ export function WorkView({
               const remaining = inSection.length - shown.length;
               return (
                 <div key={section}>
+                  {/* No count here: the filter pill directly above this
+                      carries the same number for the same set, and the two
+                      sat close enough to read as one control repeated. The
+                      heading earns its place as a scroll landmark, so it
+                      keeps the label and hosts the expander. */}
                   {pill === "all" && (
                     <div className={`work-section-heading${section === "attention" ? " attention" : ""}`}>
-                      {SECTION_HEADING[section]} <span className="n">{inSection.length}</span>
+                      {SECTION_HEADING[section]}
+                      {remaining > 0 && (
+                        <button type="button" className="section-expand" onClick={() => setExpandedSections((prev) => ({ ...prev, [section]: true }))}>
+                          +{remaining} more
+                        </button>
+                      )}
                     </div>
                   )}
                   {shown.map(({ group, primary, flags, section: rowSection }) => (
@@ -407,15 +463,20 @@ export function WorkView({
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
-                        <span>{primary.developerId}</span>
+                        <span className="dev">{primary.developerId}</span>
                         <span className="sep">{relativeTime(primary.lastActivityAt)}</span>
-                        {primary.status === "flagged" && <span className="work-badge conflict">flagged</span>}
+                        {primary.status === "flagged" && <span className="work-badge flagged">flagged</span>}
                         {primary.status !== "flagged" && flags.anySemanticOverlap && <span className="work-badge conflict">overlap</span>}
                         {primary.status !== "flagged" && !flags.anySemanticOverlap && flags.anyUnresolvedWarning && <span className="work-badge warn">file overlap</span>}
                       </div>
                     </button>
                   ))}
-                  {remaining > 0 && (
+                  {/* Only when a pill is active, since then there's no
+                      heading to hang the expander off -- and only one
+                      section is on screen, so it's one button rather than
+                      the three that used to stack up in the "all" view
+                      alongside the server-side "Load older". */}
+                  {pill !== "all" && remaining > 0 && (
                     <button
                       type="button"
                       className="section-load-more-button"
@@ -545,8 +606,20 @@ function DesignDetailPane({
   const primary = group.members[0];
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
+  // The header takes the design's own first point, and the summary below
+  // takes what's left. Previously both started from the same sentence: the
+  // header ellipsised it, then the first bullet printed it again in full
+  // directly underneath -- and a design with nothing to split printed its
+  // summary verbatim twice. `deriveTitle` still covers that unsplittable
+  // case, where it's the only thing that can shorten the text at all.
+  const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary);
+  const restPoints = points.slice(1);
+  const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
+  const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
-  // the whole summary lands on the right bullet.
+  // the whole summary lands on the right bullet. Indexed against `points`,
+  // which still holds the one the header took -- see where the bullets
+  // render for why that matters.
   const pointOffsets = bulletOffsets(primary.summary, points);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
@@ -570,7 +643,7 @@ function DesignDetailPane({
     <>
       <div className="work-detail-header">
         <div className="work-detail-title" title={primary.summary}>
-          {deriveTitle(primary.summary)}
+          {headline}
         </div>
         <div className="work-detail-meta">
           {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
@@ -581,6 +654,15 @@ function DesignDetailPane({
           <span className={`status-badge tone-neutral`}>{primary.status}</span>
         </div>
       </div>
+
+      {/* Above the tabs rather than inside Overview: the thing this design
+          needs from you doesn't stop being true because you clicked
+          Activity. */}
+      {verdict && (
+        <div className={`work-verdict ${verdict.tone}`} role="status">
+          <b>{verdict.label}</b> {verdict.text}
+        </div>
+      )}
 
       <div className="work-tabs">
         <button type="button" className={`work-tab${tab === "overview" ? " active" : ""}`} onClick={() => onTabChange("overview")}>
@@ -608,19 +690,31 @@ function DesignDetailPane({
       {tab === "overview" && (
         <DesignReview designs={group.members} readOnly={readOnly}>
           <div className="work-tab-panel">
-            <h3>What this design says it&rsquo;s doing</h3>
-            {points.length > 0 ? (
-              <ul className="summary-bullets">
-                {points.map((line, i) => (
-                  <li key={i}>
-                    <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i]} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>
-                <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
-              </p>
+            {/* Nothing to render at all when the headline above was the whole
+                summary -- an empty heading over a repeat of the title is worse
+                than no section. */}
+            {(restPoints.length > 0 || showProse) && (
+              <>
+                <h3>What this design says it&rsquo;s doing</h3>
+                {restPoints.length > 0 ? (
+                  <ul className="summary-bullets">
+                    {restPoints.map((line, i) => (
+                      <li key={i}>
+                        {/* `restPoints` is `points` minus the one the header
+                            took, so bullet `i` is point `i + 1`. The offset has
+                            to be read at that index in the unsliced list, or
+                            every highlight anchored in the summary resolves one
+                            bullet early. */}
+                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+                  </p>
+                )}
+              </>
             )}
 
             {/* Collapsed by default, on purpose: `summary` above is already an
@@ -665,7 +759,11 @@ function DesignDetailPane({
               {hasStructuredChanges(groupChanges) && (
                 <div className="work-change-grid">
                   {changeTiles(groupChanges).map((t) => (
-                    <div key={t.label} className="work-change-stat">
+                    /* Keyed on value *and* label: "Schema touched" and "API
+                       touched" share a label, so the label alone stopped being
+                       unique once those two became named warnings rather than
+                       ticks. */
+                    <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
                       <div className="n">{t.n}</div>
                       <div className="l">{t.label}</div>
                     </div>

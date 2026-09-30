@@ -27,12 +27,23 @@
   --text-dim: #5b5868;
   --accent: #ff5c7a;
   --accent-dim: #ffe3e9;
+  /* The same hue as --accent, dark enough to be read. --accent itself is a
+     fill and border colour: on the cream background it measures 2.92:1,
+     where WCAG AA asks 4.5:1 for text this size, and every accent-coloured
+     label in this app is 0.72-0.8rem. This is 4.52:1 on --bg and 4.60:1 on
+     --surface. Use it for `color`, never for `background` or
+     `border-color` -- those are still the brand pink. */
+  --accent-text: #eb002b;
   --danger: #d9483f;
   --danger-bg: #fbe4e1;
   --good: #1e8f63;
   --good-bg: #e1f5ea;
   --warning: #d98e0a;
   --warning-bg: #fff1d6;
+  /* Same story for the warn chip: --warning on --warning-bg is 2.40:1.
+     This is 4.52:1 on that tint. The stat tile already worked around the
+     old value by keeping its text near-black. */
+  --warning-text: #986407;
   --font-display: "Quicksand", ui-rounded, "SF Pro Rounded", var(--font-body);
   --font-body: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
@@ -300,7 +311,7 @@ button {
   padding: 3px 8px;
   border-radius: 100px;
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .repo-card-meta {
@@ -499,7 +510,7 @@ button {
 
 .icon-btn.active {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-dim);
 }
 
@@ -845,7 +856,7 @@ button {
 
 .work-badge.warn {
   background: var(--warning-bg);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .work-pane-detail {
@@ -1257,7 +1268,7 @@ button {
 
 .see-all {
   font-size: 0.78rem;
-  color: var(--accent);
+  color: var(--accent-text);
   background: none;
   border: none;
   cursor: pointer;
@@ -1516,7 +1527,7 @@ li:first-child > .preview-row {
 
 .status-badge.tone-accent {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .status-badge.tone-good {
@@ -1703,7 +1714,7 @@ li:first-child > .preview-row {
 
 .link-chip-accent {
   font-family: var(--font-body);
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: none;
 }
 
@@ -1716,7 +1727,7 @@ li:first-child > .preview-row {
   align-items: center;
   gap: 6px;
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: 100px;
   padding: 4px 6px 4px 12px;
   font-size: 0.8rem;
@@ -1885,7 +1896,7 @@ li:first-child > .preview-row {
 }
 
 .resolve-pending h3 {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .resolve-pending-note {
@@ -2080,7 +2091,7 @@ li:first-child > .preview-row {
 .kind-hint {
   flex: none;
   font-size: 0.72rem;
-  color: var(--accent);
+  color: var(--accent-text);
   text-transform: lowercase;
 }
 
@@ -2174,7 +2185,7 @@ li:first-child > .preview-row {
 .action-rename,
 .action-move {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .change-target {
@@ -2636,7 +2647,7 @@ li:first-child > .preview-row {
   background: none;
   padding: 0;
   margin-left: 4px;
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -3040,7 +3051,7 @@ li:first-child > .preview-row {
 }
 
 .chat-turn-reviewer .chat-turn-meta span:first-child {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .chat-turn-agent .chat-turn-meta span:first-child {

@@ -615,10 +615,9 @@ function DesignDetailPane({
           {/* Collapsed by default, on purpose: `summary` above is already an
               LLM-generated paraphrase of this, produced once at registration
               (design-extract.ts) -- most readers want that, not the raw
-              plan. Only present at all for an ExitPlanMode registration
-              (never set on a structured/plain one, DesignStatement's own
-              doc comment), so a member with none renders nothing rather
-              than an empty toggle. */}
+              plan. Every design carries its plan here -- an ExitPlanMode plan
+              or a template's `plan:`; the coordinator refuses to register one
+              without (2026-09-29). */}
           {group.members.some((m) => m.rawPlanExcerpt) && (
             <div className="work-raw-plans">
               {group.members

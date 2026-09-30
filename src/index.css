@@ -2802,10 +2802,19 @@ li:first-child > .preview-row {
   cursor: default;
 }
 
+/* Same problem `.work-row-meta .dev` has -- a raw address, often a ~50-char
+   GitHub noreply one -- but the opposite answer. A flex item won't shrink
+   below its content's min-content width, and an unbroken address has a large
+   one, so in a rail capped at 320px it ran past the card edge and lost its
+   domain. The row ellipsises because it's a dense one-line scan target; a
+   comment card has the room, and who left a comment is worth reading in
+   full, so this wraps instead. */
 .comment-author {
   font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--text-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .comment-meta {

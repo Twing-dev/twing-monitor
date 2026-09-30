@@ -283,6 +283,45 @@ describe("WorkView (desktop baseline)", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't load/i));
     expect(container.querySelector(".work-body")).not.toBeInTheDocument();
   });
+
+  // Found live: a design registered for two repos showed its plan once when
+  // picked from the list and twice, unlabelled, after a refresh. The list
+  // only loads the selected repo, so the other repo's half arrived only via
+  // a focus link's lookup. Selecting a design now always loads its linked
+  // designs, and a plan they share is shown once, labelled with each repo.
+  it("shows a design's linked designs from other repos however it was selected, with a shared plan once", async () => {
+    const plan = "# Design review v2\n\nComments are answered by people.";
+    const here = design({ id: "d-monitor", groupId: "g-1", rawPlanExcerpt: plan });
+    const there = design({ id: "d-cli", groupId: "g-1", projectId: "proj-cli", rawPlanExcerpt: plan });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: [here] }), { status: 200 });
+        if (/\/v1\/designs\/d-monitor(?:$|\?)/.test(url)) {
+          return new Response(JSON.stringify({ design: here, groupMembers: [there] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+    const { container } = render(
+      <ServerProvider>
+        <WorkView
+          projectIds={["proj-1"]}
+          projectsById={{ "proj-1": { projectId: "proj-1", orgId: "o", role: "admin", githubOwner: "acme", githubRepo: "monitor" } }}
+          query=""
+          onQueryChange={() => {}}
+        />
+      </ServerProvider>,
+    );
+
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("2 linked designs"));
+    const plans = detailPane(container).querySelector(".work-raw-plans") as HTMLElement;
+    expect(plans.querySelectorAll(".work-raw-plan"), "one plan, not one per linked design").toHaveLength(1);
+    expect(plans).toHaveTextContent("acme/monitor");
+    expect(plans).toHaveTextContent("proj-cli");
+  });
 });
 
 /**

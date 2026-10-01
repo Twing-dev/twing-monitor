@@ -283,6 +283,33 @@ describe("WorkView (desktop baseline)", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/couldn't load/i));
     expect(container.querySelector(".work-body")).not.toBeInTheDocument();
   });
+
+  // Found live: twing-monitor has 291 designs, 13 of them in progress, and
+  // the list loaded only the 20 most recently created -- so it showed 5 of
+  // the 13 (every dormant one sat on a later page) and counted 5. Active
+  // designs are few and are the point of the screen; they are loaded in
+  // full, and only the resolved history is paged.
+  it("shows every active design, however far back it was created, without loading older history", async () => {
+    const history = Array.from({ length: 20 }, (_, i) => design({ id: `closed-${i}`, status: "closed", summary: `Finished work ${i}`, createdAt: 2000 + i, lastActivityAt: 2000 + i }));
+    const oldOpen = design({ id: "old-open", status: "dormant", summary: "Long-running work started weeks ago", createdAt: 1000, lastActivityAt: 1000 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/designs") {
+          const status = url.searchParams.get("status");
+          if (!status) return new Response(JSON.stringify({ items: history, nextBefore: 2000 }), { status: 200 });
+          return new Response(JSON.stringify({ items: status === "dormant" ? [oldOpen] : [] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    const { container } = renderWork();
+
+    await waitFor(() => expect(listPane(container)).toHaveTextContent("Long-running work started weeks ago"));
+    const progress = [...container.querySelectorAll(".work-section-heading")].find((h) => h.textContent?.startsWith("In progress"));
+    expect(progress?.textContent).toMatch(/1$/);
+  });
 });
 
 /**

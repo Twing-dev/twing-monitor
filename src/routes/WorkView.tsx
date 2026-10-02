@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById } from "../api/designs.js";
+import { useAuth } from "../auth/useAuth.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -18,7 +19,9 @@ import { DesignReview, HighlightableText, useHasReviewAnchors } from "../compone
 import { DesignChat } from "../components/DesignChat.js";
 import { bulletOffsets } from "../lib/reviewAnchors.js";
 import { relativeTime } from "../lib/time.js";
-import { deriveTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
+import { designTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
+import { hasMarkdownStructure } from "../lib/markdown.js";
+import { Markdown } from "../components/Markdown.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
@@ -514,7 +517,7 @@ export function WorkView({
                       className={`work-row${selectedKey === group.key ? " selected" : ""}`}
                       onClick={() => selectRow(group.key)}
                     >
-                      <div className="work-row-summary">{deriveTitle(primary.summary)}</div>
+                      <div className="work-row-summary">{designTitle(primary)}</div>
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
@@ -588,6 +591,98 @@ export function WorkView({
  * code match the plan") has to be checked per member rather than once for
  * the group. Mirrors DesignDetail's own top-level claims fetch, just scoped
  * to whichever member this is. */
+/**
+ * The owner's inline editor for a design's title and overview (2026-10-02).
+ *
+ * Edits the **raw `summary`**, not the bullets the Overview tab renders:
+ * `toDesignPoints` splits on sentence and blank-line boundaries, so
+ * round-tripping its output would quietly reflow the owner's paragraphs.
+ *
+ * Only ever rendered when the viewer owns the design and the view is not
+ * read-only (see `isOwner` at its call site); the server's own owner check
+ * is the actual enforcement, so a stale client can't write anything here.
+ *
+ * `title` is sent as `null` when the field is emptied, which is the server's
+ * "clear it" instruction -- distinct from omitting it, which means "leave it
+ * alone". That's what makes the field's placeholder honest: clearing it
+ * really does restore the derived title rather than storing a blank one.
+ */
+function OverviewEditor({ design, onCancel, onSaved }: { design: DesignStatement; onCancel: () => void; onSaved: () => void }) {
+  const apiFetch = useApiFetch();
+  const [title, setTitle] = useState(design.title ?? "");
+  const [summary, setSummary] = useState(design.summary ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [pane, setPane] = useState<"write" | "preview">("write");
+
+  const trimmedSummary = summary.trim();
+  const trimmedTitle = title.trim();
+  const summaryChanged = trimmedSummary !== (design.summary ?? "").trim();
+  const titleChanged = trimmedTitle !== (design.title ?? "").trim();
+  // A blank summary is the one thing the server refuses outright, so the
+  // button is disabled rather than letting the request round-trip to a 400.
+  const canSave = trimmedSummary.length > 0 && (summaryChanged || titleChanged) && !saving;
+
+  async function save() {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await reviseDesignOverview(apiFetch, design.id, {
+        // Only send what actually changed: an unchanged field would still
+        // count as a revision server-side and bump the counter for nothing.
+        ...(titleChanged ? { title: trimmedTitle.length > 0 ? trimmedTitle : null } : {}),
+        ...(summaryChanged ? { summary: trimmedSummary } : {}),
+      });
+      onSaved();
+    } catch (e) {
+      // Includes the 404 an older coordinator returns for this route -- the
+      // server ships before the dashboard, but a mixed deploy shouldn't look
+      // like a silent no-op.
+      setError(e instanceof ApiError ? e.message : "could not save -- try again");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overview-editor">
+      <label className="overview-editor-field">
+        <span>Title</span>
+        <input type="text" value={title} maxLength={120} placeholder="Leave empty to derive one from the overview" onChange={(e) => setTitle(e.target.value)} />
+      </label>
+      <div className="overview-editor-field">
+        {/* Write/Preview, after GitHub -- a bare textarea gives no way to tell
+            what the saved text will look like, which matters now that the
+            overview is markdown rather than auto-bulleted prose. The preview
+            uses the same renderer the Overview tab does, minus the review
+            wiring: there is nothing to comment on in a draft. */}
+        <div className="overview-editor-tabs">
+          <button type="button" className={`overview-editor-tab${pane === "write" ? " active" : ""}`} onClick={() => setPane("write")}>
+            Write
+          </button>
+          <button type="button" className={`overview-editor-tab${pane === "preview" ? " active" : ""}`} onClick={() => setPane("preview")}>
+            Preview
+          </button>
+          <span className="overview-editor-hint"># heading &nbsp;·&nbsp; - list &nbsp;·&nbsp; &gt; quote &nbsp;·&nbsp; ``` code</span>
+        </div>
+        {pane === "write" ? (
+          <textarea className="overview-editor-source" value={summary} rows={12} spellCheck onChange={(e) => setSummary(e.target.value)} />
+        ) : (
+          <div className="overview-editor-preview">{trimmedSummary.length > 0 ? <Markdown source={summary} /> : <p className="overview-editor-empty">Nothing to preview yet.</p>}</div>
+        )}
+      </div>
+      {error && <p className="overview-editor-error">{error}</p>}
+      <div className="overview-editor-actions">
+        <button type="button" className="overview-editor-cancel" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+        <button type="button" className="overview-editor-save" onClick={save} disabled={!canSave}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** A member's original plan text -- collapsed, since the summary above is
  * the paraphrase most readers want, but opened by itself (once) when an open
  * review comment is anchored in it: a highlight nobody can see is a comment
@@ -658,7 +753,24 @@ function DesignDetailPane({
   readOnly?: boolean;
 }) {
   const apiFetch = useApiFetch();
+  const { auth } = useAuth();
   const primary = group.members[0];
+  // Owner-editable title/overview (2026-10-02). The server is the real gate
+  // (403 for anyone but the owner, project admins included); this only
+  // decides whether to show the affordance. `readOnly` covers /observe,
+  // whose synthetic "public-viewer" identity could never match anyway --
+  // belt and braces, since a public page offering an edit button that always
+  // fails would be worse than not offering one.
+  const isOwner = auth.developerId === primary.developerId;
+  // Which design the open editor belongs to, rather than a bare boolean:
+  // switching rows mid-edit then collapses the form by *derivation*, with no
+  // effect to reset it. A boolean plus a reset effect would leave the next
+  // design showing a form seeded from the previous one's text for one render,
+  // which is exactly the cascading-render case oxlint's set-state-in-effect
+  // rule is pointing at.
+  const [editingId, setEditingId] = useState<string | undefined>();
+  const editing = editingId === primary.id;
+  const setEditing = (open: boolean) => setEditingId(open ? primary.id : undefined);
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
   const points = toDesignPoints(primary.summary);
   // The header takes the design's own first point, and the summary below
@@ -671,11 +783,29 @@ function DesignDetailPane({
   // for a summary that is nowhere else on screen, while this one sits
   // directly above it. At the row's 120 the two were near-identical and the
   // pane read as the same sentence printed twice.
-  const headline = points.length > 0 ? points[0] : deriveTitle(primary.summary, DETAIL_TITLE_CHARS);
-  const restPoints = points.slice(1);
+  // Whether the overview carries block-level structure the author put there
+  // (2026-10-02). Decides markdown-vs-sentence-bullets at the render site
+  // below, and suppresses the header stealing `points[0]`: a markdown body
+  // renders in full, so taking its first line for the header would print
+  // that line twice.
+  const authoredMarkdown = hasMarkdownStructure(primary.summary);
+  // A stored title (2026-10-02) changes this whole block: the header is then
+  // the owner's own words rather than a slice of the summary, so there is
+  // nothing for the body to avoid repeating and the summary renders in full.
+  const headerStandsAlone = Boolean(primary.title?.trim()) || authoredMarkdown;
+  const headline = headerStandsAlone ? designTitle(primary, DETAIL_TITLE_CHARS) : points.length > 0 ? points[0] : designTitle(primary, DETAIL_TITLE_CHARS);
+  // **Keep this in step with `pointOffsets` below.** Without a stored title
+  // the header took `points[0]`, so the body must skip it; with one, dropping
+  // a point would hide a sentence of the design that appears nowhere else.
+  const restPoints = headerStandsAlone ? points : points.slice(1);
+  // Index of `restPoints[0]` within the unsliced `points`, which is what the
+  // bullets' offset lookup has to be shifted by -- 0 when every point
+  // renders, 1 when the header consumed the first.
+  const restPointsOffset = headerStandsAlone ? 0 : 1;
   // Nothing to add when the header already shows the summary in full: a
-  // short one is never clamped, so the body would repeat it exactly.
-  const showProse = points.length === 0 && headline !== (primary.summary ?? "").trim();
+  // short one is never clamped, so the body would repeat it exactly. A stored
+  // title is never the summary, so the prose always has something to say.
+  const showProse = points.length === 0 && (headerStandsAlone || headline !== (primary.summary ?? "").trim());
   const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
   // the whole summary lands on the right bullet. Indexed against `points`,
@@ -755,22 +885,71 @@ function DesignDetailPane({
       {tab === "overview" && (
         <DesignReview designs={group.members} readOnly={readOnly}>
           <div className="work-tab-panel">
+            {editing ? (
+              <OverviewEditor
+                design={primary}
+                onCancel={() => setEditing(false)}
+                onSaved={() => {
+                  setEditing(false);
+                  onResolved();
+                }}
+              />
+            ) : (
+              isOwner &&
+              !readOnly && (
+                <div className="overview-edit-row">
+                  <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
+                    Edit title &amp; overview
+                  </button>
+                </div>
+              )
+            )}
+            {/* No edit provenance in this panel, deliberately (removed
+                2026-10-02, the day it was added). An "Edited by X · 2m ago"
+                line restated what the detail header already says -- the
+                owner's id and `updated 2m ago` are both up there, and only
+                the owner can edit, so "by whom" was never in question. The
+                "view the original overview" disclosure went with it: it was
+                justified as the way to recover wording an `outdated` comment
+                referred to, but such a comment already displays its own
+                quoted text in the review rail, so it answered a question
+                nobody had -- while sitting next to "View original plan text"
+                below with a near-identical label.
+                `overviewRevision`/`summaryExtracted` are still populated and
+                still load-bearing (the guard against a future resynthesis
+                overwriting human text, and Julian's "revised since you
+                commented" marker); a revision's full history, text included,
+                renders in the Activity tab as `design_overview_revised`,
+                which is where "what changed when" belongs. */}
             {/* Nothing to render at all when the header above was the whole
                 summary -- an empty heading over a repeat of the title is worse
                 than no section, and repeating it in full is worse than both. */}
-            {(restPoints.length > 0 || showProse) && (
+            {!editing && (authoredMarkdown || restPoints.length > 0 || showProse) && (
               <>
                 <h3>What this design says it&rsquo;s doing</h3>
-                {restPoints.length > 0 ? (
+                {/* Two renderings, chosen by whether the text has structure in
+                    it (2026-10-02). An author who wrote headings, lists or
+                    several paragraphs gets exactly that back -- splitting
+                    their sentences into bullets would override the structure
+                    they chose. LLM-extracted prose has no structure to
+                    respect and genuinely is an unreadable wall, so it keeps
+                    the sentence-bullet treatment that was built for it. */}
+                {authoredMarkdown ? (
+                  <Markdown source={primary.summary} designId={primary.id} />
+                ) : restPoints.length > 0 ? (
                   <ul className="summary-bullets">
                     {restPoints.map((line, i) => (
                       <li key={i}>
-                        {/* `restPoints` is `points` minus the one the header
-                            took, so bullet `i` is point `i + 1`. The offset has
-                            to be read at that index in the unsliced list, or
-                            every highlight anchored in the summary resolves one
-                            bullet early. */}
-                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + 1]} />
+                        {/* The offset has to be read at this bullet's index in
+                            the *unsliced* `points`, or every highlight anchored
+                            in the summary resolves one bullet early.
+                            `restPointsOffset` is that shift: 1 when the header
+                            consumed `points[0]`, 0 when a stored title means
+                            every point renders here (2026-10-02). Hardcoding
+                            either value breaks the other case silently -- the
+                            text still renders, the comments just land on the
+                            wrong sentence. */}
+                        <HighlightableText designId={primary.id} field="summary" text={line} offset={pointOffsets[i + restPointsOffset]} />
                       </li>
                     ))}
                   </ul>

@@ -133,6 +133,23 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivityEven
       ].filter((f): f is ActivityDetailField => f !== undefined);
       return { label: "Design amended", details, designId: relatedId };
     }
+    /** Owner-editable title/overview (2026-10-02). Separate from
+     * `design_amended` above because nothing about the declared *scope*
+     * moved -- rendering a prose correction as "Design amended" with an
+     * empty added-paths list reads like a scope change that lost its
+     * payload. The label comes from the payload's `source`, so a future
+     * channel (an LLM resynthesis, a session-close fold) needs a line here
+     * rather than a new activity kind. */
+    case "design_overview_revised": {
+      const source = str(p, "source");
+      const details = [
+        str(p, "actor") ? { label: "By", value: str(p, "actor")! } : undefined,
+        str(p, "newTitle") ? { label: "New title", value: str(p, "newTitle")! } : undefined,
+        str(p, "newSummary") ? { label: "New overview", value: str(p, "newSummary")! } : undefined,
+      ].filter((f): f is ActivityDetailField => f !== undefined);
+      const label = source === "owner_edit" ? "Overview edited by its owner" : "Overview revised";
+      return { label, details, designId: relatedId };
+    }
     case "design_resolved": {
       const resolution = str(p, "resolution");
       return { label: "Divergence resolved", details: resolution ? [{ label: "Resolution", value: resolution }] : [], designId: relatedId };

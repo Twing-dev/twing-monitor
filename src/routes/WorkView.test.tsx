@@ -16,6 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { WorkView } from "./WorkView.js";
+import { DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
 
 function design(overrides: Record<string, unknown> = {}) {
   return {
@@ -292,6 +293,92 @@ describe("WorkView (desktop baseline)", () => {
     const tabs = container.querySelector(".work-tabs") as HTMLElement;
     expect(within(tabs).getByText(/overview/i)).toBeInTheDocument();
     expect(within(tabs).getByText(/ask/i)).toBeInTheDocument();
+  });
+
+  // A summary with no split in it goes in the header and nowhere else.
+  // Regression: the header used a 120-character clamp, so a longer
+  // unsplittable summary always differed from its own text, the "is there
+  // anything left to show" test passed, and the body reprinted the whole
+  // thing -- 11 characters of new information under a near-identical title.
+  it("shows an unsplittable summary in the body, under a shorter title", async () => {
+    const long =
+      "Resolve PR #17's conflict with its rebased base so the six UI defect fixes and the linked-group labels plus review rail all survive";
+    stubApi([design({ summary: long })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(detailPane(container)).getByText(/what this design says/i)).toBeInTheDocument());
+
+    // The summary is the design's content, and the only text in this pane a
+    // reviewer can highlight, so it has to be on screen in full.
+    const pane = detailPane(container);
+    expect(within(pane).getAllByText(long)).toHaveLength(1);
+
+    // The header above it is a title, not a second copy of it.
+    const title = openDesignTitle(container);
+    expect(title).not.toBe(long);
+    expect(title.length).toBeLessThan(long.length);
+  });
+
+  // The splittable case still splits: header takes point one, body takes the
+  // rest. Pinned alongside the above so "don't reprint" can't be satisfied by
+  // rendering nothing at all.
+  it("still puts the remaining points in the body when the summary splits", async () => {
+    stubApi([design({ summary: "Add retry backoff to the sync client. Cap the delay at thirty seconds." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".summary-bullets")).toBeInTheDocument());
+    expect(openDesignTitle(container)).toContain("Add retry backoff");
+    expect(container.querySelector(".summary-bullets")?.textContent).toContain("Cap the delay");
+  });
+
+  // The boundary that let the duplicated summary through, pinned from both
+  // sides.
+  //
+  // An unsplittable summary is shown twice or once depending on whether the
+  // header's title was clamped: unclamped, the header already *is* the whole
+  // summary and a body under it would repeat it exactly; clamped, the header
+  // is a heading and the body carries the content. That made the detail
+  // header's budget the thing that decided it -- at the list row's 120 a
+  // 190-character design got a 113-character "title" over the same sentence,
+  // which is the duplication people saw.
+  //
+  // It survived a suite that already covered it because both halves were
+  // tested apart and never together: `designTitle.test.ts` covers the clamp,
+  // the detail-pane tests covered the guard, and every summary fixture here
+  // was 36 characters or shorter -- so nothing ever made `deriveTitle`
+  // modify anything. Real summaries run 125-190.
+  //
+  // The length assertions are part of the test on purpose. A fixture edited
+  // back under the budget would otherwise keep passing while covering
+  // nothing, which is exactly how this was missed the first time.
+  describe("an unsplittable summary either side of the detail title budget", () => {
+    const SHORT = "Move the retry budget into the shared transport layer";
+    const LONG = "Move the retry budget out of the sync client and into the shared transport layer so that every caller shares one policy";
+
+    it("keeps its fixtures either side of DETAIL_TITLE_CHARS", () => {
+      expect(SHORT.length).toBeLessThanOrEqual(DETAIL_TITLE_CHARS);
+      expect(LONG.length).toBeGreaterThan(DETAIL_TITLE_CHARS);
+    });
+
+    it("shows a short one in the header alone -- a body would repeat it exactly", async () => {
+      stubApi([design({ summary: SHORT })]);
+      const { container } = renderWork();
+      await waitFor(() => expect(openDesignTitle(container)).toBe(SHORT));
+
+      const pane = detailPane(container);
+      expect(within(pane).getAllByText(SHORT)).toHaveLength(1);
+      expect(within(pane).queryByText(/what this design says it/i)).not.toBeInTheDocument();
+    });
+
+    it("shows a long one in the body, with the header clamped to a title", async () => {
+      stubApi([design({ summary: LONG })]);
+      const { container } = renderWork();
+      await waitFor(() => expect(within(detailPane(container)).getByText(/what this design says it/i)).toBeInTheDocument());
+
+      const pane = detailPane(container);
+      // Once -- in the body. The header is a clamped title, so it does not
+      // match the full text and this stays at one.
+      expect(within(pane).getAllByText(LONG)).toHaveLength(1);
+      expect(openDesignTitle(container).length).toBeLessThan(LONG.length);
+    });
   });
 
   // Design change stopped being its own tab (2026-09) -- its content is a

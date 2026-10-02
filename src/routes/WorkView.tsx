@@ -761,7 +761,11 @@ function DesignDetailPane({
   // whose synthetic "public-viewer" identity could never match anyway --
   // belt and braces, since a public page offering an edit button that always
   // fails would be worse than not offering one.
-  const isOwner = auth.developerId === primary.developerId;
+  // `auth` is nullable (`AuthContextValue`) -- null before login, and the
+  // optional chain is the whole guard: a null identity owns nothing, so the
+  // comparison is false and the affordance stays hidden, which is the right
+  // answer rather than something to branch on separately.
+  const isOwner = auth?.developerId === primary.developerId;
   // Which design the open editor belongs to, rather than a bare boolean:
   // switching rows mid-edit then collapses the form by *derivation*, with no
   // effect to reset it. A boolean plus a reset effect would leave the next

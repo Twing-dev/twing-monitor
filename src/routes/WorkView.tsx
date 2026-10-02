@@ -11,6 +11,8 @@ import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { MemberPanel } from "../components/MemberPanel.js";
+import { CopyLinkButton } from "../components/CopyLinkButton.js";
+import { buildShareUrl } from "../lib/urlState.js";
 import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
@@ -170,6 +172,24 @@ function designVerdict(
 }
 
 type ProjectPage = { items: DesignStatement[]; nextBefore?: number };
+
+/** Every status that puts a design in Conflicts or In progress. */
+const ACTIVE_STATUSES: DesignStatement["status"][] = ["open", "flagged", "dormant"];
+
+/** Every design in one status, following the cursor to the end -- only for
+ * the active statuses, which stay small, never for the history. */
+async function fetchAllDesigns(apiFetch: Parameters<typeof fetchDesigns>[0], projectId: string, status: string): Promise<DesignStatement[]> {
+  const out: DesignStatement[] = [];
+  let before: number | undefined;
+  for (;;) {
+    const page = await fetchDesigns(apiFetch, projectId, { status, before, limit: 100 });
+    out.push(...page.items);
+    // Stops on a cursor that doesn't move back, not only on none: one bad
+    // response must not spin this forever and hang the page.
+    if (page.nextBefore === undefined || (before !== undefined && page.nextBefore >= before)) return out;
+    before = page.nextBefore;
+  }
+}
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 /** "changes" was its own tab until 2026-09: Overview said what a design
  * *says* it's doing and Design change said what it *declares it will change*,
@@ -186,6 +206,7 @@ export function WorkView({
   projectsById,
   focusDesignId,
   onClearFocus,
+  onSelectionChange,
   readOnly,
   query,
   onQueryChange,
@@ -194,6 +215,11 @@ export function WorkView({
   projectsById: Record<string, ProjectSummary>;
   focusDesignId?: string;
   onClearFocus?: () => void;
+  /** The design now open in the detail pane (its group's first member), or
+   * `undefined` when none is. The layout writes it to the URL, so a link
+   * copied from the address bar opens this design rather than the first
+   * row. */
+  onSelectionChange?: (designId: string | undefined) => void;
   readOnly?: boolean;
   /** Rendered in the shared top bar (RepoDetailLayout), not here -- lifted
    * up so it can sit next to the repo switcher the way the design mockup
@@ -227,10 +253,23 @@ export function WorkView({
     // match (app.ts), so sending the string "all" (rather than omitting the
     // key) would filter to zero designs every time, silently. Every status
     // is exactly what an omitted filter already means server-side.
-    Promise.all(projectIds.map((pid) => fetchDesigns(apiFetch, pid, {}).then((page) => [pid, page] as const)))
+    //
+    // Every active design is loaded in full, and only the history is paged.
+    // Found live: the first page is the 20 most recently *created* designs,
+    // and active ones are a few among hundreds of resolved -- twing-monitor
+    // showed 5 of its 13 in-progress designs (every dormant one sat on a
+    // later page) and counted 5. They are the point of this screen, and
+    // few enough to fetch whole.
+    Promise.all(
+      projectIds.map((pid) =>
+        Promise.all([fetchDesigns(apiFetch, pid, {}), ...ACTIVE_STATUSES.map((status) => fetchAllDesigns(apiFetch, pid, status))]).then(
+          ([page, ...active]) => [pid, { items: uniqueBy([...active.flat(), ...page.items], (d) => d.id), nextBefore: page.nextBefore }] as const,
+        ),
+      ),
+    )
       .then((results) => {
         if (cancelled) return;
-        setPages(Object.fromEntries(results.map(([pid, page]) => [pid, { items: page.items, nextBefore: page.nextBefore }])));
+        setPages(Object.fromEntries(results));
         setListState({ status: "ready" });
       })
       .catch((err: unknown) => {
@@ -254,7 +293,9 @@ export function WorkView({
       );
       setPages((prev) => {
         const next = { ...prev };
-        for (const [pid, page] of results) next[pid] = { items: [...(prev[pid]?.items ?? []), ...page.items], nextBefore: page.nextBefore };
+        // De-duplicated: the active designs on an older page are already
+        // loaded.
+        for (const [pid, page] of results) next[pid] = { items: uniqueBy([...(prev[pid]?.items ?? []), ...page.items], (d) => d.id), nextBefore: page.nextBefore };
         return next;
       });
     } catch (err) {
@@ -284,7 +325,10 @@ export function WorkView({
 
   const allItems = useMemo(() => {
     if (focusState.status !== "ready" || !focusState.data) return items;
-    const extra = [focusState.data.design, ...focusState.data.groupMembers];
+    // Normalized rather than trusted: a response without `groupMembers` (an
+    // older coordinator, a proxy's own JSON) must not take the pane down --
+    // the focused design itself is still worth showing.
+    const extra = [focusState.data.design, ...(Array.isArray(focusState.data.groupMembers) ? focusState.data.groupMembers : [])];
     const known = new Set(items.map((d) => d.id));
     return [...items, ...extra.filter((d) => !known.has(d.id))];
   }, [items, focusState]);
@@ -388,6 +432,17 @@ export function WorkView({
   }
 
   const selected = rows.find((r) => r.group.key === selectedKey);
+
+  // Tell the layout which design is open, however it got opened -- a click,
+  // the automatic first-row selection, or a focus link. Found live: nothing
+  // wrote the selection to the URL, so a link copied from the address bar
+  // opened the first design (or the one the page was first opened with)
+  // instead of the one on screen.
+  const selectedDesignId = selected?.group.members[0]?.id;
+  useEffect(() => {
+    onSelectionChange?.(selectedDesignId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDesignId]);
 
   // Restored in a *layout* effect so it happens before the browser paints --
   // in a plain effect the list appears at the top for a frame and then jumps,
@@ -658,6 +713,10 @@ function DesignDetailPane({
           </span>
           <span>updated {relativeTime(primary.lastActivityAt)}</span>
           <span className={`status-badge tone-neutral`}>{primary.status}</span>
+          {/* A link to this design for a teammate -- the same URL the address
+              bar now carries, scoped to this design's own repo whatever the
+              viewer's repo selection. */}
+          <CopyLinkButton url={buildShareUrl(primary.projectId, "designs", primary.id)} />
         </div>
       </div>
 

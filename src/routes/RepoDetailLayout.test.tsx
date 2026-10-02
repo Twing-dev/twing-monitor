@@ -114,6 +114,101 @@ describe("RepoDetailLayout", () => {
     expect(await screen.findByText("src/x.ts")).toBeInTheDocument();
   });
 
+  // Found live: a link copied from the address bar and sent to a teammate
+  // opened the first design, not the one on screen -- selecting a design
+  // never wrote it to the URL. The URL now always names the open design.
+  describe("the URL names the open design, so a copied link opens it", () => {
+    const makeDesign = (id: string, summary: string) => ({
+      id,
+      groupId: id,
+      projectId: "proj-1",
+      developerId: "bob@example.com",
+      sessionId: `sess-${id}`,
+      status: "open",
+      createdAt: Date.now(),
+      summary,
+      creates: [],
+      touches: ["src/x.ts"],
+      dependsOn: [],
+      ttlMs: 3_600_000,
+      scopeVersion: 1,
+      lastActivityAt: Date.now(),
+      justifiedConstraintIds: [],
+      justifiedOverlaps: [],
+    });
+    const first = makeDesign("design-1", "The first design in the list");
+    const second = makeDesign("design-2", "The design being shared");
+
+    function stubDesigns() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: [first, second] }), { status: 200 });
+          if (url.includes("/comments")) return new Response(JSON.stringify({ items: [], replies: {} }), { status: 200 });
+          const single = /\/v1\/designs\/(design-\d)(?:$|\?)/.exec(url);
+          if (single) return new Response(JSON.stringify({ design: single[1] === "design-1" ? first : second, groupMembers: [] }), { status: 200 });
+          return new Response(JSON.stringify({ items: [], messages: [] }), { status: 200 });
+        }),
+      );
+    }
+    const focus = () => new URLSearchParams(window.location.search).get("focus");
+
+    it("follows the selection: the auto-selected first design, then whichever row is clicked", async () => {
+      const user = userEvent.setup();
+      stubDesigns();
+      window.history.replaceState(null, "", "?repos=proj-1&tab=designs");
+      const { container } = renderLayout();
+
+      await waitFor(() => expect(focus()).toBe("design-1"));
+      const row = await waitFor(() => {
+        const el = [...container.querySelectorAll(".work-row")].find((r) => r.textContent?.includes("The design being shared"));
+        expect(el).toBeTruthy();
+        return el as HTMLElement;
+      });
+      const historyLength = window.history.length;
+      await user.click(row);
+      await waitFor(() => expect(focus()).toBe("design-2"));
+      expect(window.history.length, "browsing the list is not navigation -- no history entry per click").toBe(historyLength);
+    });
+
+    // Found in review: a row click clears the layout's focus id, so the
+    // header link and a trip through Team rebuilt the URL without the open
+    // design -- the pane still showed it, the address bar named the first.
+    it("keeps the open design in the URL through the header link and a trip to another tab", async () => {
+      const user = userEvent.setup();
+      stubDesigns();
+      window.history.replaceState(null, "", "?repos=proj-1&tab=designs");
+      const { container } = renderLayout();
+
+      const row = await waitFor(() => {
+        const el = [...container.querySelectorAll(".work-row")].find((r) => r.textContent?.includes("The design being shared"));
+        expect(el).toBeTruthy();
+        return el as HTMLElement;
+      });
+      await user.click(row);
+      await waitFor(() => expect(focus()).toBe("design-2"));
+
+      await user.click(screen.getByRole("button", { name: "twing monitor, go to designs" }));
+      expect(focus()).toBe("design-2");
+      expect(container.querySelector(".work-detail-title")?.textContent).toBe("The design being shared");
+
+      await user.click(screen.getByRole("button", { name: "Team" }));
+      await screen.findByRole("heading", { name: "Team" });
+      await user.click(screen.getByRole("button", { name: "twing monitor, go to designs" }));
+      await waitFor(() => expect(container.querySelector(".work-detail-title")?.textContent).toBe("The design being shared"));
+      expect(focus()).toBe("design-2");
+    });
+
+    it("a link to a design opens that design, not the first row", async () => {
+      stubDesigns();
+      window.history.replaceState(null, "", "?repos=proj-1&tab=designs&focus=design-2");
+      const { container } = renderLayout();
+      await waitFor(() => expect(container.querySelector(".work-detail-title")?.textContent).toBe("The design being shared"));
+      expect(focus()).toBe("design-2");
+    });
+  });
+
   it("renders the single-repo name + role badge in the top bar", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
     renderLayout();

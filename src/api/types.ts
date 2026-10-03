@@ -88,7 +88,27 @@ export interface DesignStatement {
   status: "open" | "flagged" | "dormant" | "superseded" | "closed" | "expired";
   createdAt: number;
   closedAt?: number;
+  /** Owner-authored title (2026-10-02, `PATCH /v1/designs/:id/overview`).
+   * Absent on every design nobody has retitled, and on any response from a
+   * server older than that route -- `lib/designTitle.ts`'s `designTitle()`
+   * falls back to deriving one from `summary` in both cases, which is what
+   * this dashboard did before the field existed. */
+  title?: string;
   summary: string;
+  /** The extraction-time `summary`, kept once the owner first rewrites the
+   * overview -- what the "original" disclosure shows. Absent while
+   * `overviewRevision` is 0, where `summary` is itself the original. */
+  summaryExtracted?: string;
+  /** Title/overview revision count; 0 or absent means never revised, which
+   * is what gates the provenance line. */
+  overviewRevision?: number;
+  overviewRevisedAt?: number;
+  /** Always a developerId -- the authority over the text -- regardless of
+   * which channel carried the write. */
+  overviewRevisedBy?: string;
+  /** The channel: `"owner_edit"` today. `activityFormat.ts` labels a
+   * revision from this, so a future channel needs no new field here. */
+  overviewRevisionSource?: string;
   creates: string[];
   touches: string[];
   dependsOn: string[];

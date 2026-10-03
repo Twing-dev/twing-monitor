@@ -23,6 +23,7 @@
  */
 
 import { toBullets } from "./summaryBullets.js";
+import { parseMarkdownBlocks } from "./markdown.js";
 
 /** Hard ceiling for the rare case even the extracted headline is still
  * long (a one-sentence summary with no newline, dash, or period break at
@@ -84,6 +85,37 @@ export function deriveTitle(summary: string | null | undefined, max: number = MA
   if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim(), max);
 
   return hardClamp(head, max);
+}
+
+/** A design's title: the owner's own if they set one, else derived from the
+ * summary (2026-10-02).
+ *
+ * The **single** fallback point for every place a title is shown -- a list
+ * row, the detail header, the member panel. Deliberately not three separate
+ * `design.title ?? deriveTitle(...)` expressions: a stored title that
+ * appears in two of three places and not the third is worse than no stored
+ * title at all.
+ *
+ * `||` rather than `??`, so a title that is present but whitespace falls
+ * back too. The route refuses to store one, but a row written before that
+ * validation existed -- or by anything else that learns to write this
+ * column -- must not render as a blank heading.
+ *
+ * `max` is forwarded to `deriveTitle` only; a stored title is returned as
+ * the owner wrote it. The server caps it at `MAX_TITLE_CHARS` on the way in
+ * (app.ts's `MAX_DESIGN_TITLE_CHARS`), which is what makes that safe -- and
+ * why clamping here would only ever truncate text that already fits. */
+export function designTitle(design: { title?: string; summary: string | null | undefined }, max?: number): string {
+  const stored = design.title?.trim();
+  if (stored) return stored;
+  // Derive from the first *block*, not the raw source, so a summary the
+  // author wrote as markdown (2026-10-02) doesn't surface its own syntax as a
+  // title -- `## Approach` should read "Approach". `deriveTitle` still does
+  // the headline extraction and clamping from there; this only decides what
+  // text it sees. Plain prose has exactly one paragraph whose text is the
+  // whole string, so this is a no-op for it.
+  const [first] = parseMarkdownBlocks(design.summary);
+  return deriveTitle(first ? first.text : design.summary, max);
 }
 
 /** The summary's full text, as a list of points instead of one paragraph

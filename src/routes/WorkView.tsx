@@ -6,6 +6,7 @@ import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
 import type { ActivityEvent, AlignmentThread, DesignChange, DesignStatement, ProjectSummary } from "../api/types.js";
 import { resolveAlignmentBucket } from "../api/types.js";
+import { useAuth } from "../auth/useAuth.js";
 import { useAsyncData } from "../hooks/useAsyncData.js";
 import { useIsPhone } from "../hooks/useIsPhone.js";
 import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
@@ -90,6 +91,23 @@ function counterpartIdsForOverlaps(members: DesignStatement[], openThreads: Alig
     if (counterpartId) ids.push(counterpartId);
   }
   return ids;
+}
+
+/** Whether the signed-in developer is a party to this design -- its author,
+ * or the other side of an open alignment thread about it. Someone else's
+ * design colliding with yours is the case "mine" most needs to catch: it is
+ * work you have to answer for, and filtering it out would hide exactly the
+ * rows worth acting on. Same "either side counts" test ConflictsView's own
+ * `isMine` applies to a conflict, read across a group's members since a
+ * groupId-linked design can span repos (and developers).
+ *
+ * `openThreads` is already fetched for the conflict badges, so this costs
+ * no request of its own. */
+function isMine(group: DesignGroup, openThreads: AlignmentThread[], me: string | undefined): boolean {
+  if (!me) return false;
+  return group.members.some(
+    (m) => m.developerId === me || openThreads.some((t) => (t.designId === m.id || t.initiatingDesignId === m.id) && (t.developerId === me || t.otherDeveloperId === me)),
+  );
 }
 
 function designFlags(group: DesignGroup, latestChecks: Map<string, { verdict: string }>, openThreads: AlignmentThread[]): { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean } {
@@ -182,11 +200,16 @@ export function WorkView({
   onQueryChange: (query: string) => void;
 }) {
   const apiFetch = useApiFetch();
+  const { auth } = useAuth();
   // Phone layout (2026-09): one pane at a time instead of two side by side.
   // False on every desktop render and in jsdom, so every branch below that
   // reads it is inert there -- see `useIsPhone`.
   const isPhone = useIsPhone();
   const [pill, setPill] = useState<FilterPill>("all");
+  // Orthogonal to `pill`, not a fifth value of it: "my conflicts" is the
+  // question someone actually arrives with, and collapsing the two axes
+  // into one row of mutually-exclusive pills would make that unaskable.
+  const [mineOnly, setMineOnly] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -312,17 +335,24 @@ export function WorkView({
     [groups, latestChecks, openThreads],
   );
 
-  const counts = useMemo(() => {
-    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0 };
-    for (const r of rows) c[r.section]++;
-    return c;
-  }, [rows]);
+  const mineRows = useMemo(() => (mineOnly ? rows.filter((r) => isMine(r.group, openThreads, auth?.developerId)) : rows), [rows, mineOnly, openThreads, auth?.developerId]);
 
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
-  }, [rows, query]);
+    if (!q) return mineRows;
+    return mineRows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
+  }, [mineRows, query]);
+
+  // Counted off the owner- and search-filtered rows rather than every row,
+  // so a pill's number always describes the list it switches to. Found while
+  // testing the toggle, and a defect in its own right: with a search active
+  // the pills already read the whole project's totals (12/16/25/53 beside a
+  // nine-row list), which reads as the filter having silently failed.
+  const counts = useMemo(() => {
+    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0 };
+    for (const r of searched) c[r.section]++;
+    return c;
+  }, [searched]);
 
   const visibleRows = pill === "all" ? searched : searched.filter((r) => r.section === pill);
 
@@ -429,9 +459,23 @@ export function WorkView({
         <div className="work-filter-row">
           {PILLS.map((p) => (
             <button key={p.value} type="button" className={`work-pill${pill === p.value ? " active" : ""}`} onClick={() => setPill(p.value)}>
-              {p.label} {p.value === "all" ? rows.length : counts[p.value]}
+              {p.label} {p.value === "all" ? searched.length : counts[p.value]}
             </button>
           ))}
+          {/* Separated from the section pills: those pick one of three
+              sections, this cuts across all of them, and sitting it in the
+              same row without a divider would read as a fourth section.
+              Hidden for the read-only /observe viewer, whose synthetic
+              "public-viewer" identity (ObserveContext.tsx) owns nothing --
+              the toggle would only ever empty the list for it. */}
+          {!readOnly && (
+            <>
+              <span className="work-filter-divider" aria-hidden="true" />
+              <button type="button" className={`work-pill${mineOnly ? " active" : ""}`} aria-pressed={mineOnly} onClick={() => setMineOnly((v) => !v)}>
+                Mine
+              </button>
+            </>
+          )}
         </div>
 
         {visibleRows.length === 0 ? (

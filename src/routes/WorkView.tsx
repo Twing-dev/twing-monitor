@@ -20,6 +20,7 @@ import { DesignChat } from "../components/DesignChat.js";
 import { bulletOffsets } from "../lib/reviewAnchors.js";
 import { relativeTime } from "../lib/time.js";
 import { designTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
+import { developerLabel } from "../lib/developerLabel.js";
 import { hasMarkdownStructure } from "../lib/markdown.js";
 import { Markdown } from "../components/Markdown.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
@@ -564,7 +565,12 @@ export function WorkView({
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
                         {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
-                        <span className="dev">{primary.developerId}</span>
+                        {/* Shortened for the row, full id on hover -- see
+                            lib/developerLabel.ts for why the raw value is
+                            the wrong thing to clip. */}
+                        <span className="dev" title={primary.developerId}>
+                          {developerLabel(primary.developerId)}
+                        </span>
                         <span className="sep">{relativeTime(primary.lastActivityAt)}</span>
                         {primary.status === "flagged" && <span className="work-badge flagged">flagged</span>}
                         {primary.status !== "flagged" && flags.anySemanticOverlap && <span className="work-badge conflict">overlap</span>}

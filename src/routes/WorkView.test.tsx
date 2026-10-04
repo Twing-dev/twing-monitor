@@ -469,8 +469,15 @@ describe("WorkView (desktop baseline)", () => {
     const { container } = renderWork();
 
     await waitFor(() => expect(listPane(container)).toHaveTextContent("Long-running work started weeks ago"));
-    const progress = [...container.querySelectorAll(".work-section-heading")].find((h) => h.textContent?.startsWith("In progress"));
-    expect(progress?.textContent).toMatch(/1$/);
+    expect([...container.querySelectorAll(".work-section-heading")].some((h) => h.textContent?.startsWith("In progress"))).toBe(true);
+    // Counted on the pill, not in the section heading. Both halves of what
+    // this test found live matter -- the list showed 5 of 13 in-progress
+    // designs *and counted 5* -- but the heading stopped carrying the number:
+    // it sat directly under a pill showing the same count for the same set,
+    // and "UI/monitor ux fixes" (21b54d6) dropped it as one control printed
+    // twice. The pill reads the identical array through the identical
+    // predicate, so this asserts the same fact at its one remaining source.
+    expect(screen.getByRole("button", { name: /^In progress 1$/ })).toBeInTheDocument();
   });
 });
 

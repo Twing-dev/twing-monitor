@@ -591,6 +591,140 @@ describe("WorkView (phone)", () => {
   });
 });
 
+/**
+ * The "Mine" toggle. `renderWork` signs in as alice@example.com, so "mine"
+ * means alice throughout.
+ *
+ * Deliberately paired with the pill counts in two of these: the toggle is
+ * only trustworthy if the numbers move with it. A filter that visibly drops
+ * rows while the pills keep reporting the project's totals reads as the
+ * filter having failed, which is what the counts did under search before
+ * this change.
+ */
+describe("WorkView mine filter", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** `stubApi` answers every unrecognised route with an empty page, which
+   * covers alignment threads for the ownership-only cases; this is for the
+   * one case that needs a real thread. */
+  function stubApiWithThreads(designs: Record<string, unknown>[], threads: Record<string, unknown>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/alignment-threads?")) return new Response(JSON.stringify({ items: threads }), { status: 200 });
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+  }
+
+  function mineButton() {
+    return screen.getByRole("button", { name: "Mine" });
+  }
+
+  it("keeps my designs and drops everyone else's", async () => {
+    stubApi([design({ summary: "Mine to do" }), design({ id: "design-2", developerId: "bob@example.com", summary: "Bob's work" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
+
+    await userEvent.click(mineButton());
+
+    await waitFor(() => expect(within(listPane(container)).queryByText("Bob's work")).not.toBeInTheDocument());
+    expect(within(listPane(container)).getByText("Mine to do")).toBeInTheDocument();
+  });
+
+  it("counts only my designs in the pills while it is on", async () => {
+    stubApi([
+      design({ summary: "Mine to do" }),
+      design({ id: "design-2", developerId: "bob@example.com", summary: "Bob's work" }),
+      design({ id: "design-3", developerId: "bob@example.com", summary: "Bob's other work" }),
+    ]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getByText("Bob's other work")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^All 3$/ })).toBeInTheDocument();
+
+    await userEvent.click(mineButton());
+
+    // The point of the assertion: the pill reports the filtered list, not
+    // the project.
+    await waitFor(() => expect(screen.getByRole("button", { name: /^All 1$/ })).toBeInTheDocument());
+  });
+
+  it("counts someone else's design as mine when an open thread puts me on the other side of it", async () => {
+    stubApiWithThreads(
+      [design({ summary: "Mine to do" }), design({ id: "design-2", developerId: "bob@example.com", summary: "Collides with mine" })],
+      [
+        {
+          id: "thread-1",
+          projectId: "proj-1",
+          symbolId: "",
+          symbolIds: [],
+          developerId: "bob@example.com",
+          otherDeveloperId: "alice@example.com",
+          designId: "design-2",
+          status: "open",
+          systemDescription: "two plans, one module",
+          category: "llm_divergence",
+          openedAt: Date.now(),
+          lastActivityAt: Date.now(),
+        },
+      ],
+    );
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getByText("Collides with mine")).toBeInTheDocument());
+
+    await userEvent.click(mineButton());
+
+    // Bob authored it, but alice has to answer for it -- so it stays.
+    await waitFor(() => expect(within(listPane(container)).getByText("Mine to do")).toBeInTheDocument());
+    expect(within(listPane(container)).getByText("Collides with mine")).toBeInTheDocument();
+  });
+
+  it("composes with the section pills rather than replacing them", async () => {
+    stubApi([
+      design({ summary: "My conflict", status: "flagged" }),
+      design({ id: "design-2", summary: "My ongoing work" }),
+      design({ id: "design-3", developerId: "bob@example.com", summary: "Bob's conflict", status: "flagged" }),
+    ]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getByText("Bob's conflict")).toBeInTheDocument());
+
+    await userEvent.click(mineButton());
+    await userEvent.click(screen.getByRole("button", { name: /^Conflicts/ }));
+
+    // "My conflicts" -- both axes applied at once, which a fifth
+    // mutually-exclusive pill could not express.
+    await waitFor(() => expect(within(listPane(container)).getByText("My conflict")).toBeInTheDocument());
+    expect(within(listPane(container)).queryByText("Bob's conflict")).not.toBeInTheDocument();
+    expect(within(listPane(container)).queryByText("My ongoing work")).not.toBeInTheDocument();
+  });
+
+  it("restores everyone's designs when switched back off", async () => {
+    stubApi([design({ summary: "Mine to do" }), design({ id: "design-2", developerId: "bob@example.com", summary: "Bob's work" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
+
+    await userEvent.click(mineButton());
+    await waitFor(() => expect(within(listPane(container)).queryByText("Bob's work")).not.toBeInTheDocument());
+
+    await userEvent.click(mineButton());
+    await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
+  });
+
+  it("is hidden for the read-only observe viewer, which owns nothing", async () => {
+    stubApi([design()]);
+    saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
+    render(
+      <ServerProvider>
+        <WorkView projectIds={["proj-1"]} projectsById={{}} query="" onQueryChange={() => {}} readOnly />
+      </ServerProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Add retry backoff to the sync client")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Mine" })).not.toBeInTheDocument();
+  });
+});
+
 // The control is in the desktop DOM too -- hidden by CSS, so the render tree
 // differs by exactly one element and nothing is gated on a second branch.
 describe("WorkView back control on desktop", () => {

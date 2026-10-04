@@ -677,6 +677,18 @@ button {
   border-color: var(--text);
 }
 
+/* Separates the "which section" pills from the "whose designs" toggle --
+   they filter on different axes and compose, rather than being four
+   choices of one thing. `auto` margin rather than a fixed gap so the
+   toggle sits at the end of the row; on a wrapped phone row it simply
+   collapses and the pills keep their normal spacing. */
+.work-filter-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px 2px auto;
+  background: var(--border);
+}
+
 .work-rows {
   flex: 1;
 }

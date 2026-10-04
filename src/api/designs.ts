@@ -35,6 +35,23 @@ export async function fetchDesignById(fetcher: Fetcher, id: string): Promise<{ d
   return fetcher<{ design: DesignStatement; groupMembers: DesignStatement[] }>(`/v1/designs/${id}`);
 }
 
+/** `PATCH /v1/designs/:id/overview` (2026-10-02) -- the design's owner
+ * replaces its title and/or its overview prose, as opposed to `amend`'s
+ * `summary`, which the server appends as a dated `Update (date):` entry.
+ * Owner-only server-side (403 for anyone else, project admins included), so
+ * the caller is expected to have checked ownership before showing the
+ * affordance at all; this is the enforcement, not the gate.
+ *
+ * Omitting a field leaves it untouched. `title: null` is distinct from
+ * omitting it -- it *clears* a stored title, reverting to the derived one
+ * (`lib/designTitle.ts`). A blank string for either is a 400, not a clear. */
+export async function reviseDesignOverview(fetcher: Fetcher, designId: string, body: { title?: string | null; summary?: string }): Promise<{ design: DesignStatement }> {
+  return fetcher<{ design: DesignStatement }>(`/v1/designs/${designId}/overview`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body
  * (`ResolveRequestBody`) -- the two ways a flagged design gets addressed
  * (§17.5): supersede it in favor of the design it conflicts with, or

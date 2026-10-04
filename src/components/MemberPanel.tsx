@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { DesignStatement, ProjectSummary } from "../api/types.js";
 import { uniqueBy } from "../lib/aggregate.js";
-import { deriveTitle } from "../lib/designTitle.js";
+import { designTitle } from "../lib/designTitle.js";
 import { relativeTime } from "../lib/time.js";
 import { RepoBadge } from "./RepoBadge.js";
 
@@ -30,8 +30,9 @@ import { RepoBadge } from "./RepoBadge.js";
  * `developerId` is identical across members and `lastActivityAt` differs by
  * minutes -- neither distinguishes anything. The summaries genuinely differ
  * (they are separate designs), and they are the only field that always does.
- * Run through `deriveTitle` because a real summary accumulates each amendment's
- * text and runs to hundreds of words; that helper already extracts the headline.
+ * Run through `designTitle` because a real summary accumulates each amendment's
+ * text and runs to hundreds of words; that helper extracts the headline -- and
+ * prefers the owner's own title (2026-10-02) when they have set one.
  *
  * The repo badge moved in here from each call site and now renders only when
  * the group actually spans repos. `groupId` is a *cross-project* label by
@@ -64,7 +65,7 @@ export function MemberPanel({
 
   return (
     <div className="member-panel">
-      <div className="member-panel-title">{deriveTitle(member.summary)}</div>
+      <div className="member-panel-title">{designTitle(member)}</div>
       <div className="member-panel-heading">
         {showRepoBadge && spansRepos && <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />}
         <span>{member.developerId}</span>

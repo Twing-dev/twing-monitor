@@ -3434,3 +3434,233 @@ li:first-child > .preview-row {
     white-space: normal;
   }
 }
+
+/* Owner-editable design title/overview (2026-10-02, WorkView's Overview tab).
+   The edit affordance and provenance line sit above "What this design says
+   it's doing", and the editor replaces the bullets in place rather than
+   opening over them -- same reading position, so saving doesn't move the
+   text the owner was just looking at. */
+.overview-edit-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px 0;
+}
+
+.overview-edit-button {
+  background: none;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-edit-button:hover {
+  background: var(--surface-hover);
+  color: var(--accent-text);
+}
+
+.overview-editor {
+  padding: 14px 18px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overview-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.overview-editor-field > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.overview-editor-field input,
+.overview-editor-field textarea {
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.overview-editor-field textarea {
+  resize: vertical;
+}
+
+.overview-editor-field input:focus,
+.overview-editor-field textarea:focus {
+  outline: 2px solid var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.overview-editor-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+
+.overview-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.overview-editor-cancel,
+.overview-editor-save {
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 15px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-editor-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.overview-editor-save {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+
+.overview-editor-save:disabled,
+.overview-editor-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Rendered block-level markdown in a design's overview (2026-10-02). Headings
+   are clamped to h4-h6 by the renderer so an overview's own `#` never
+   outranks the pane's h3 section headings; these sizes keep that visible. */
+.md {
+  padding: 10px 18px 4px;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.md-paragraph {
+  margin: 0 0 10px;
+  /* The parser keeps a hard-wrapped paragraph's newlines (they are part of
+     the source slice comment anchors are matched against), so they must not
+     render as hard breaks. */
+  white-space: pre-wrap;
+}
+
+.md-heading {
+  margin: 16px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.md-heading:first-child {
+  margin-top: 0;
+}
+
+.md-list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin-bottom: 5px;
+}
+
+.md-quote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.md-code {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  /* Long lines scroll inside the block rather than widening the pane. */
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Write/Preview tab strip in the overview editor. */
+.overview-editor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.overview-editor-tab {
+  background: none;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-editor-tab.active {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--accent-text);
+}
+
+.overview-editor-hint {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.overview-editor-source {
+  /* Monospace while writing, since the source is markdown and column
+     alignment in a list or code fence is part of what you are editing. */
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.82rem !important;
+  line-height: 1.6;
+}
+
+.overview-editor-preview {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  min-height: 160px;
+}
+
+.overview-editor-preview .md {
+  padding: 12px 14px;
+}
+
+.overview-editor-empty {
+  margin: 0;
+  padding: 14px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}

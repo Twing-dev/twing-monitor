@@ -606,3 +606,239 @@ describe("WorkView back control on desktop", () => {
     expect(detailPane(container)).toBeInTheDocument();
   });
 });
+
+/**
+ * Owner-editable title and overview (2026-10-02).
+ *
+ * `renderWork` signs in as `alice@example.com`, which is also `design()`'s
+ * default `developerId` -- so the default fixture is one the viewer owns, and
+ * the not-owner cases say so explicitly.
+ */
+describe("WorkView: owner-editable title and overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const EDIT_BUTTON = /edit title & overview/i;
+
+  /** Captures every non-GET request, so a test can assert what was actually
+   * sent rather than only what the UI did afterwards. */
+  function stubApiCapturing(designs: Record<string, unknown>[]) {
+    const sent: { url: string; method: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method && init.method !== "GET") {
+          sent.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : undefined });
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
+          return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    return sent;
+  }
+
+  it("offers the edit affordance to the design's owner", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    expect(within(detailPane(container)).getByRole("button", { name: EDIT_BUTTON })).toBeInTheDocument();
+  });
+
+  it("hides it from anyone who does not own the design", async () => {
+    stubApi([design({ developerId: "bob@example.com" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    // The server refuses a non-owner with 403 regardless; this keeps the
+    // dashboard from offering an action that could only ever fail.
+    expect(within(detailPane(container)).queryByRole("button", { name: EDIT_BUTTON })).toBeNull();
+  });
+
+  it("renders a stored title in the list row and the detail header, in place of a derived one", async () => {
+    stubApi([design({ title: "Retry policy for the net layer" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(listPane(container)).toHaveTextContent("Retry policy for the net layer"));
+    // Waited separately: the detail pane resolves through its own
+    // fetchDesignById after the row renders, so asserting it inline passes
+    // on a fast run and fails under load.
+    await waitFor(() => expect(openDesignTitle(container)).toBe("Retry policy for the net layer"));
+  });
+
+  // The bullet-offset hazard, pinned from both sides. Without a stored title
+  // the header consumes the summary's first sentence and the body must skip
+  // it; with one, skipping would hide a sentence that appears nowhere else.
+  it("shows every summary point in the body once an explicit title exists", async () => {
+    stubApi([design({ title: "A real title", summary: "First sentence of the plan. Second sentence of the plan." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".summary-bullets")).not.toBeNull());
+    const bullets = container.querySelector(".summary-bullets") as HTMLElement;
+    expect(bullets).toHaveTextContent("First sentence of the plan.");
+    expect(bullets).toHaveTextContent("Second sentence of the plan.");
+  });
+
+  it("still skips the header's sentence in the body when there is no stored title", async () => {
+    stubApi([design({ summary: "First sentence of the plan. Second sentence of the plan." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".summary-bullets")).not.toBeNull());
+    const bullets = container.querySelector(".summary-bullets") as HTMLElement;
+    expect(bullets).not.toHaveTextContent("First sentence of the plan.");
+    expect(bullets).toHaveTextContent("Second sentence of the plan.");
+    expect(openDesignTitle(container)).toBe("First sentence of the plan.");
+  });
+
+  it("sends only the fields that changed, and clears an emptied title with null", async () => {
+    const sent = stubApiCapturing([design({ title: "Old title" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: EDIT_BUTTON }));
+
+    const titleInput = container.querySelector(".overview-editor-field input") as HTMLInputElement;
+    await userEvent.clear(titleInput);
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].method).toBe("PATCH");
+    expect(sent[0].url).toContain("/v1/designs/design-1/overview");
+    // An emptied title is a *clear* instruction, not a blank title -- and the
+    // untouched summary is omitted rather than counting as a revision.
+    expect(sent[0].body).toEqual({ title: null });
+  });
+
+  it("refuses to save a blank overview rather than letting the server reject it", async () => {
+    const sent = stubApiCapturing([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: EDIT_BUTTON }));
+
+    const textarea = container.querySelector(".overview-editor-field textarea") as HTMLTextAreaElement;
+    await userEvent.clear(textarea);
+    expect(within(detailPane(container)).getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(sent.length).toBe(0);
+  });
+
+  // Pinned as an absence (2026-10-02). An edited design showed "Edited by X ·
+  // 2m ago" plus a "view the original overview" disclosure here; both were
+  // removed as restatement -- the header already carries the owner and the
+  // timestamp, only the owner can edit, and an outdated comment shows its own
+  // quoted text in the rail. The fields stay populated for the resynthesis
+  // guard and for Julian's "revised since you commented" marker, and the
+  // Activity tab is where a revision's history belongs.
+  it("keeps edit provenance out of the overview panel, however many revisions", async () => {
+    stubApi([
+      design({
+        summary: "The owner's own words.",
+        summaryExtracted: "The LLM's original paraphrase.",
+        overviewRevision: 2,
+        overviewRevisedBy: "alice@example.com",
+        overviewRevisedAt: Date.now(),
+        overviewRevisionSource: "owner_edit",
+      }),
+    ]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("The owner's own words."));
+
+    expect(detailPane(container)).not.toHaveTextContent(/edited by/i);
+    // And the original is not disclosed here either -- it would have sat
+    // beside "View original plan text" with a near-identical label.
+    expect(detailPane(container)).not.toHaveTextContent("The LLM's original paraphrase.");
+    expect(container.querySelector(".overview-provenance")).toBeNull();
+  });
+});
+
+/**
+ * Markdown overview and the GitHub-style editor (2026-10-02).
+ *
+ * The rendering is chosen by whether the text carries a real block marker, so
+ * both branches are pinned here: an author's markdown renders as markdown,
+ * and machine prose keeps the sentence bullets built for it.
+ */
+describe("WorkView: markdown overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const MARKDOWN = "## Approach\n\nResume from the last acknowledged offset.\n\n- Add a per-session resume token\n- Keep the retry budget unchanged";
+
+  it("renders an authored overview as markdown, not as sentence bullets", async () => {
+    stubApi([design({ summary: MARKDOWN })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".md")).not.toBeNull());
+
+    const md = container.querySelector(".md") as HTMLElement;
+    expect(md.querySelector(".md-heading")?.textContent).toBe("Approach");
+    expect(md.querySelectorAll(".md-list li")).toHaveLength(2);
+    // The sentence-splitting path must not also run.
+    expect(container.querySelector(".summary-bullets")).toBeNull();
+  });
+
+  it("strips markdown syntax out of the derived title", async () => {
+    stubApi([design({ summary: MARKDOWN })]);
+    const { container } = renderWork();
+    // "## Approach" would be the title if it were derived from raw source.
+    await waitFor(() => expect(openDesignTitle(container)).toBe("Approach"));
+  });
+
+  it("keeps sentence bullets for machine prose with an appended amendment", async () => {
+    // What `appendSummaryUpdate` produces, i.e. most of the existing corpus.
+    stubApi([design({ summary: "Adds retry logic to the sync client, with a capped budget.\n\nUpdate (2026-09-29): also bumps the packages." })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".summary-bullets")).not.toBeNull());
+    expect(container.querySelector(".md")).toBeNull();
+  });
+
+  // Each markdown block is its own review run at its own source offset --
+  // that is what keeps comment anchoring working. Asserted structurally,
+  // since the offsets themselves are covered in markdown.test.ts.
+  it("makes every markdown block its own review run, at its source offset", async () => {
+    stubApi([design({ summary: MARKDOWN })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".md")).not.toBeNull());
+
+    const runs = [...container.querySelectorAll(".md [data-review-block]")];
+    expect(runs.length).toBeGreaterThanOrEqual(4); // heading, paragraph, two list items
+    const offsets = runs.map((r) => Number(r.getAttribute("data-offset")));
+    expect(offsets.every((o) => Number.isFinite(o))).toBe(true);
+    // Distinct and increasing: two blocks sharing an offset would anchor
+    // their comments to each other's text.
+    expect(new Set(offsets).size).toBe(offsets.length);
+    expect([...offsets].sort((a, b) => a - b)).toEqual(offsets);
+    // Each run's text must be findable in the raw summary, or the server
+    // refuses the comment.
+    for (const run of runs) expect(MARKDOWN).toContain(run.textContent);
+  });
+
+  it("offers Write and Preview tabs, and previews the markdown being typed", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /edit title & overview/i }));
+
+    const textarea = container.querySelector(".overview-editor-source") as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "## Heading{Enter}{Enter}- an item");
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^preview$/i }));
+    const preview = container.querySelector(".overview-editor-preview") as HTMLElement;
+    expect(preview.querySelector(".md-heading")?.textContent).toBe("Heading");
+    expect(preview.querySelectorAll(".md-list li")).toHaveLength(1);
+    // A draft is not commentable -- wiring the preview to the review context
+    // would let it write into the rail.
+    expect(preview.querySelector("[data-review-block]")).toBeNull();
+  });
+
+  it("goes back to the source when Write is re-selected, without losing the draft", async () => {
+    stubApi([design()]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /edit title & overview/i }));
+
+    const textarea = container.querySelector(".overview-editor-source") as HTMLTextAreaElement;
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "## Draft heading");
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^preview$/i }));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^write$/i }));
+
+    expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe("## Draft heading");
+  });
+});

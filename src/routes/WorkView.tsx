@@ -936,10 +936,26 @@ function DesignDetailPane({
   // renders in full, so taking its first line for the header would print
   // that line twice.
   const authoredMarkdown = hasMarkdownStructure(overviewBase);
-  // A stored title (2026-10-02) changes this whole block: the header is then
-  // the owner's own words rather than a slice of the summary, so there is
-  // nothing for the body to avoid repeating and the summary renders in full.
-  const headerStandsAlone = Boolean(primary.title?.trim()) || authoredMarkdown;
+  /** Whether the header is its own text rather than a slice taken out of the
+   * body -- which decides whether the body has to skip that slice.
+   *
+   * A stored title or authored markdown made this true from 2026-10-02. A
+   * **composed overview** joins them (2026-10-06): once `overviewRevision` is
+   * above zero, somebody deliberately wrote this prose, by hand or by
+   * accepting a rewrite, and its sentences lean on each other.
+   *
+   * Stealing the first sentence for the header is fine for the
+   * machine-extracted summaries this rule was built for -- disjointed
+   * fragments where losing one costs nothing. It is wrong for composed prose:
+   * found live on a rewritten design whose header became a 197-character
+   * paragraph while the body opened "It also updates deploy/README.md…",
+   * referring to a subject that had been promoted out of it. The text was all
+   * there and it still read as a dropped line.
+   *
+   * So a composed overview gets a short derived title above it and renders in
+   * full below, exactly as a stored title already does. */
+  const overviewWasComposed = (primary.overviewRevision ?? 0) > 0;
+  const headerStandsAlone = Boolean(primary.title?.trim()) || authoredMarkdown || overviewWasComposed;
   const headline = headerStandsAlone ? designTitle(primary, DETAIL_TITLE_CHARS) : points.length > 0 ? points[0] : designTitle(primary, DETAIL_TITLE_CHARS);
   // **Keep this in step with `pointOffsets` below.** Without a stored title
   // the header took `points[0]`, so the body must skip it; with one, dropping

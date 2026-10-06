@@ -1409,3 +1409,52 @@ describe("WorkView: activity details", () => {
     expect(container.querySelector(".work-activity-body")).toBeNull();
   });
 });
+
+/**
+ * A composed overview renders in full (2026-10-06).
+ *
+ * The header used to take the summary's first sentence whatever the summary
+ * was. Harmless for machine-extracted fragments; wrong once a rewrite
+ * produces flowing prose, where the body is then left opening "It also…"
+ * about a subject that has been promoted into the heading.
+ */
+describe("WorkView: composed overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const COMPOSED =
+    "This design documents the coordinator's version handshake in deploy/SERVER.md to ensure operators understand that a bumped version triggers self-healing. It also updates deploy/README.md to address the redeploy path.\n\nAdditionally, the monitor deploys separately and does not take part in the handshake.";
+
+  it("keeps the first sentence in the body once the overview has been rewritten", async () => {
+    stubApi([design({ summary: COMPOSED, overviewRevision: 1, overviewRevisionSource: "llm_resynthesis" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/deploy\/README\.md/));
+
+    // The opening sentence is in the body, where the rest of the prose refers
+    // back to it -- not only in the heading.
+    const body = container.querySelector(".work-tab-panel") as HTMLElement;
+    expect(body.textContent).toContain("This design documents the coordinator's version handshake");
+    expect(body.textContent).toContain("It also updates deploy/README.md");
+  });
+
+  it("gives such a design a short derived title, not a paragraph", async () => {
+    stubApi([design({ summary: COMPOSED, overviewRevision: 1 })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).not.toBe(""));
+
+    // Clamped like any derived title, rather than the whole 150-character
+    // opening sentence standing in as a heading.
+    expect(openDesignTitle(container).length).toBeLessThanOrEqual(DETAIL_TITLE_CHARS + 1);
+    expect(openDesignTitle(container)).toContain("This design documents");
+  });
+
+  // The rule this replaces still holds for everything it was built for.
+  it("still lets the header take the first point of an un-rewritten summary", async () => {
+    const extracted = "Record the group a design was born into, so a stacked design is attributable.\n\nIt also bumps the packages.";
+    stubApi([design({ summary: extracted })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).toBe("Record the group a design was born into, so a stacked design is attributable."));
+
+    const pane = detailPane(container);
+    expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
+  });
+});

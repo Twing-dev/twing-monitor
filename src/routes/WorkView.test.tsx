@@ -1148,17 +1148,21 @@ describe("WorkView: rewrite overview", () => {
     return calls;
   }
 
-  it("puts the proposal in the editor instead of saving it", async () => {
+  it("shows the proposal instead of saving it", async () => {
     const calls = stubApiWithRewrite([design({ summary: amendedTimes(2) })], { summary: "The design, as it now stands." });
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
 
     await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
 
-    // The proposal is a draft, not a save: it is in the textarea, and no
-    // write went anywhere.
-    await waitFor(() => expect(container.querySelector(".overview-editor-source")).toBeTruthy());
-    expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe("The design, as it now stands.");
+    // The proposal is shown, not saved. It used to land in the editor's
+    // textarea (2026-10-06): that form is identical to "Edit title &
+    // overview", so a finished rewrite read as an empty form. It now renders
+    // as a proposal card where the overview was -- see the proposal-card
+    // tests below for the accept/discard behaviour.
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("The design, as it now stands.");
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
     expect(calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(0);
   });
 
@@ -1218,5 +1222,190 @@ describe("WorkView: rewrite overview", () => {
     // The button is still there -- an owner may fold two amendments if they
     // want to; the nudge is about when to *suggest* it.
     expect(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The proposal card and the activity details (2026-10-06).
+ *
+ * Both exist because the first cut of the rewrite feature *worked* and still
+ * read as broken: the proposal arrived in a form identical to the ordinary
+ * editor, and the activity tab that was supposed to hold the folded-away
+ * history showed only labels.
+ */
+describe("WorkView: rewrite proposal card", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const AMENDED = `${BASE}\n\nUpdate (2026-09-29): Also touches src/net/timeout.ts.\n\nUpdate (2026-09-30): Drop the jitter experiment.`;
+  const PROPOSAL = "Reworks the sync client to resume from the last acknowledged offset, also touching the timeout path.";
+
+  function stubApiWithRewrite(designs: Record<string, unknown>[], answer: { summary?: string | null; saveStatus?: number } = {}) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/resynthesize")) {
+          calls.push("POST resynthesize");
+          return new Response(JSON.stringify({ summary: answer.summary ?? PROPOSAL }), { status: 200 });
+        }
+        if (url.includes("/overview") && init?.method === "PATCH") {
+          calls.push(`PATCH overview ${String(init.body)}`);
+          return new Response(JSON.stringify({ design: designs[0] }), { status: answer.saveStatus ?? 200 });
+        }
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
+          return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    return calls;
+  }
+
+  async function openProposal(container: HTMLElement) {
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+  }
+
+  // THE fix. The proposal is the outcome, shown where the overview was -- not
+  // a textarea the reader has to recognise as a result.
+  it("shows the rewrite in place, not in an edit form", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("resume from the last acknowledged offset");
+    // Not the editor: no textarea, and the ordinary Save is nowhere.
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
+    expect(within(detailPane(container)).getByText(/nothing is saved yet/i)).toBeInTheDocument();
+  });
+
+  it("replaces the overview and its amendments while the proposal is up", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    // The old text and the fold step aside, so the pane reads as rewritten
+    // rather than as two competing versions.
+    expect(container.querySelector(".summary-bullets")).toBeNull();
+    expect(container.querySelector(".work-amendments")).toBeNull();
+  });
+
+  it("saves in one click, through the ordinary overview route", async () => {
+    const calls = stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /keep it/i }));
+
+    await waitFor(() => expect(calls.some((c) => c.startsWith("PATCH overview"))).toBe(true));
+    const save = calls.find((c) => c.startsWith("PATCH overview"))!;
+    expect(save).toContain(PROPOSAL);
+    // Saved as a normal owner edit -- which is what keeps the coordinator's
+    // automatic path off this design afterwards.
+    expect(save).not.toContain("llm_resynthesis");
+  });
+
+  it("puts the old overview back on Discard, saving nothing", async () => {
+    const calls = stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /discard/i }));
+
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeNull());
+    expect(container.querySelector(".work-amendments")).toBeTruthy();
+    expect(calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(0);
+  });
+
+  it("hands the proposal to the editor on Edit first", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /edit first/i }));
+
+    await waitFor(() => expect(container.querySelector(".overview-editor-source")).toBeTruthy());
+    expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe(PROPOSAL);
+  });
+
+  // The proposal is the only copy -- throwing it away because a save failed
+  // would make the owner ask for it twice.
+  it("keeps the proposal on screen when saving fails", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })], { saveStatus: 500 });
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /keep it/i }));
+
+    await waitFor(() => expect(within(detailPane(container)).getByText(/couldn't save that rewrite/i)).toBeInTheDocument());
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("resume from the last acknowledged offset");
+  });
+});
+
+describe("WorkView: activity details", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubApiWithActivity(designs: Record<string, unknown>[], events: Record<string, unknown>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/activity")) return new Response(JSON.stringify({ items: events }), { status: 200 });
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+  }
+
+  const amendEvent = (id: string, summary: string) => ({
+    id,
+    projectId: "proj-1",
+    kind: "design_amended",
+    relatedId: "design-1",
+    ts: Date.now(),
+    payload: { addedTouches: ["src/net/timeout.ts"], addedCreates: [], addedDependsOn: [], newSummary: summary },
+  });
+
+  // Before this, an amended design showed "Design amended" three times and
+  // said nothing about any of them -- and once a rewrite removes that text
+  // from the overview, this tab is the only place it survives.
+  it("says what each amendment changed, not just that one happened", async () => {
+    stubApiWithActivity([design()], [amendEvent("e1", "the rewritten summary")]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(container.querySelector(".activity-details")).toBeTruthy());
+    const details = container.querySelector(".activity-details") as HTMLElement;
+    expect(details.textContent).toContain("src/net/timeout.ts");
+    expect(details.textContent).toContain("the rewritten summary");
+  });
+
+  it("clamps a long payload until the row is opened", async () => {
+    stubApiWithActivity([design()], [amendEvent("e1", "a very long rewritten summary ".repeat(20))]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(container.querySelector(".activity-details")).toBeTruthy());
+    expect(container.querySelector(".activity-details")?.className).toContain("clamped");
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /design amended/i }));
+    expect(container.querySelector(".activity-details")?.className).not.toContain("clamped");
+  });
+
+  it("leaves a detail-free event as a plain row", async () => {
+    // `design_closed` carries no detail fields of its own; `design_registered`
+    // does (it reports the summary), so it is the wrong fixture for this.
+    stubApiWithActivity([design()], [{ id: "e2", projectId: "proj-1", kind: "design_closed", relatedId: "design-1", ts: Date.now(), payload: {} }]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(within(detailPane(container)).getByText(/design closed/i)).toBeInTheDocument());
+    expect(container.querySelector(".work-activity-body")).toBeNull();
   });
 });

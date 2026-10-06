@@ -52,6 +52,25 @@ export async function reviseDesignOverview(fetcher: Fetcher, designId: string, b
   });
 }
 
+/** `POST /v1/designs/:id/resynthesize` (2026-10-06) -- asks the coordinator
+ * to fold the design's appended `Update (date):` entries back into one
+ * current overview.
+ *
+ * **Returns the proposal; saves nothing.** The caller puts it in front of the
+ * owner, who edits and saves it through `reviseDesignOverview` above like any
+ * other edit -- which is what records it as theirs, and what stops the
+ * coordinator's automatic path touching that design afterwards.
+ *
+ * `summary: null` is a 200, not a failure: a design with nothing to fold (or
+ * a coordinator with no model configured) has nothing to offer, and the
+ * difference between that and an error matters to what the UI says. A
+ * coordinator older than this route answers 404 instead -- the server ships
+ * before the dashboard, so the caller is expected to say so in words rather
+ * than show a bare "Not Found". */
+export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: string): Promise<{ summary: string | null }> {
+  return fetcher<{ summary: string | null }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
+}
+
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body
  * (`ResolveRequestBody`) -- the two ways a flagged design gets addressed
  * (§17.5): supersede it in favor of the design it conflicts with, or

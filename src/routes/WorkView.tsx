@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById, reviseDesignOverview } from "../api/designs.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -22,6 +22,7 @@ import { relativeTime } from "../lib/time.js";
 import { designTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
 import { developerLabel } from "../lib/developerLabel.js";
 import { hasMarkdownStructure } from "../lib/markdown.js";
+import { splitAmendments } from "../lib/amendments.js";
 import { Markdown } from "../components/Markdown.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
@@ -66,6 +67,17 @@ const SECTION_HEADING: Record<Section, string> = {
 };
 
 const SECTION_PAGE_SIZE = 5;
+
+/** When an overview the owner wrote themselves has drifted far enough to be
+ * worth offering a rewrite (2026-10-06).
+ *
+ * Mirrors the coordinator's own `AMENDMENT_THRESHOLD`, deliberately as a
+ * separate constant rather than a value fetched from it: the two answer
+ * different questions. The server's decides whether a *machine* may rewrite
+ * an overview nobody has claimed; this one decides whether to put a button in
+ * front of a person. They agree today because the same pile is what makes
+ * either worth doing, and they can drift without either being wrong. */
+const NUDGE_AMENDMENT_THRESHOLD = 3;
 
 /** Same "one project-wide `design_checked` fetch, newest wins per design"
  * approach DesignsView uses for its own list-level chip -- copied rather
@@ -656,10 +668,24 @@ export function WorkView({
  * alone". That's what makes the field's placeholder honest: clearing it
  * really does restore the derived title rather than storing a blank one.
  */
-function OverviewEditor({ design, onCancel, onSaved }: { design: DesignStatement; onCancel: () => void; onSaved: () => void }) {
+function OverviewEditor({
+  design,
+  initialSummary,
+  onCancel,
+  onSaved,
+}: {
+  design: DesignStatement;
+  /** Seeds the textarea with something other than the stored summary --
+   * the coordinator's proposed rewrite (2026-10-06). The editor is where a
+   * proposal is reviewed, rather than a dialog of its own, so the owner can
+   * edit it before saving and the save is the same save as any other. */
+  initialSummary?: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
   const apiFetch = useApiFetch();
   const [title, setTitle] = useState(design.title ?? "");
-  const [summary, setSummary] = useState(design.summary ?? "");
+  const [summary, setSummary] = useState(initialSummary ?? design.summary ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [pane, setPane] = useState<"write" | "preview">("write");
@@ -824,8 +850,24 @@ function DesignDetailPane({
   const [editingId, setEditingId] = useState<string | undefined>();
   const editing = editingId === primary.id;
   const setEditing = (open: boolean) => setEditingId(open ? primary.id : undefined);
+  // The coordinator's proposed rewrite, held only until the editor opens on
+  // it (2026-10-06). Nothing is saved from here: the proposal becomes the
+  // editor's draft, the owner edits or discards it, and saving goes through
+  // the same overview route a hand-typed edit does.
+  const [proposal, setProposal] = useState<string | undefined>();
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | undefined>();
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
-  const points = toDesignPoints(primary.summary);
+  // The design's own text, and the amendments appended to it (2026-10-06).
+  // Everything below reads `base`, never the raw summary: an amended design
+  // used to render its changelog as peers of its own sentences, so a design
+  // amended five times read as one statement of intent and five dated lines
+  // competing for the same attention. The amendments render in their own
+  // disclosure at the foot of the panel -- nothing is hidden, and because
+  // `base` is a literal prefix at offset 0 and each amendment keeps its true
+  // offset, not one review anchor moves. See `lib/amendments.ts`.
+  const { base: overviewBase, amendments } = splitAmendments(primary.summary);
+  const points = toDesignPoints(overviewBase);
   // The header takes the design's own first point, and the summary below
   // takes what's left. A summary that doesn't split into points has no
   // "rest", so the header shows a short title of it and the body shows the
@@ -841,7 +883,7 @@ function DesignDetailPane({
   // below, and suppresses the header stealing `points[0]`: a markdown body
   // renders in full, so taking its first line for the header would print
   // that line twice.
-  const authoredMarkdown = hasMarkdownStructure(primary.summary);
+  const authoredMarkdown = hasMarkdownStructure(overviewBase);
   // A stored title (2026-10-02) changes this whole block: the header is then
   // the owner's own words rather than a slice of the summary, so there is
   // nothing for the body to avoid repeating and the summary renders in full.
@@ -858,13 +900,17 @@ function DesignDetailPane({
   // Nothing to add when the header already shows the summary in full: a
   // short one is never clamped, so the body would repeat it exactly. A stored
   // title is never the summary, so the prose always has something to say.
-  const showProse = points.length === 0 && (headerStandsAlone || headline !== (primary.summary ?? "").trim());
+  const showProse = points.length === 0 && (headerStandsAlone || headline !== overviewBase.trim());
   const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
   // the whole summary lands on the right bullet. Indexed against `points`,
   // which still holds the one the header took -- see where the bullets
   // render for why that matters.
-  const pointOffsets = bulletOffsets(primary.summary, points);
+  // Against `overviewBase` rather than the whole summary -- which is the same
+  // string for every design never amended, and for the rest is a prefix, so
+  // the offsets it yields are already offsets into the summary. That is the
+  // property that lets the fold happen without re-anchoring a single comment.
+  const pointOffsets = bulletOffsets(overviewBase, points);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -874,6 +920,43 @@ function DesignDetailPane({
   /** Every member's declared changes, for the group-level stat tiles. A group
    * of one yields exactly `primary.changes`, so the common case is unchanged. */
   const groupChanges = group.members.flatMap((m) => m.changes ?? []);
+
+  /** Whether to offer the owner a rewrite rather than wait for one
+   * (2026-10-06). Both halves matter: the coordinator refuses to rewrite an
+   * overview a person wrote (`owner_edit`), so without this the design most
+   * worth folding -- someone's own text with a pile on top -- would be the
+   * one nothing ever offers to fold. Computed from fields already on the row,
+   * so it costs no request and needs no server flag. */
+  const overviewIsOwnWork = primary.overviewRevisionSource === "owner_edit";
+  const nudgeToRewrite = overviewIsOwnWork && amendments.length >= NUDGE_AMENDMENT_THRESHOLD;
+
+  async function rewriteOverview() {
+    setRewriting(true);
+    setRewriteError(undefined);
+    try {
+      const { summary } = await resynthesizeDesignOverview(apiFetch, primary.id);
+      if (!summary) {
+        // A 200 with nothing in it: no amendments to fold, or this
+        // coordinator has no model configured. Neither is a failure, and
+        // saying "try again" about either would be a lie.
+        setRewriteError("Nothing to rewrite — this design's overview is already its own text.");
+        return;
+      }
+      setProposal(summary);
+      setEditing(true);
+    } catch (e) {
+      // The 404 is the mixed-deploy case: the server ships before the
+      // dashboard, so a coordinator that predates this route is expected
+      // rather than broken, and deserves to be named as such.
+      setRewriteError(
+        e instanceof ApiError && e.status === 404
+          ? "This coordinator is too old to rewrite overviews — the rest of this page works as normal."
+          : "Couldn't rewrite — try again.",
+      );
+    } finally {
+      setRewriting(false);
+    }
+  }
 
   const activityState = useAsyncData(
     () =>
@@ -941,20 +1024,50 @@ function DesignDetailPane({
             {editing ? (
               <OverviewEditor
                 design={primary}
-                onCancel={() => setEditing(false)}
+                initialSummary={proposal}
+                onCancel={() => {
+                  setEditing(false);
+                  setProposal(undefined);
+                }}
                 onSaved={() => {
                   setEditing(false);
+                  setProposal(undefined);
                   onResolved();
                 }}
               />
             ) : (
               isOwner &&
               !readOnly && (
-                <div className="overview-edit-row">
-                  <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
-                    Edit title &amp; overview
-                  </button>
-                </div>
+                <>
+                  {/* Offered, never done to them: the coordinator leaves an
+                      overview its owner wrote alone however deep the pile
+                      gets, so this is the only way that design ever gets
+                      folded. Says what will happen before it happens, since
+                      "rewrite" on your own words deserves a warning rather
+                      than a surprise. */}
+                  {nudgeToRewrite && (
+                    <div className="overview-nudge" role="status">
+                      <b>
+                        {amendments.length} amendments since you wrote this overview.
+                      </b>{" "}
+                      Rewriting folds them into one current description. You see it before anything is saved.
+                    </div>
+                  )}
+                  <div className="overview-edit-row">
+                    {/* Nothing to fold means nothing to offer -- a button that
+                        can only ever answer "nothing to rewrite" is worse than
+                        no button. */}
+                    {amendments.length > 0 && (
+                      <button type="button" className="overview-rewrite-button" onClick={rewriteOverview} disabled={rewriting}>
+                        {rewriting ? "Rewriting…" : "Rewrite overview"}
+                      </button>
+                    )}
+                    <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
+                      Edit title &amp; overview
+                    </button>
+                  </div>
+                  {rewriteError && <p className="overview-editor-error">{rewriteError}</p>}
+                </>
               )
             )}
             {/* No edit provenance in this panel, deliberately (removed
@@ -988,7 +1101,7 @@ function DesignDetailPane({
                     respect and genuinely is an unreadable wall, so it keeps
                     the sentence-bullet treatment that was built for it. */}
                 {authoredMarkdown ? (
-                  <Markdown source={primary.summary} designId={primary.id} />
+                  <Markdown source={overviewBase} designId={primary.id} />
                 ) : restPoints.length > 0 ? (
                   <ul className="summary-bullets">
                     {restPoints.map((line, i) => (
@@ -1008,10 +1121,42 @@ function DesignDetailPane({
                   </ul>
                 ) : (
                   <p>
-                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+                    <HighlightableText designId={primary.id} field="summary" text={overviewBase} />
                   </p>
                 )}
               </>
+            )}
+
+            {/* The amendments, folded (2026-10-06). Its own section rather
+                than more bullets in the body above: an `Update (date):` entry
+                is the design's history, and giving it the same bullet as the
+                design's own sentences is what made an amended overview
+                unreadable. Collapsed by default -- the current position is
+                what a reviewer opens a design for; the trail is there when
+                they want it.
+
+                Each entry renders at its **true offset** in the summary, so
+                any comment anchored inside an amendment still resolves. Sits
+                inside the same `DesignReview` scope as everything else in the
+                panel, so those comments land in the same rail.
+
+                Rendered independently of the body section above, not nested
+                in it: a design whose entire base was consumed by the header
+                still has amendments worth showing. */}
+            {!editing && amendments.length > 0 && (
+              <details className="work-amendments">
+                <summary>
+                  {amendments.length} amendment{amendments.length === 1 ? "" : "s"} since this was written
+                </summary>
+                <ul className="work-amendment-list">
+                  {amendments.map((amendment) => (
+                    <li key={amendment.offset}>
+                      <span className="work-amendment-date">{amendment.date}</span>
+                      <HighlightableText designId={primary.id} field="summary" text={amendment.text} offset={amendment.offset} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
 
             {/* Collapsed by default, on purpose: `summary` above is already an

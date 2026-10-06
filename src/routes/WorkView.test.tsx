@@ -136,7 +136,13 @@ describe("WorkView (desktop baseline)", () => {
     });
 
     it("puts the first point in the title and only the remaining ones in the body", async () => {
-      const summary = "Record the group a design was born into, so a stacked design is attributable.\n\nUpdate (2026-09-29): also bump the packages so this ships under a version that identifies it.";
+      // Two paragraphs the *author* wrote. This fixture used to use an
+      // appended `Update (date):` entry as its second point, which stopped
+      // exercising this rule once amendments moved into their own disclosure
+      // (2026-10-06) -- the body then had no second point to show. The rule
+      // under test is unchanged: the header takes the first point and the
+      // body takes what is left. Amendments have their own tests below.
+      const summary = "Record the group a design was born into, so a stacked design is attributable.\n\nIt also bumps the packages so this ships under a version that identifies it.";
       stubApi([design({ summary })]);
       const { container } = renderWork();
       await waitFor(() => expect(openDesignTitle(container)).toBe("Record the group a design was born into, so a stacked design is attributable."));
@@ -144,8 +150,8 @@ describe("WorkView (desktop baseline)", () => {
       const pane = detailPane(container);
       // The headline is in the title and nowhere else in the pane...
       expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
-      // ...and the amendment, which the title can't show, is still readable.
-      expect(within(pane).getByText(/also bump the packages/)).toBeInTheDocument();
+      // ...and the second point, which the title can't show, is still readable.
+      expect(within(pane).getByText(/also bumps the packages/)).toBeInTheDocument();
     });
   });
 
@@ -921,10 +927,21 @@ describe("WorkView: markdown overview", () => {
 
   it("keeps sentence bullets for machine prose with an appended amendment", async () => {
     // What `appendSummaryUpdate` produces, i.e. most of the existing corpus.
-    stubApi([design({ summary: "Adds retry logic to the sync client, with a capped budget.\n\nUpdate (2026-09-29): also bumps the packages." })]);
+    // The design's own text needs more than one sentence for bullets to be
+    // the right rendering at all -- before amendments were folded out
+    // (2026-10-06) the appended entry supplied the second point, so this
+    // fixture carried only one sentence of its own and still bulleted.
+    stubApi([
+      design({
+        summary: "Adds retry logic to the sync client, with a capped budget. It resumes from the last acknowledged offset.\n\nUpdate (2026-09-29): also bumps the packages.",
+      }),
+    ]);
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".summary-bullets")).not.toBeNull());
     expect(container.querySelector(".md")).toBeNull();
+    // ...and the appended entry is in the fold, not among the bullets.
+    expect(container.querySelector(".summary-bullets")?.textContent).not.toContain("also bumps the packages");
+    expect(container.querySelector(".work-amendments")).not.toBeNull();
   });
 
   // Each markdown block is its own review run at its own source offset --
@@ -981,5 +998,225 @@ describe("WorkView: markdown overview", () => {
     await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^write$/i }));
 
     expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe("## Draft heading");
+  });
+});
+
+/**
+ * The amendment fold (2026-10-06).
+ *
+ * `twing design amend` appends each amendment to `summary` as a dated
+ * `Update (date):` entry, and the overview used to render those entries as
+ * peers of the design's own sentences. These pin the two halves of the fix:
+ * the body shows the design, the disclosure shows its history -- and every
+ * amendment still renders at its true offset, which is what keeps review
+ * comments anchored.
+ */
+describe("WorkView: amendment fold", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const SHORT_BASE = "Add retry backoff to the sync client";
+  const LONG_BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const amended = (base: string) =>
+    `${base}\n\nUpdate (2026-09-29): Also touches src/net/timeout.ts.\n\nUpdate (2026-09-30): Drop the jitter experiment.`;
+
+  it("renders the amendments in a disclosure, not in the overview body", async () => {
+    const summary = amended(LONG_BASE);
+    stubApi([design({ summary })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    const fold = container.querySelector(".work-amendments") as HTMLElement;
+    expect(fold).toBeTruthy();
+    expect(within(fold).getByText(/2 amendments since this was written/i)).toBeInTheDocument();
+    expect(fold.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+
+    // The body renders the design and nothing of its changelog.
+    const body = container.querySelector(".summary-bullets") as HTMLElement;
+    expect(body.textContent).toContain("resumes from the last acknowledged offset");
+    expect(body.textContent).not.toContain("Also touches");
+    expect(body.textContent).not.toContain("Drop the jitter experiment");
+  });
+
+  // THE property the whole fold rests on. If an amendment renders at the
+  // wrong offset, every comment anchored in it resolves against the wrong
+  // words -- and the page still looks perfectly correct.
+  it("renders each amendment at its true offset in the summary", async () => {
+    const summary = amended(LONG_BASE);
+    stubApi([design({ summary })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const blocks = [...container.querySelectorAll(".work-amendment-list [data-review-block]")] as HTMLElement[];
+    expect(blocks).toHaveLength(2);
+    for (const block of blocks) {
+      const offset = Number(block.dataset.offset);
+      const text = block.textContent ?? "";
+      expect(summary.slice(offset, offset + text.length)).toBe(text);
+    }
+  });
+
+  it("shows each amendment's date", async () => {
+    stubApi([design({ summary: amended(LONG_BASE) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const dates = [...container.querySelectorAll(".work-amendment-date")].map((d) => d.textContent);
+    expect(dates).toEqual(["2026-09-29", "2026-09-30"]);
+  });
+
+  // A short base is promoted into the header and the body section is
+  // suppressed (it would just repeat the heading). The amendments are
+  // separate content and must survive that.
+  it("still folds the amendments when the base was consumed by the header", async () => {
+    stubApi([design({ summary: amended(SHORT_BASE) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).toBe(SHORT_BASE));
+
+    expect(container.querySelector(".summary-bullets")).toBeNull();
+    expect(container.querySelector(".work-amendments")).toBeTruthy();
+    expect(container.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+  });
+
+  it("titles the design from its own text, never from an amendment", async () => {
+    stubApi([design({ summary: amended(SHORT_BASE) })]);
+    const { container } = renderWork();
+
+    await waitFor(() => expect(openDesignTitle(container)).toBe(SHORT_BASE));
+    // ...and the list row agrees, since both read the one fallback helper.
+    expect(within(listPane(container)).getByText(SHORT_BASE)).toBeInTheDocument();
+  });
+
+  it("renders no disclosure for a design that has never been amended", async () => {
+    stubApi([design({ summary: LONG_BASE })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    expect(container.querySelector(".work-amendments")).toBeNull();
+  });
+
+  it("keeps an authored markdown base on the markdown path, with the fold beside it", async () => {
+    const base = "## Context\n\nThe sync client drops its offset.\n\n## Approach\n\n- Resume from the last acknowledged offset";
+    stubApi([design({ summary: amended(base) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".md-heading")).toBeTruthy());
+
+    const headings = [...container.querySelectorAll(".md-heading")].map((h) => h.textContent);
+    expect(headings).toEqual(["Context", "Approach"]);
+    // The appended entries are not markdown blocks in the body any more.
+    expect((container.querySelector(".md") as HTMLElement).textContent).not.toContain("Also touches");
+    expect(container.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+  });
+});
+
+/**
+ * The Rewrite button and the nudge (2026-10-06).
+ *
+ * The coordinator proposes; a person saves. These pin that split: the button
+ * never writes on its own, the proposal lands in the editor for approval, and
+ * an overview its owner wrote is only ever *offered* a rewrite.
+ */
+describe("WorkView: rewrite overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const amendedTimes = (n: number) =>
+    Array.from({ length: n }, (_, i) => `\n\nUpdate (2026-09-${20 + i}): amendment ${i + 1}.`).reduce((acc, u) => acc + u, BASE);
+
+  /** Like `stubApi`, plus an answer for the resynthesize route and a record
+   * of every call made to it. */
+  function stubApiWithRewrite(designs: Record<string, unknown>[], answer: { status?: number; summary?: string | null } = {}) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/resynthesize")) {
+          calls.push(url);
+          if (answer.status && answer.status !== 200) return new Response(JSON.stringify({ error: "not found" }), { status: answer.status });
+          return new Response(JSON.stringify({ summary: answer.summary ?? "One current overview." }), { status: 200 });
+        }
+        if (url.includes("/overview") && init?.method === "PATCH") {
+          calls.push(`PATCH ${url}`);
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
+          return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    return calls;
+  }
+
+  it("puts the proposal in the editor instead of saving it", async () => {
+    const calls = stubApiWithRewrite([design({ summary: amendedTimes(2) })], { summary: "The design, as it now stands." });
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+
+    // The proposal is a draft, not a save: it is in the textarea, and no
+    // write went anywhere.
+    await waitFor(() => expect(container.querySelector(".overview-editor-source")).toBeTruthy());
+    expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe("The design, as it now stands.");
+    expect(calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(0);
+  });
+
+  it("offers no button to someone who does not own the design", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2), developerId: "someone-else@example.com" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).queryByRole("button", { name: /rewrite overview/i })).not.toBeInTheDocument();
+  });
+
+  it("offers no button when there is nothing to fold", async () => {
+    stubApiWithRewrite([design({ summary: BASE })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    expect(within(detailPane(container)).queryByRole("button", { name: /rewrite overview/i })).not.toBeInTheDocument();
+  });
+
+  // The mixed-deploy case: the coordinator ships before the dashboard, so a
+  // 404 here is an old server rather than a broken page, and says so.
+  it("names an older coordinator rather than showing a bare failure", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2) })], { status: 404 });
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+    await waitFor(() => expect(within(detailPane(container)).getByText(/too old to rewrite overviews/i)).toBeInTheDocument());
+    // ...and the editor never opened on a proposal that does not exist.
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
+  });
+
+  it("nudges the owner once their own overview has drifted", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(3), overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByText(/3 amendments since you wrote this overview/i)).toBeInTheDocument();
+  });
+
+  // The coordinator rewrites a machine-written overview on its own, so
+  // nagging about one would be noise about work already in hand.
+  it("does not nudge when the overview is not the owner's own text", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(3) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(container.querySelector(".overview-nudge")).toBeNull();
+  });
+
+  it("does not nudge before the pile is deep enough", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1), overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(container.querySelector(".overview-nudge")).toBeNull();
+    // The button is still there -- an owner may fold two amendments if they
+    // want to; the nudge is about when to *suggest* it.
+    expect(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i })).toBeInTheDocument();
   });
 });

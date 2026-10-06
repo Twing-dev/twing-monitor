@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview } from "../api/designs.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -68,16 +68,33 @@ const SECTION_HEADING: Record<Section, string> = {
 
 const SECTION_PAGE_SIZE = 5;
 
-/** When an overview the owner wrote themselves has drifted far enough to be
- * worth offering a rewrite (2026-10-06).
+/** How far an overview must have drifted before rephrasing it is offered
+ * (2026-10-06). Mirrors the coordinator's own `rephraseAvailability`, which
+ * enforces the same rule -- a disabled button is a courtesy, not a control.
  *
- * Mirrors the coordinator's own `AMENDMENT_THRESHOLD`, deliberately as a
- * separate constant rather than a value fetched from it: the two answer
- * different questions. The server's decides whether a *machine* may rewrite
- * an overview nobody has claimed; this one decides whether to put a button in
- * front of a person. They agree today because the same pile is what makes
- * either worth doing, and they can drift without either being wrong. */
-const NUDGE_AMENDMENT_THRESHOLD = 3;
+ * Two numbers, and the difference is the whole policy: nobody is attached to
+ * prose a machine wrote unattended, so one amendment makes folding it
+ * worthwhile. Text a person wrote, or read and accepted, is theirs -- and
+ * rewriting their paragraph to absorb a single line is a bad trade. */
+const REPHRASE_THRESHOLD_MACHINE_TEXT = 1;
+const REPHRASE_THRESHOLD_HUMAN_TEXT = 2;
+
+/** Revision sources that mean a person settled on this text, by writing it or
+ * by accepting a proposal. Kept in step with the server's
+ * `HUMAN_REVISION_SOURCES`. */
+const HUMAN_REVISION_SOURCES = ["owner_edit", "rephrase_accepted"];
+
+/** Whether rephrasing would do anything, and if not, what to tell the reader.
+ * Says nothing about *who* is asking: anyone may rephrase any design they can
+ * see, and only the overview's own state decides whether the button acts. */
+function rephraseState(design: DesignStatement, amendmentCount: number): { allowed: true } | { allowed: false; because: string } {
+  const human = HUMAN_REVISION_SOURCES.includes(design.overviewRevisionSource ?? "");
+  const needed = human ? REPHRASE_THRESHOLD_HUMAN_TEXT : REPHRASE_THRESHOLD_MACHINE_TEXT;
+  if (amendmentCount >= needed) return { allowed: true };
+  if (human) return { allowed: false, because: "Written by a person — not enough has changed to rephrase it." };
+  if ((design.overviewRevision ?? 0) > 0) return { allowed: false, because: "Already up to date — nothing new since the last rephrase." };
+  return { allowed: false, because: "Nothing to rephrase yet — no amendments since this was written." };
+}
 
 /** Same "one project-wide `design_checked` fetch, newest wins per design"
  * approach DesignsView uses for its own list-level chip -- copied rather
@@ -996,7 +1013,10 @@ function DesignDetailPane({
    * one nothing ever offers to fold. Computed from fields already on the row,
    * so it costs no request and needs no server flag. */
   const overviewIsOwnWork = primary.overviewRevisionSource === "owner_edit";
-  const nudgeToRewrite = overviewIsOwnWork && amendments.length >= NUDGE_AMENDMENT_THRESHOLD;
+  const rephrase = rephraseState(primary, amendments.length);
+  // The owner still gets told when their own text has drifted far enough to
+  // be worth replacing -- the automatic path will never do it for them.
+  const nudgeToRewrite = overviewIsOwnWork && rephrase.allowed;
 
   async function rewriteOverview() {
     setRewriting(true);
@@ -1038,7 +1058,11 @@ function DesignDetailPane({
     setKeeping(true);
     setRewriteError(undefined);
     try {
-      await reviseDesignOverview(apiFetch, primary.id, { summary: proposal });
+      // `applyDesignRephrase`, not `reviseDesignOverview`: the apply route
+      // carries no text and saves the coordinator's own proposal, so a
+      // teammate can accept a rephrase without being able to write arbitrary
+      // words into someone else's design. The editing route stays owner-only.
+      await applyDesignRephrase(apiFetch, primary.id);
       setProposal(undefined);
       onResolved();
     } catch {
@@ -1170,36 +1194,49 @@ function DesignDetailPane({
                 </div>
               </div>
             ) : (
-              isOwner &&
               !readOnly && (
                 <>
                   {/* Offered, never done to them: the coordinator leaves an
                       overview its owner wrote alone however deep the pile
-                      gets, so this is the only way that design ever gets
-                      folded. Says what will happen before it happens, since
-                      "rewrite" on your own words deserves a warning rather
-                      than a surprise. */}
+                      gets, so a person pressing this is the only way that
+                      design ever gets folded. */}
                   {nudgeToRewrite && (
                     <div className="overview-nudge" role="status">
                       <b>
                         {amendments.length} amendments since you wrote this overview.
                       </b>{" "}
-                      Rewriting folds them into one current description. You see it before anything is saved.
+                      Rephrasing folds them into one current description. You see it before anything is saved.
                     </div>
                   )}
                   <div className="overview-edit-row">
-                    {/* Nothing to fold means nothing to offer -- a button that
-                        can only ever answer "nothing to rewrite" is worse than
-                        no button. */}
-                    {amendments.length > 0 && (
-                      <button type="button" className="overview-rewrite-button" onClick={rewriteOverview} disabled={rewriting}>
-                        {rewriting ? "Rewriting…" : "Rewrite overview"}
+                    {/* **Shown to everyone, always** (2026-10-06). Rephrasing
+                        is reading work: it produces a proposal from text the
+                        reader can already see, and accepting it stores the
+                        coordinator's own words, never theirs. Hiding it when
+                        inert only made people learn a rule they could not
+                        see, so it stays on screen and carries its reason
+                        instead -- which the server enforces independently. */}
+                    <button
+                      type="button"
+                      className="overview-rewrite-button"
+                      onClick={rewriteOverview}
+                      disabled={rewriting || !rephrase.allowed}
+                      title={rephrase.allowed ? undefined : rephrase.because}
+                    >
+                      {rewriting ? "Rephrasing…" : "Rephrase overview"}
+                    </button>
+                    {/* Editing is a different act: arbitrary words, owner
+                        only, server-enforced. Unchanged by any of the above. */}
+                    {isOwner && (
+                      <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
+                        Edit title &amp; overview
                       </button>
                     )}
-                    <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
-                      Edit title &amp; overview
-                    </button>
                   </div>
+                  {/* Spelled out under the button as well as in its tooltip: a
+                      greyed control whose reason is only discoverable by
+                      hovering is a control nobody understands. */}
+                  {!rephrase.allowed && !rewriting && <p className="overview-rephrase-reason">{rephrase.because}</p>}
                   {rewriteError && <p className="overview-editor-error">{rewriteError}</p>}
                 </>
               )
@@ -1224,12 +1261,20 @@ function DesignDetailPane({
             {/* Nothing to render at all when the header above was the whole
                 summary -- an empty heading over a repeat of the title is worse
                 than no section, and repeating it in full is worse than both. */}
-            {/* While a rewrite is being computed, say so where the reader is
-                looking (2026-10-06). The button's own "Rewriting…" label is
-                too quiet for a call that takes a second or two -- the first
-                round of this feature read as "nothing happened" partly
-                because of that. */}
-            {rewriting && <p className="overview-rewriting">Rewriting this overview…</p>}
+            {/* A skeleton where the overview is, not a line beside it
+                (2026-10-06). The button's own label is too quiet for a call
+                that takes a second or two -- the first round of this feature
+                read as "nothing happened" partly because of that. Shaped like
+                the text it is replacing, so the page says "this is being
+                rewritten" rather than "something is loading somewhere".
+                Cached proposals come back instantly and never show it. */}
+            {rewriting && (
+              <div className="overview-skeleton" role="status" aria-label="Rephrasing this overview">
+                <span className="overview-skeleton-line" />
+                <span className="overview-skeleton-line" />
+                <span className="overview-skeleton-line short" />
+              </div>
+            )}
 
             {!editing && proposal === undefined && !rewriting && (authoredMarkdown || restPoints.length > 0 || showProse) && (
               <>

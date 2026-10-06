@@ -3873,3 +3873,45 @@ li:first-child > .preview-row {
   font-size: 0.82rem;
   color: var(--text-dim);
 }
+
+/* The rephrase skeleton (2026-10-06): three bars where the overview's own
+   lines are, so the wait reads as "this text is being replaced". */
+.overview-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 18px 0;
+}
+
+.overview-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--border) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: overview-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.overview-skeleton-line.short {
+  width: 62%;
+}
+
+@keyframes overview-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Motion is decoration here -- the bars still read as a placeholder without
+   it, and an animation nobody asked for is the kind a vestibular disorder
+   punishes. */
+@media (prefers-reduced-motion: reduce) {
+  .overview-skeleton-line { animation: none; }
+}
+
+/* Why a greyed Rephrase button is greyed, stated rather than hidden in a
+   tooltip. */
+.overview-rephrase-reason {
+  margin: 6px 18px 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-align: right;
+}

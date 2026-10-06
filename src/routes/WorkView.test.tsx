@@ -1135,6 +1135,10 @@ describe("WorkView: rewrite overview", () => {
           if (answer.status && answer.status !== 200) return new Response(JSON.stringify({ error: "not found" }), { status: answer.status });
           return new Response(JSON.stringify({ summary: answer.summary ?? "One current overview." }), { status: 200 });
         }
+        if (url.includes("/resynthesize/apply")) {
+          calls.push("POST apply");
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
         if (url.includes("/overview") && init?.method === "PATCH") {
           calls.push(`PATCH ${url}`);
           return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
@@ -1153,7 +1157,7 @@ describe("WorkView: rewrite overview", () => {
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
 
-    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
 
     // The proposal is shown, not saved. It used to land in the editor's
     // textarea (2026-10-06): that form is identical to "Edit title &
@@ -1163,23 +1167,69 @@ describe("WorkView: rewrite overview", () => {
     await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
     expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("The design, as it now stands.");
     expect(container.querySelector(".overview-editor-source")).toBeNull();
-    expect(calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(0);
+    expect(calls.filter((c) => c.startsWith("PATCH") || c === "POST apply")).toHaveLength(0);
   });
 
-  it("offers no button to someone who does not own the design", async () => {
+  // Changed 2026-10-06: rephrasing is reading work, and accepting a proposal
+  // stores the coordinator's words rather than the reader's, so it is offered
+  // to everyone. Editing -- arbitrary text -- stays the owner's alone.
+  it("offers the button on someone else's design, but not the editor", async () => {
     stubApiWithRewrite([design({ summary: amendedTimes(2), developerId: "someone-else@example.com" })]);
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
 
-    expect(within(detailPane(container)).queryByRole("button", { name: /rewrite overview/i })).not.toBeInTheDocument();
+    const rephrase = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(rephrase).toBeEnabled();
+    expect(within(detailPane(container)).queryByRole("button", { name: /edit title & overview/i })).not.toBeInTheDocument();
   });
 
-  it("offers no button when there is nothing to fold", async () => {
+  // Kept on screen and disabled rather than hidden: a button that appears and
+  // disappears teaches a rule nobody can see.
+  it("keeps the button visible but inert when there is nothing to fold, and says why", async () => {
     stubApiWithRewrite([design({ summary: BASE })]);
     const { container } = renderWork();
     await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
 
-    expect(within(detailPane(container)).queryByRole("button", { name: /rewrite overview/i })).not.toBeInTheDocument();
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeDisabled();
+    expect(within(detailPane(container)).getByText(/nothing to rephrase yet/i)).toBeInTheDocument();
+  });
+
+  it("needs two amendments before offering to replace text a person wrote", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1), overviewRevision: 1, overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeDisabled();
+    expect(within(detailPane(container)).getByText(/not enough has changed/i)).toBeInTheDocument();
+  });
+
+  it("offers it again once a second amendment lands on that text", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2), overviewRevision: 1, overviewRevisionSource: "rephrase_accepted" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeEnabled();
+  });
+
+  // One amendment is enough when nobody has claimed the text.
+  it("offers it after a single amendment on a machine-written overview", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeEnabled();
+  });
+
+  it("shows a skeleton where the overview is while it waits", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+    // The skeleton is gone once the proposal lands; its markup is what the
+    // wait looks like, asserted structurally rather than by timing.
+    expect(container.querySelector(".overview-skeleton")).toBeNull();
   });
 
   // The mixed-deploy case: the coordinator ships before the dashboard, so a
@@ -1189,7 +1239,7 @@ describe("WorkView: rewrite overview", () => {
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
 
-    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
     await waitFor(() => expect(within(detailPane(container)).getByText(/too old to rewrite overviews/i)).toBeInTheDocument());
     // ...and the editor never opened on a proposal that does not exist.
     expect(container.querySelector(".overview-editor-source")).toBeNull();
@@ -1221,7 +1271,7 @@ describe("WorkView: rewrite overview", () => {
     expect(container.querySelector(".overview-nudge")).toBeNull();
     // The button is still there -- an owner may fold two amendments if they
     // want to; the nudge is about when to *suggest* it.
-    expect(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i })).toBeInTheDocument();
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeInTheDocument();
   });
 });
 
@@ -1246,13 +1296,17 @@ describe("WorkView: rewrite proposal card", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        if (url.includes("/resynthesize/apply")) {
+          calls.push("POST apply");
+          return new Response(JSON.stringify({ design: designs[0] }), { status: answer.saveStatus ?? 200 });
+        }
         if (url.includes("/resynthesize")) {
           calls.push("POST resynthesize");
           return new Response(JSON.stringify({ summary: answer.summary ?? PROPOSAL }), { status: 200 });
         }
         if (url.includes("/overview") && init?.method === "PATCH") {
           calls.push(`PATCH overview ${String(init.body)}`);
-          return new Response(JSON.stringify({ design: designs[0] }), { status: answer.saveStatus ?? 200 });
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
         }
         if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
           return new Response(JSON.stringify({ items: designs }), { status: 200 });
@@ -1265,7 +1319,7 @@ describe("WorkView: rewrite proposal card", () => {
 
   async function openProposal(container: HTMLElement) {
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
-    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rewrite overview/i }));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
     await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
   }
 
@@ -1293,19 +1347,18 @@ describe("WorkView: rewrite proposal card", () => {
     expect(container.querySelector(".work-amendments")).toBeNull();
   });
 
-  it("saves in one click, through the ordinary overview route", async () => {
+  it("saves in one click, through the apply route that carries no text", async () => {
     const calls = stubApiWithRewrite([design({ summary: AMENDED })]);
     const { container } = renderWork();
     await openProposal(container);
 
     await userEvent.click(within(detailPane(container)).getByRole("button", { name: /keep it/i }));
 
-    await waitFor(() => expect(calls.some((c) => c.startsWith("PATCH overview"))).toBe(true));
-    const save = calls.find((c) => c.startsWith("PATCH overview"))!;
-    expect(save).toContain(PROPOSAL);
-    // Saved as a normal owner edit -- which is what keeps the coordinator's
-    // automatic path off this design afterwards.
-    expect(save).not.toContain("llm_resynthesis");
+    await waitFor(() => expect(calls).toContain("POST apply"));
+    // Nothing is sent but the design id: the coordinator saves its own
+    // proposal, which is what lets a non-owner accept one without being able
+    // to write words of their own.
+    expect(calls.some((c) => c.startsWith("PATCH overview"))).toBe(false);
   });
 
   it("puts the old overview back on Discard, saving nothing", async () => {
@@ -1317,7 +1370,7 @@ describe("WorkView: rewrite proposal card", () => {
 
     await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeNull());
     expect(container.querySelector(".work-amendments")).toBeTruthy();
-    expect(calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(0);
+    expect(calls.filter((c) => c.startsWith("PATCH") || c === "POST apply")).toHaveLength(0);
   });
 
   it("hands the proposal to the editor on Edit first", async () => {

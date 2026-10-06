@@ -67,8 +67,24 @@ export async function reviseDesignOverview(fetcher: Fetcher, designId: string, b
  * coordinator older than this route answers 404 instead -- the server ships
  * before the dashboard, so the caller is expected to say so in words rather
  * than show a bare "Not Found". */
-export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: string): Promise<{ summary: string | null }> {
-  return fetcher<{ summary: string | null }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
+export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: string): Promise<{ summary: string | null; unavailable?: string }> {
+  return fetcher<{ summary: string | null; unavailable?: string }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
+}
+
+/** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
+ * proposal the coordinator computed for this design's current state.
+ *
+ * **Carries no text**, which is the whole reason it exists separately from
+ * `reviseDesignOverview`. That route takes arbitrary words and is owner-only;
+ * this one can only store what the server itself wrote, so any project member
+ * may accept a rephrase without ever being able to put words of their own
+ * into someone else's design.
+ *
+ * 409 when the coordinator has no proposal for the current state -- nobody
+ * fetched one, or the design moved underneath it. Ask for a rephrase again
+ * and read what comes back. */
+export async function applyDesignRephrase(fetcher: Fetcher, designId: string): Promise<{ design: DesignStatement }> {
+  return fetcher<{ design: DesignStatement }>(`/v1/designs/${designId}/resynthesize/apply`, { method: "POST" });
 }
 
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body

@@ -24,6 +24,7 @@
 
 import { toBullets } from "./summaryBullets.js";
 import { parseMarkdownBlocks } from "./markdown.js";
+import { splitAmendments } from "./amendments.js";
 
 /** Hard ceiling for the rare case even the extracted headline is still
  * long (a one-sentence summary with no newline, dash, or period break at
@@ -108,14 +109,19 @@ export function deriveTitle(summary: string | null | undefined, max: number = MA
 export function designTitle(design: { title?: string; summary: string | null | undefined }, max?: number): string {
   const stored = design.title?.trim();
   if (stored) return stored;
+  // Derive from the design's own text, not its amendments (2026-10-06): an
+  // amended summary ends in dated `Update (date):` entries, and a title is a
+  // statement of what the design *is*, which the first entry of its changelog
+  // is not. `base` is the summary itself for anything never amended.
+  const { base } = splitAmendments(design.summary);
   // Derive from the first *block*, not the raw source, so a summary the
   // author wrote as markdown (2026-10-02) doesn't surface its own syntax as a
   // title -- `## Approach` should read "Approach". `deriveTitle` still does
   // the headline extraction and clamping from there; this only decides what
   // text it sees. Plain prose has exactly one paragraph whose text is the
   // whole string, so this is a no-op for it.
-  const [first] = parseMarkdownBlocks(design.summary);
-  return deriveTitle(first ? first.text : design.summary, max);
+  const [first] = parseMarkdownBlocks(base);
+  return deriveTitle(first ? first.text : base, max);
 }
 
 /** The summary's full text, as a list of points instead of one paragraph

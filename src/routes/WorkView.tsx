@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById, reviseDesignOverview } from "../api/designs.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -22,6 +22,7 @@ import { relativeTime } from "../lib/time.js";
 import { designTitle, toDesignPoints, DETAIL_TITLE_CHARS } from "../lib/designTitle.js";
 import { developerLabel } from "../lib/developerLabel.js";
 import { hasMarkdownStructure } from "../lib/markdown.js";
+import { splitAmendments } from "../lib/amendments.js";
 import { Markdown } from "../components/Markdown.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
@@ -66,6 +67,34 @@ const SECTION_HEADING: Record<Section, string> = {
 };
 
 const SECTION_PAGE_SIZE = 5;
+
+/** How far an overview must have drifted before rephrasing it is offered
+ * (2026-10-06). Mirrors the coordinator's own `rephraseAvailability`, which
+ * enforces the same rule -- a disabled button is a courtesy, not a control.
+ *
+ * Two numbers, and the difference is the whole policy: nobody is attached to
+ * prose a machine wrote unattended, so one amendment makes folding it
+ * worthwhile. Text a person wrote, or read and accepted, is theirs -- and
+ * rewriting their paragraph to absorb a single line is a bad trade. */
+const REPHRASE_THRESHOLD_MACHINE_TEXT = 1;
+const REPHRASE_THRESHOLD_HUMAN_TEXT = 2;
+
+/** Revision sources that mean a person settled on this text, by writing it or
+ * by accepting a proposal. Kept in step with the server's
+ * `HUMAN_REVISION_SOURCES`. */
+const HUMAN_REVISION_SOURCES = ["owner_edit", "rephrase_accepted"];
+
+/** Whether rephrasing would do anything, and if not, what to tell the reader.
+ * Says nothing about *who* is asking: anyone may rephrase any design they can
+ * see, and only the overview's own state decides whether the button acts. */
+function rephraseState(design: DesignStatement, amendmentCount: number): { allowed: true } | { allowed: false; because: string } {
+  const human = HUMAN_REVISION_SOURCES.includes(design.overviewRevisionSource ?? "");
+  const needed = human ? REPHRASE_THRESHOLD_HUMAN_TEXT : REPHRASE_THRESHOLD_MACHINE_TEXT;
+  if (amendmentCount >= needed) return { allowed: true };
+  if (human) return { allowed: false, because: "Written by a person — not enough has changed to rephrase it." };
+  if ((design.overviewRevision ?? 0) > 0) return { allowed: false, because: "Already up to date — nothing new since the last rephrase." };
+  return { allowed: false, because: "Nothing to rephrase yet — no amendments since this was written." };
+}
 
 /** Same "one project-wide `design_checked` fetch, newest wins per design"
  * approach DesignsView uses for its own list-level chip -- copied rather
@@ -656,10 +685,24 @@ export function WorkView({
  * alone". That's what makes the field's placeholder honest: clearing it
  * really does restore the derived title rather than storing a blank one.
  */
-function OverviewEditor({ design, onCancel, onSaved }: { design: DesignStatement; onCancel: () => void; onSaved: () => void }) {
+function OverviewEditor({
+  design,
+  initialSummary,
+  onCancel,
+  onSaved,
+}: {
+  design: DesignStatement;
+  /** Seeds the textarea with something other than the stored summary --
+   * the coordinator's proposed rewrite (2026-10-06). The editor is where a
+   * proposal is reviewed, rather than a dialog of its own, so the owner can
+   * edit it before saving and the save is the same save as any other. */
+  initialSummary?: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
   const apiFetch = useApiFetch();
   const [title, setTitle] = useState(design.title ?? "");
-  const [summary, setSummary] = useState(design.summary ?? "");
+  const [summary, setSummary] = useState(initialSummary ?? design.summary ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [pane, setPane] = useState<"write" | "preview">("write");
@@ -776,6 +819,57 @@ function MemberChanges({ member }: { member: DesignStatement }) {
   );
 }
 
+/**
+ * One row of the design's activity (2026-10-06).
+ *
+ * This tab used to render `formatted.label` and drop `formatted.details` --
+ * so an amended design showed "Design amended" three times and said nothing
+ * about what any of them changed, while `ActivityView`, the standalone page,
+ * rendered both halves from the same helper.
+ *
+ * That was cosmetic while the amendment text was still visible in the
+ * overview. It stopped being cosmetic the moment a rewrite began *removing*
+ * that text (`overview-resynthesis.ts`, server-side): the activity log is
+ * then the only place the original wording survives, and a log that says
+ * "Design amended" is no record at all. Reuses `.activity-details` from
+ * `ActivityView`'s own markup rather than inventing a second look for the
+ * same thing.
+ *
+ * Clamped, with the row expanding on click: a `newSummary` payload carries a
+ * design's whole overview, and three of those at full height turn a list
+ * meant for scanning into a wall.
+ */
+function ActivityRow({ event }: { event: ActivityEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const formatted = formatActivityEvent(event);
+  if (formatted.details.length === 0) {
+    return (
+      <li className="work-activity-item">
+        <span className="work-activity-time">{relativeTime(event.ts)}</span>
+        <span>{formatted.label}</span>
+      </li>
+    );
+  }
+  return (
+    <li className="work-activity-item">
+      <span className="work-activity-time">{relativeTime(event.ts)}</span>
+      <div className="work-activity-body">
+        <button type="button" className="work-activity-label" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+          {formatted.label}
+        </button>
+        <dl className={`activity-details${expanded ? "" : " clamped"}`}>
+          {formatted.details.map((d) => (
+            <div key={d.label} className="activity-detail-field">
+              <dt>{d.label}</dt>
+              <dd>{d.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </li>
+  );
+}
+
 function DesignDetailPane({
   group,
   flags,
@@ -824,8 +918,25 @@ function DesignDetailPane({
   const [editingId, setEditingId] = useState<string | undefined>();
   const editing = editingId === primary.id;
   const setEditing = (open: boolean) => setEditingId(open ? primary.id : undefined);
+  // The coordinator's proposed rewrite, held only until the editor opens on
+  // it (2026-10-06). Nothing is saved from here: the proposal becomes the
+  // editor's draft, the owner edits or discards it, and saving goes through
+  // the same overview route a hand-typed edit does.
+  const [proposal, setProposal] = useState<string | undefined>();
+  const [rewriting, setRewriting] = useState(false);
+  const [keeping, setKeeping] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | undefined>();
   const hasConflict = primary.status === "flagged" || flags.anyUnresolvedWarning || flags.anySemanticOverlap;
-  const points = toDesignPoints(primary.summary);
+  // The design's own text, and the amendments appended to it (2026-10-06).
+  // Everything below reads `base`, never the raw summary: an amended design
+  // used to render its changelog as peers of its own sentences, so a design
+  // amended five times read as one statement of intent and five dated lines
+  // competing for the same attention. The amendments render in their own
+  // disclosure at the foot of the panel -- nothing is hidden, and because
+  // `base` is a literal prefix at offset 0 and each amendment keeps its true
+  // offset, not one review anchor moves. See `lib/amendments.ts`.
+  const { base: overviewBase, amendments } = splitAmendments(primary.summary);
+  const points = toDesignPoints(overviewBase);
   // The header takes the design's own first point, and the summary below
   // takes what's left. A summary that doesn't split into points has no
   // "rest", so the header shows a short title of it and the body shows the
@@ -841,11 +952,27 @@ function DesignDetailPane({
   // below, and suppresses the header stealing `points[0]`: a markdown body
   // renders in full, so taking its first line for the header would print
   // that line twice.
-  const authoredMarkdown = hasMarkdownStructure(primary.summary);
-  // A stored title (2026-10-02) changes this whole block: the header is then
-  // the owner's own words rather than a slice of the summary, so there is
-  // nothing for the body to avoid repeating and the summary renders in full.
-  const headerStandsAlone = Boolean(primary.title?.trim()) || authoredMarkdown;
+  const authoredMarkdown = hasMarkdownStructure(overviewBase);
+  /** Whether the header is its own text rather than a slice taken out of the
+   * body -- which decides whether the body has to skip that slice.
+   *
+   * A stored title or authored markdown made this true from 2026-10-02. A
+   * **composed overview** joins them (2026-10-06): once `overviewRevision` is
+   * above zero, somebody deliberately wrote this prose, by hand or by
+   * accepting a rewrite, and its sentences lean on each other.
+   *
+   * Stealing the first sentence for the header is fine for the
+   * machine-extracted summaries this rule was built for -- disjointed
+   * fragments where losing one costs nothing. It is wrong for composed prose:
+   * found live on a rewritten design whose header became a 197-character
+   * paragraph while the body opened "It also updates deploy/README.md…",
+   * referring to a subject that had been promoted out of it. The text was all
+   * there and it still read as a dropped line.
+   *
+   * So a composed overview gets a short derived title above it and renders in
+   * full below, exactly as a stored title already does. */
+  const overviewWasComposed = (primary.overviewRevision ?? 0) > 0;
+  const headerStandsAlone = Boolean(primary.title?.trim()) || authoredMarkdown || overviewWasComposed;
   const headline = headerStandsAlone ? designTitle(primary, DETAIL_TITLE_CHARS) : points.length > 0 ? points[0] : designTitle(primary, DETAIL_TITLE_CHARS);
   // **Keep this in step with `pointOffsets` below.** Without a stored title
   // the header took `points[0]`, so the body must skip it; with one, dropping
@@ -858,13 +985,17 @@ function DesignDetailPane({
   // Nothing to add when the header already shows the summary in full: a
   // short one is never clamped, so the body would repeat it exactly. A stored
   // title is never the summary, so the prose always has something to say.
-  const showProse = points.length === 0 && (headerStandsAlone || headline !== (primary.summary ?? "").trim());
+  const showProse = points.length === 0 && (headerStandsAlone || headline !== overviewBase.trim());
   const verdict = designVerdict(primary, flags);
   // Where each bullet sits in the summary, so a highlight located against
   // the whole summary lands on the right bullet. Indexed against `points`,
   // which still holds the one the header took -- see where the bullets
   // render for why that matters.
-  const pointOffsets = bulletOffsets(primary.summary, points);
+  // Against `overviewBase` rather than the whole summary -- which is the same
+  // string for every design never amended, and for the rest is a prefix, so
+  // the offsets it yields are already offsets into the summary. That is the
+  // property that lets the fold happen without re-anchoring a single comment.
+  const pointOffsets = bulletOffsets(overviewBase, points);
   // The Conflict tab's own count badge -- how many members in this group
   // (a linked design can span repos) actually have something to show under
   // it, same "flagged, or a live overlap" test the tab's own visibility
@@ -874,6 +1005,75 @@ function DesignDetailPane({
   /** Every member's declared changes, for the group-level stat tiles. A group
    * of one yields exactly `primary.changes`, so the common case is unchanged. */
   const groupChanges = group.members.flatMap((m) => m.changes ?? []);
+
+  /** Whether to offer the owner a rewrite rather than wait for one
+   * (2026-10-06). Both halves matter: the coordinator refuses to rewrite an
+   * overview a person wrote (`owner_edit`), so without this the design most
+   * worth folding -- someone's own text with a pile on top -- would be the
+   * one nothing ever offers to fold. Computed from fields already on the row,
+   * so it costs no request and needs no server flag. */
+  const overviewIsOwnWork = primary.overviewRevisionSource === "owner_edit";
+  const rephrase = rephraseState(primary, amendments.length);
+  // The owner still gets told when their own text has drifted far enough to
+  // be worth replacing -- the automatic path will never do it for them.
+  const nudgeToRewrite = overviewIsOwnWork && rephrase.allowed;
+
+  async function rewriteOverview() {
+    setRewriting(true);
+    setRewriteError(undefined);
+    try {
+      const { summary } = await resynthesizeDesignOverview(apiFetch, primary.id);
+      if (!summary) {
+        // A 200 with nothing in it: no amendments to fold, or this
+        // coordinator has no model configured. Neither is a failure, and
+        // saying "try again" about either would be a lie.
+        setRewriteError("Nothing to rewrite — this design's overview is already its own text.");
+        return;
+      }
+      // Only the proposal -- the card renders it where the overview was. It
+      // used to open the editor here too, which is exactly what made a
+      // finished rewrite look like an empty form.
+      setProposal(summary);
+    } catch (e) {
+      // The 404 is the mixed-deploy case: the server ships before the
+      // dashboard, so a coordinator that predates this route is expected
+      // rather than broken, and deserves to be named as such.
+      setRewriteError(
+        e instanceof ApiError && e.status === 404
+          ? "This coordinator is too old to rewrite overviews — the rest of this page works as normal."
+          : "Couldn't rewrite — try again.",
+      );
+    } finally {
+      setRewriting(false);
+    }
+  }
+
+  /** Accepting the proposal (2026-10-06). Goes through the ordinary overview
+   * route, not a save of its own: that is what records the text as
+   * `owner_edit` -- authored by the person who read it -- and what then keeps
+   * the coordinator's automatic path off this design for good. One click,
+   * because the reading already happened on screen. */
+  async function keepProposal() {
+    if (proposal === undefined) return;
+    setKeeping(true);
+    setRewriteError(undefined);
+    try {
+      // `applyDesignRephrase`, not `reviseDesignOverview`: the apply route
+      // carries no text and saves the coordinator's own proposal, so a
+      // teammate can accept a rephrase without being able to write arbitrary
+      // words into someone else's design. The editing route stays owner-only.
+      await applyDesignRephrase(apiFetch, primary.id);
+      setProposal(undefined);
+      onResolved();
+    } catch {
+      // Left on screen rather than discarded: the proposal is the only copy,
+      // and throwing it away because a save failed would make the owner ask
+      // for it a second time.
+      setRewriteError("Couldn't save that rewrite — try again, or edit it first.");
+    } finally {
+      setKeeping(false);
+    }
+  }
 
   const activityState = useAsyncData(
     () =>
@@ -941,20 +1141,100 @@ function DesignDetailPane({
             {editing ? (
               <OverviewEditor
                 design={primary}
-                onCancel={() => setEditing(false)}
+                initialSummary={proposal}
+                onCancel={() => {
+                  setEditing(false);
+                  setProposal(undefined);
+                }}
                 onSaved={() => {
                   setEditing(false);
+                  setProposal(undefined);
                   onResolved();
                 }}
               />
-            ) : (
-              isOwner &&
-              !readOnly && (
-                <div className="overview-edit-row">
-                  <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
-                    Edit title &amp; overview
+            ) : proposal !== undefined ? (
+              /* The proposal, shown **in place of** the overview rather than
+                 as a form (2026-10-06).
+
+                 It used to open the ordinary editor seeded with the proposed
+                 text, which tested badly for an honest reason: that form is
+                 pixel-identical to "Edit title & overview", so the result read
+                 as "nothing happened, now type it yourself" even though the
+                 rewrite was sitting right there. The fix is to show the
+                 *outcome*, styled as a proposal, and make accepting it one
+                 click -- so it reads as rewritten the moment it arrives, while
+                 still being unsaved until somebody says so.
+
+                 Rendered through `Markdown` with no `designId`, the same rule
+                 the editor's preview follows: there is nothing to comment on
+                 in text that is not stored yet, and wiring it to the review
+                 context would let a draft write into the rail. */
+              <div className="overview-proposal">
+                <div className="overview-proposal-banner">
+                  <b>Proposed rewrite</b> — folds {amendments.length} amendment{amendments.length === 1 ? "" : "s"} into one current description. Nothing is saved yet.
+                </div>
+                <div className="overview-proposal-body">
+                  <Markdown source={proposal} />
+                </div>
+                {rewriteError && <p className="overview-editor-error">{rewriteError}</p>}
+                <div className="overview-proposal-actions">
+                  <button type="button" className="overview-proposal-discard" onClick={() => setProposal(undefined)} disabled={keeping}>
+                    Discard
+                  </button>
+                  {/* Opens the ordinary editor already seeded with the
+                      proposal -- the escape hatch for "nearly right", without
+                      making everyone pass through a textarea to accept text
+                      they are happy with. */}
+                  <button type="button" className="overview-proposal-edit" onClick={() => setEditing(true)} disabled={keeping}>
+                    Edit first
+                  </button>
+                  <button type="button" className="overview-proposal-keep" onClick={keepProposal} disabled={keeping}>
+                    {keeping ? "Saving…" : "Keep it"}
                   </button>
                 </div>
+              </div>
+            ) : (
+              !readOnly && (
+                <>
+                  {/* Offered, never done to them: the coordinator leaves an
+                      overview its owner wrote alone however deep the pile
+                      gets, so a person pressing this is the only way that
+                      design ever gets folded. */}
+                  {nudgeToRewrite && (
+                    <div className="overview-nudge" role="status">
+                      <b>
+                        {amendments.length} amendments since you wrote this overview.
+                      </b>{" "}
+                      Rephrasing folds them into one current description. You see it before anything is saved.
+                    </div>
+                  )}
+                  <div className="overview-edit-row">
+                    {/* **Shown to everyone, always** (2026-10-06). Rephrasing
+                        is reading work: it produces a proposal from text the
+                        reader can already see, and accepting it stores the
+                        coordinator's own words, never theirs. Hiding it when
+                        inert only made people learn a rule they could not
+                        see, so it stays on screen and carries its reason
+                        instead -- which the server enforces independently. */}
+                    <button
+                      type="button"
+                      className="overview-rewrite-button"
+                      onClick={rewriteOverview}
+                      disabled={rewriting || !rephrase.allowed}
+                      title={rephrase.allowed ? undefined : rephrase.because}
+                    >
+                      {rewriting ? "Rephrasing…" : "Rephrase overview"}
+                    </button>
+                    {/* Editing is a different act: arbitrary words, owner
+                        only, server-enforced. Unchanged by any of the above. */}
+                    {isOwner && (
+                      <button type="button" className="overview-edit-button" onClick={() => setEditing(true)}>
+                        Edit title &amp; overview
+                      </button>
+                    )}
+                  </div>
+                  {rewriteError && <p className="overview-editor-error">{rewriteError}</p>}
+                </>
               )
             )}
             {/* No edit provenance in this panel, deliberately (removed
@@ -977,7 +1257,22 @@ function DesignDetailPane({
             {/* Nothing to render at all when the header above was the whole
                 summary -- an empty heading over a repeat of the title is worse
                 than no section, and repeating it in full is worse than both. */}
-            {!editing && (authoredMarkdown || restPoints.length > 0 || showProse) && (
+            {/* A skeleton where the overview is, not a line beside it
+                (2026-10-06). The button's own label is too quiet for a call
+                that takes a second or two -- the first round of this feature
+                read as "nothing happened" partly because of that. Shaped like
+                the text it is replacing, so the page says "this is being
+                rewritten" rather than "something is loading somewhere".
+                Cached proposals come back instantly and never show it. */}
+            {rewriting && (
+              <div className="overview-skeleton" role="status" aria-label="Rephrasing this overview">
+                <span className="overview-skeleton-line" />
+                <span className="overview-skeleton-line" />
+                <span className="overview-skeleton-line short" />
+              </div>
+            )}
+
+            {!editing && proposal === undefined && !rewriting && (authoredMarkdown || restPoints.length > 0 || showProse) && (
               <>
                 <h3>What this design says it&rsquo;s doing</h3>
                 {/* Two renderings, chosen by whether the text has structure in
@@ -988,7 +1283,7 @@ function DesignDetailPane({
                     respect and genuinely is an unreadable wall, so it keeps
                     the sentence-bullet treatment that was built for it. */}
                 {authoredMarkdown ? (
-                  <Markdown source={primary.summary} designId={primary.id} />
+                  <Markdown source={overviewBase} designId={primary.id} />
                 ) : restPoints.length > 0 ? (
                   <ul className="summary-bullets">
                     {restPoints.map((line, i) => (
@@ -1008,10 +1303,46 @@ function DesignDetailPane({
                   </ul>
                 ) : (
                   <p>
-                    <HighlightableText designId={primary.id} field="summary" text={primary.summary} />
+                    <HighlightableText designId={primary.id} field="summary" text={overviewBase} />
                   </p>
                 )}
               </>
+            )}
+
+            {/* The amendments, folded (2026-10-06). Its own section rather
+                than more bullets in the body above: an `Update (date):` entry
+                is the design's history, and giving it the same bullet as the
+                design's own sentences is what made an amended overview
+                unreadable. Collapsed by default -- the current position is
+                what a reviewer opens a design for; the trail is there when
+                they want it.
+
+                Each entry renders at its **true offset** in the summary, so
+                any comment anchored inside an amendment still resolves. Sits
+                inside the same `DesignReview` scope as everything else in the
+                panel, so those comments land in the same rail.
+
+                Rendered independently of the body section above, not nested
+                in it: a design whose entire base was consumed by the header
+                still has amendments worth showing. */}
+            {/* Hidden while a proposal is on screen: the proposal's whole
+                claim is that it has folded these in, so showing them beside it
+                invites a comparison the reader cannot act on until they decide.
+                They come straight back on Discard. */}
+            {!editing && proposal === undefined && !rewriting && amendments.length > 0 && (
+              <details className="work-amendments">
+                <summary>
+                  {amendments.length} amendment{amendments.length === 1 ? "" : "s"} since this was written
+                </summary>
+                <ul className="work-amendment-list">
+                  {amendments.map((amendment) => (
+                    <li key={amendment.offset}>
+                      <span className="work-amendment-date">{amendment.date}</span>
+                      <HighlightableText designId={primary.id} field="summary" text={amendment.text} offset={amendment.offset} />
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
 
             {/* Collapsed by default, on purpose: `summary` above is already an
@@ -1128,15 +1459,9 @@ function DesignDetailPane({
           {activityState.status === "ready" && activityState.data.length === 0 && <p className="empty-state">No activity yet.</p>}
           {activityState.status === "ready" && activityState.data.length > 0 && (
             <ul className="work-activity-list">
-              {activityState.data.map((event) => {
-                const formatted = formatActivityEvent(event);
-                return (
-                  <li key={event.id} className="work-activity-item">
-                    <span className="work-activity-time">{relativeTime(event.ts)}</span>
-                    <span>{formatted.label}</span>
-                  </li>
-                );
-              })}
+              {activityState.data.map((event) => (
+                <ActivityRow key={event.id} event={event} />
+              ))}
             </ul>
           )}
         </div>

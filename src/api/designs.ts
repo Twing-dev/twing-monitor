@@ -52,6 +52,41 @@ export async function reviseDesignOverview(fetcher: Fetcher, designId: string, b
   });
 }
 
+/** `POST /v1/designs/:id/resynthesize` (2026-10-06) -- asks the coordinator
+ * to fold the design's appended `Update (date):` entries back into one
+ * current overview.
+ *
+ * **Returns the proposal; saves nothing.** The caller puts it in front of the
+ * owner, who edits and saves it through `reviseDesignOverview` above like any
+ * other edit -- which is what records it as theirs, and what stops the
+ * coordinator's automatic path touching that design afterwards.
+ *
+ * `summary: null` is a 200, not a failure: a design with nothing to fold (or
+ * a coordinator with no model configured) has nothing to offer, and the
+ * difference between that and an error matters to what the UI says. A
+ * coordinator older than this route answers 404 instead -- the server ships
+ * before the dashboard, so the caller is expected to say so in words rather
+ * than show a bare "Not Found". */
+export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: string): Promise<{ summary: string | null; unavailable?: string }> {
+  return fetcher<{ summary: string | null; unavailable?: string }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
+}
+
+/** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
+ * proposal the coordinator computed for this design's current state.
+ *
+ * **Carries no text**, which is the whole reason it exists separately from
+ * `reviseDesignOverview`. That route takes arbitrary words and is owner-only;
+ * this one can only store what the server itself wrote, so any project member
+ * may accept a rephrase without ever being able to put words of their own
+ * into someone else's design.
+ *
+ * 409 when the coordinator has no proposal for the current state -- nobody
+ * fetched one, or the design moved underneath it. Ask for a rephrase again
+ * and read what comes back. */
+export async function applyDesignRephrase(fetcher: Fetcher, designId: string): Promise<{ design: DesignStatement }> {
+  return fetcher<{ design: DesignStatement }>(`/v1/designs/${designId}/resynthesize/apply`, { method: "POST" });
+}
+
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body
  * (`ResolveRequestBody`) -- the two ways a flagged design gets addressed
  * (§17.5): supersede it in favor of the design it conflicts with, or

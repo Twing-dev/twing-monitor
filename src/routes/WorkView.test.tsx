@@ -136,7 +136,13 @@ describe("WorkView (desktop baseline)", () => {
     });
 
     it("puts the first point in the title and only the remaining ones in the body", async () => {
-      const summary = "Record the group a design was born into, so a stacked design is attributable.\n\nUpdate (2026-09-29): also bump the packages so this ships under a version that identifies it.";
+      // Two paragraphs the *author* wrote. This fixture used to use an
+      // appended `Update (date):` entry as its second point, which stopped
+      // exercising this rule once amendments moved into their own disclosure
+      // (2026-10-06) -- the body then had no second point to show. The rule
+      // under test is unchanged: the header takes the first point and the
+      // body takes what is left. Amendments have their own tests below.
+      const summary = "Record the group a design was born into, so a stacked design is attributable.\n\nIt also bumps the packages so this ships under a version that identifies it.";
       stubApi([design({ summary })]);
       const { container } = renderWork();
       await waitFor(() => expect(openDesignTitle(container)).toBe("Record the group a design was born into, so a stacked design is attributable."));
@@ -144,8 +150,8 @@ describe("WorkView (desktop baseline)", () => {
       const pane = detailPane(container);
       // The headline is in the title and nowhere else in the pane...
       expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
-      // ...and the amendment, which the title can't show, is still readable.
-      expect(within(pane).getByText(/also bump the packages/)).toBeInTheDocument();
+      // ...and the second point, which the title can't show, is still readable.
+      expect(within(pane).getByText(/also bumps the packages/)).toBeInTheDocument();
     });
   });
 
@@ -921,10 +927,21 @@ describe("WorkView: markdown overview", () => {
 
   it("keeps sentence bullets for machine prose with an appended amendment", async () => {
     // What `appendSummaryUpdate` produces, i.e. most of the existing corpus.
-    stubApi([design({ summary: "Adds retry logic to the sync client, with a capped budget.\n\nUpdate (2026-09-29): also bumps the packages." })]);
+    // The design's own text needs more than one sentence for bullets to be
+    // the right rendering at all -- before amendments were folded out
+    // (2026-10-06) the appended entry supplied the second point, so this
+    // fixture carried only one sentence of its own and still bulleted.
+    stubApi([
+      design({
+        summary: "Adds retry logic to the sync client, with a capped budget. It resumes from the last acknowledged offset.\n\nUpdate (2026-09-29): also bumps the packages.",
+      }),
+    ]);
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".summary-bullets")).not.toBeNull());
     expect(container.querySelector(".md")).toBeNull();
+    // ...and the appended entry is in the fold, not among the bullets.
+    expect(container.querySelector(".summary-bullets")?.textContent).not.toContain("also bumps the packages");
+    expect(container.querySelector(".work-amendments")).not.toBeNull();
   });
 
   // Each markdown block is its own review run at its own source offset --
@@ -981,5 +998,519 @@ describe("WorkView: markdown overview", () => {
     await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^write$/i }));
 
     expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe("## Draft heading");
+  });
+});
+
+/**
+ * The amendment fold (2026-10-06).
+ *
+ * `twing design amend` appends each amendment to `summary` as a dated
+ * `Update (date):` entry, and the overview used to render those entries as
+ * peers of the design's own sentences. These pin the two halves of the fix:
+ * the body shows the design, the disclosure shows its history -- and every
+ * amendment still renders at its true offset, which is what keeps review
+ * comments anchored.
+ */
+describe("WorkView: amendment fold", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const SHORT_BASE = "Add retry backoff to the sync client";
+  const LONG_BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const amended = (base: string) =>
+    `${base}\n\nUpdate (2026-09-29): Also touches src/net/timeout.ts.\n\nUpdate (2026-09-30): Drop the jitter experiment.`;
+
+  it("renders the amendments in a disclosure, not in the overview body", async () => {
+    const summary = amended(LONG_BASE);
+    stubApi([design({ summary })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    const fold = container.querySelector(".work-amendments") as HTMLElement;
+    expect(fold).toBeTruthy();
+    expect(within(fold).getByText(/2 amendments since this was written/i)).toBeInTheDocument();
+    expect(fold.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+
+    // The body renders the design and nothing of its changelog.
+    const body = container.querySelector(".summary-bullets") as HTMLElement;
+    expect(body.textContent).toContain("resumes from the last acknowledged offset");
+    expect(body.textContent).not.toContain("Also touches");
+    expect(body.textContent).not.toContain("Drop the jitter experiment");
+  });
+
+  // THE property the whole fold rests on. If an amendment renders at the
+  // wrong offset, every comment anchored in it resolves against the wrong
+  // words -- and the page still looks perfectly correct.
+  it("renders each amendment at its true offset in the summary", async () => {
+    const summary = amended(LONG_BASE);
+    stubApi([design({ summary })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const blocks = [...container.querySelectorAll(".work-amendment-list [data-review-block]")] as HTMLElement[];
+    expect(blocks).toHaveLength(2);
+    for (const block of blocks) {
+      const offset = Number(block.dataset.offset);
+      const text = block.textContent ?? "";
+      expect(summary.slice(offset, offset + text.length)).toBe(text);
+    }
+  });
+
+  it("shows each amendment's date", async () => {
+    stubApi([design({ summary: amended(LONG_BASE) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const dates = [...container.querySelectorAll(".work-amendment-date")].map((d) => d.textContent);
+    expect(dates).toEqual(["2026-09-29", "2026-09-30"]);
+  });
+
+  // A short base is promoted into the header and the body section is
+  // suppressed (it would just repeat the heading). The amendments are
+  // separate content and must survive that.
+  it("still folds the amendments when the base was consumed by the header", async () => {
+    stubApi([design({ summary: amended(SHORT_BASE) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).toBe(SHORT_BASE));
+
+    expect(container.querySelector(".summary-bullets")).toBeNull();
+    expect(container.querySelector(".work-amendments")).toBeTruthy();
+    expect(container.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+  });
+
+  it("titles the design from its own text, never from an amendment", async () => {
+    stubApi([design({ summary: amended(SHORT_BASE) })]);
+    const { container } = renderWork();
+
+    await waitFor(() => expect(openDesignTitle(container)).toBe(SHORT_BASE));
+    // ...and the list row agrees, since both read the one fallback helper.
+    expect(within(listPane(container)).getByText(SHORT_BASE)).toBeInTheDocument();
+  });
+
+  it("renders no disclosure for a design that has never been amended", async () => {
+    stubApi([design({ summary: LONG_BASE })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    expect(container.querySelector(".work-amendments")).toBeNull();
+  });
+
+  it("keeps an authored markdown base on the markdown path, with the fold beside it", async () => {
+    const base = "## Context\n\nThe sync client drops its offset.\n\n## Approach\n\n- Resume from the last acknowledged offset";
+    stubApi([design({ summary: amended(base) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".md-heading")).toBeTruthy());
+
+    const headings = [...container.querySelectorAll(".md-heading")].map((h) => h.textContent);
+    expect(headings).toEqual(["Context", "Approach"]);
+    // The appended entries are not markdown blocks in the body any more.
+    expect((container.querySelector(".md") as HTMLElement).textContent).not.toContain("Also touches");
+    expect(container.querySelectorAll(".work-amendment-list li")).toHaveLength(2);
+  });
+});
+
+/**
+ * The Rewrite button and the nudge (2026-10-06).
+ *
+ * The coordinator proposes; a person saves. These pin that split: the button
+ * never writes on its own, the proposal lands in the editor for approval, and
+ * an overview its owner wrote is only ever *offered* a rewrite.
+ */
+describe("WorkView: rewrite overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const amendedTimes = (n: number) =>
+    Array.from({ length: n }, (_, i) => `\n\nUpdate (2026-09-${20 + i}): amendment ${i + 1}.`).reduce((acc, u) => acc + u, BASE);
+
+  /** Like `stubApi`, plus an answer for the resynthesize route and a record
+   * of every call made to it. */
+  function stubApiWithRewrite(designs: Record<string, unknown>[], answer: { status?: number; summary?: string | null } = {}) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/resynthesize")) {
+          calls.push(url);
+          if (answer.status && answer.status !== 200) return new Response(JSON.stringify({ error: "not found" }), { status: answer.status });
+          return new Response(JSON.stringify({ summary: answer.summary ?? "One current overview." }), { status: 200 });
+        }
+        if (url.includes("/resynthesize/apply")) {
+          calls.push("POST apply");
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
+        if (url.includes("/overview") && init?.method === "PATCH") {
+          calls.push(`PATCH ${url}`);
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
+          return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    return calls;
+  }
+
+  it("shows the proposal instead of saving it", async () => {
+    const calls = stubApiWithRewrite([design({ summary: amendedTimes(2) })], { summary: "The design, as it now stands." });
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
+
+    // The proposal is shown, not saved. It used to land in the editor's
+    // textarea (2026-10-06): that form is identical to "Edit title &
+    // overview", so a finished rewrite read as an empty form. It now renders
+    // as a proposal card where the overview was -- see the proposal-card
+    // tests below for the accept/discard behaviour.
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("The design, as it now stands.");
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
+    expect(calls.filter((c) => c.startsWith("PATCH") || c === "POST apply")).toHaveLength(0);
+  });
+
+  // Changed 2026-10-06: rephrasing is reading work, and accepting a proposal
+  // stores the coordinator's words rather than the reader's, so it is offered
+  // to everyone. Editing -- arbitrary text -- stays the owner's alone.
+  it("offers the button on someone else's design, but not the editor", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2), developerId: "someone-else@example.com" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const rephrase = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(rephrase).toBeEnabled();
+    expect(within(detailPane(container)).queryByRole("button", { name: /edit title & overview/i })).not.toBeInTheDocument();
+  });
+
+  // Kept on screen and disabled rather than hidden: a button that appears and
+  // disappears teaches a rule nobody can see.
+  it("keeps the button visible but inert when there is nothing to fold", async () => {
+    stubApiWithRewrite([design({ summary: BASE })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
+
+    const button = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(button).toBeDisabled();
+    // The reason lives on the tooltip rather than on the page (2026-10-07).
+    expect(button).toHaveAttribute("title", expect.stringMatching(/nothing to rephrase yet/i));
+  });
+
+  it("needs two amendments before offering to replace text a person wrote", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1), overviewRevision: 1, overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    const button = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringMatching(/not enough has changed/i));
+  });
+
+  it("offers it again once a second amendment lands on that text", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2), overviewRevision: 1, overviewRevisionSource: "rephrase_accepted" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeEnabled();
+  });
+
+  // One amendment is enough when nobody has claimed the text.
+  it("offers it after a single amendment on a machine-written overview", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeEnabled();
+  });
+
+  it("shows a skeleton where the overview is while it waits", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+    // The skeleton is gone once the proposal lands; its markup is what the
+    // wait looks like, asserted structurally rather than by timing.
+    expect(container.querySelector(".overview-skeleton")).toBeNull();
+  });
+
+  // The mixed-deploy case: the coordinator ships before the dashboard, so a
+  // 404 here is an old server rather than a broken page, and says so.
+  it("names an older coordinator rather than showing a bare failure", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(2) })], { status: 404 });
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
+    await waitFor(() => expect(within(detailPane(container)).getByText(/too old to rewrite overviews/i)).toBeInTheDocument());
+    // ...and the editor never opened on a proposal that does not exist.
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
+  });
+
+  it("nudges the owner once their own overview has drifted", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(3), overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(within(detailPane(container)).getByText(/3 amendments since you wrote this overview/i)).toBeInTheDocument();
+  });
+
+  // The coordinator rewrites a machine-written overview on its own, so
+  // nagging about one would be noise about work already in hand.
+  it("does not nudge when the overview is not the owner's own text", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(3) })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(container.querySelector(".overview-nudge")).toBeNull();
+  });
+
+  it("does not nudge before the pile is deep enough", async () => {
+    stubApiWithRewrite([design({ summary: amendedTimes(1), overviewRevisionSource: "owner_edit" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+
+    expect(container.querySelector(".overview-nudge")).toBeNull();
+    // The button is still there -- an owner may fold two amendments if they
+    // want to; the nudge is about when to *suggest* it.
+    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The proposal card and the activity details (2026-10-06).
+ *
+ * Both exist because the first cut of the rewrite feature *worked* and still
+ * read as broken: the proposal arrived in a form identical to the ordinary
+ * editor, and the activity tab that was supposed to hold the folded-away
+ * history showed only labels.
+ */
+describe("WorkView: rewrite proposal card", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const BASE = "Add retry backoff to the sync client. It resumes from the last acknowledged offset.";
+  const AMENDED = `${BASE}\n\nUpdate (2026-09-29): Also touches src/net/timeout.ts.\n\nUpdate (2026-09-30): Drop the jitter experiment.`;
+  const PROPOSAL = "Reworks the sync client to resume from the last acknowledged offset, also touching the timeout path.";
+
+  function stubApiWithRewrite(designs: Record<string, unknown>[], answer: { summary?: string | null; saveStatus?: number } = {}) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/resynthesize/apply")) {
+          calls.push("POST apply");
+          return new Response(JSON.stringify({ design: designs[0] }), { status: answer.saveStatus ?? 200 });
+        }
+        if (url.includes("/resynthesize")) {
+          calls.push("POST resynthesize");
+          return new Response(JSON.stringify({ summary: answer.summary ?? PROPOSAL }), { status: 200 });
+        }
+        if (url.includes("/overview") && init?.method === "PATCH") {
+          calls.push(`PATCH overview ${String(init.body)}`);
+          return new Response(JSON.stringify({ design: designs[0] }), { status: 200 });
+        }
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) {
+          return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    return calls;
+  }
+
+  async function openProposal(container: HTMLElement) {
+    await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i }));
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeTruthy());
+  }
+
+  // THE fix. The proposal is the outcome, shown where the overview was -- not
+  // a textarea the reader has to recognise as a result.
+  it("shows the rewrite in place, not in an edit form", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("resume from the last acknowledged offset");
+    // Not the editor: no textarea, and the ordinary Save is nowhere.
+    expect(container.querySelector(".overview-editor-source")).toBeNull();
+    expect(within(detailPane(container)).getByText(/nothing is saved yet/i)).toBeInTheDocument();
+  });
+
+  it("replaces the overview and its amendments while the proposal is up", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    // The old text and the fold step aside, so the pane reads as rewritten
+    // rather than as two competing versions.
+    expect(container.querySelector(".summary-bullets")).toBeNull();
+    expect(container.querySelector(".work-amendments")).toBeNull();
+  });
+
+  it("saves in one click, through the apply route that carries no text", async () => {
+    const calls = stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /keep it/i }));
+
+    await waitFor(() => expect(calls).toContain("POST apply"));
+    // Nothing is sent but the design id: the coordinator saves its own
+    // proposal, which is what lets a non-owner accept one without being able
+    // to write words of their own.
+    expect(calls.some((c) => c.startsWith("PATCH overview"))).toBe(false);
+  });
+
+  it("puts the old overview back on Discard, saving nothing", async () => {
+    const calls = stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /discard/i }));
+
+    await waitFor(() => expect(container.querySelector(".overview-proposal")).toBeNull());
+    expect(container.querySelector(".work-amendments")).toBeTruthy();
+    expect(calls.filter((c) => c.startsWith("PATCH") || c === "POST apply")).toHaveLength(0);
+  });
+
+  it("hands the proposal to the editor on Edit first", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })]);
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /edit first/i }));
+
+    await waitFor(() => expect(container.querySelector(".overview-editor-source")).toBeTruthy());
+    expect((container.querySelector(".overview-editor-source") as HTMLTextAreaElement).value).toBe(PROPOSAL);
+  });
+
+  // The proposal is the only copy -- throwing it away because a save failed
+  // would make the owner ask for it twice.
+  it("keeps the proposal on screen when saving fails", async () => {
+    stubApiWithRewrite([design({ summary: AMENDED })], { saveStatus: 500 });
+    const { container } = renderWork();
+    await openProposal(container);
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /keep it/i }));
+
+    await waitFor(() => expect(within(detailPane(container)).getByText(/couldn't save that rewrite/i)).toBeInTheDocument());
+    expect(container.querySelector(".overview-proposal-body")?.textContent).toContain("resume from the last acknowledged offset");
+  });
+});
+
+describe("WorkView: activity details", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubApiWithActivity(designs: Record<string, unknown>[], events: Record<string, unknown>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/activity")) return new Response(JSON.stringify({ items: events }), { status: 200 });
+        if (url.includes("/v1/designs?") || url.includes("/v1/designs&")) return new Response(JSON.stringify({ items: designs }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+  }
+
+  const amendEvent = (id: string, summary: string) => ({
+    id,
+    projectId: "proj-1",
+    kind: "design_amended",
+    relatedId: "design-1",
+    ts: Date.now(),
+    payload: { addedTouches: ["src/net/timeout.ts"], addedCreates: [], addedDependsOn: [], newSummary: summary },
+  });
+
+  // Before this, an amended design showed "Design amended" three times and
+  // said nothing about any of them -- and once a rewrite removes that text
+  // from the overview, this tab is the only place it survives.
+  it("says what each amendment changed, not just that one happened", async () => {
+    stubApiWithActivity([design()], [amendEvent("e1", "the rewritten summary")]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(container.querySelector(".activity-details")).toBeTruthy());
+    const details = container.querySelector(".activity-details") as HTMLElement;
+    expect(details.textContent).toContain("src/net/timeout.ts");
+    expect(details.textContent).toContain("the rewritten summary");
+  });
+
+  it("clamps a long payload until the row is opened", async () => {
+    stubApiWithActivity([design()], [amendEvent("e1", "a very long rewritten summary ".repeat(20))]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(container.querySelector(".activity-details")).toBeTruthy());
+    expect(container.querySelector(".activity-details")?.className).toContain("clamped");
+
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /design amended/i }));
+    expect(container.querySelector(".activity-details")?.className).not.toContain("clamped");
+  });
+
+  it("leaves a detail-free event as a plain row", async () => {
+    // `design_closed` carries no detail fields of its own; `design_registered`
+    // does (it reports the summary), so it is the wrong fixture for this.
+    stubApiWithActivity([design()], [{ id: "e2", projectId: "proj-1", kind: "design_closed", relatedId: "design-1", ts: Date.now(), payload: {} }]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent("Add retry backoff to the sync client"));
+    await userEvent.click(within(detailPane(container)).getByRole("button", { name: /^activity$/i }));
+
+    await waitFor(() => expect(within(detailPane(container)).getByText(/design closed/i)).toBeInTheDocument());
+    expect(container.querySelector(".work-activity-body")).toBeNull();
+  });
+});
+
+/**
+ * A composed overview renders in full (2026-10-06).
+ *
+ * The header used to take the summary's first sentence whatever the summary
+ * was. Harmless for machine-extracted fragments; wrong once a rewrite
+ * produces flowing prose, where the body is then left opening "It also…"
+ * about a subject that has been promoted into the heading.
+ */
+describe("WorkView: composed overview", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const COMPOSED =
+    "This design documents the coordinator's version handshake in deploy/SERVER.md to ensure operators understand that a bumped version triggers self-healing. It also updates deploy/README.md to address the redeploy path.\n\nAdditionally, the monitor deploys separately and does not take part in the handshake.";
+
+  it("keeps the first sentence in the body once the overview has been rewritten", async () => {
+    stubApi([design({ summary: COMPOSED, overviewRevision: 1, overviewRevisionSource: "llm_resynthesis" })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(detailPane(container)).toHaveTextContent(/deploy\/README\.md/));
+
+    // The opening sentence is in the body, where the rest of the prose refers
+    // back to it -- not only in the heading.
+    const body = container.querySelector(".work-tab-panel") as HTMLElement;
+    expect(body.textContent).toContain("This design documents the coordinator's version handshake");
+    expect(body.textContent).toContain("It also updates deploy/README.md");
+  });
+
+  it("gives such a design a short derived title, not a paragraph", async () => {
+    stubApi([design({ summary: COMPOSED, overviewRevision: 1 })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).not.toBe(""));
+
+    // Clamped like any derived title, rather than the whole 150-character
+    // opening sentence standing in as a heading.
+    expect(openDesignTitle(container).length).toBeLessThanOrEqual(DETAIL_TITLE_CHARS + 1);
+    expect(openDesignTitle(container)).toContain("This design documents");
+  });
+
+  // The rule this replaces still holds for everything it was built for.
+  it("still lets the header take the first point of an un-rewritten summary", async () => {
+    const extracted = "Record the group a design was born into, so a stacked design is attributable.\n\nIt also bumps the packages.";
+    stubApi([design({ summary: extracted })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(openDesignTitle(container)).toBe("Record the group a design was born into, so a stacked design is attributable."));
+
+    const pane = detailPane(container);
+    expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
   });
 });

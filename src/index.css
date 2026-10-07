@@ -1016,6 +1016,61 @@ button {
   margin-top: 8px;
 }
 
+/* The amendment fold (2026-10-06). Styled as a sibling of the raw-plan
+   disclosure above rather than as part of the summary: both are "the design's
+   history, available but not in your way", and a reader who has learned one
+   affordance should recognise the other. Deliberately quieter than the
+   overview it sits under -- the point of the fold is that the design's current
+   position wins the page. */
+.work-amendments {
+  margin-top: 16px;
+}
+
+.work-amendments > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.work-amendments > summary:hover {
+  color: var(--text);
+}
+
+.work-amendment-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.work-amendment-list li {
+  /* A left rule rather than a bullet: these are dated entries in a log, and a
+     bullet is what made them read as peers of the summary's own points in the
+     first place. */
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 10px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  /* The text is a verbatim slice of the summary and an amendment may carry its
+     own paragraph breaks -- keep them rather than collapsing to one run. */
+  white-space: pre-wrap;
+}
+
+.work-amendment-list li:last-child {
+  margin-bottom: 0;
+}
+
+.work-amendment-date {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
 /* What the design declares it will change, once it stopped being its own
    "Design change" tab (2026-09, WorkView) and became a section at the bottom
    of Overview. The rule above it does the separating: appended to a panel that
@@ -1145,6 +1200,39 @@ button {
 
 .work-activity-item:last-child {
   border-bottom: none;
+}
+
+/* An activity row that carries details (2026-10-06): the label becomes the
+   expander, and the details sit under it clamped, so the list still scans. */
+.work-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.work-activity-label {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-activity-label:hover {
+  color: var(--accent-text);
+}
+
+/* A `newSummary` payload is a whole overview; three of them at full height
+   bury everything else in the tab. Clamped until the row is opened. */
+.activity-details.clamped dd {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .work-activity-time {
@@ -3455,7 +3543,116 @@ li:first-child > .preview-row {
 .overview-edit-row {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   padding: 12px 18px 0;
+}
+
+/* The rewrite affordance (2026-10-06). Same shape as the edit button beside
+   it, and deliberately no more prominent: folding a pile of amendments is
+   housekeeping, not the thing someone opened this design to do. */
+.overview-rewrite-button {
+  background: none;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-rewrite-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--accent-text);
+}
+
+.overview-rewrite-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The proposed rewrite, shown where the overview was (2026-10-06). Tinted and
+   ruled so it reads as "this is not the stored text yet" at a glance -- the
+   first version of this feature put the proposal in a plain edit form, which
+   was indistinguishable from the owner's own draft and read as though nothing
+   had happened. */
+.overview-proposal {
+  margin: 12px 18px 0;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.overview-proposal-banner {
+  padding: 8px 12px;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.overview-proposal-banner b {
+  color: var(--accent-text);
+}
+
+.overview-proposal-body {
+  padding: 12px;
+}
+
+.overview-proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.overview-proposal-actions button {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+}
+
+.overview-proposal-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The one affordance that writes anything, so it is the only one that looks
+   like a primary action. */
+.overview-proposal-keep {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.overview-rewriting {
+  margin: 12px 18px 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* Shown only to the owner of an overview they wrote themselves, once enough
+   amendments have piled on top of it -- the coordinator will never rewrite
+   that text on its own, so this is the only prompt that design ever gets. */
+.overview-nudge {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 7px 7px 0;
+  background: var(--surface-hover);
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.overview-nudge b {
+  color: var(--text);
 }
 
 .overview-edit-button {
@@ -3675,4 +3872,37 @@ li:first-child > .preview-row {
   padding: 14px;
   font-size: 0.82rem;
   color: var(--text-dim);
+}
+
+/* The rephrase skeleton (2026-10-06): three bars where the overview's own
+   lines are, so the wait reads as "this text is being replaced". */
+.overview-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 18px 0;
+}
+
+.overview-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--border) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: overview-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.overview-skeleton-line.short {
+  width: 62%;
+}
+
+@keyframes overview-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Motion is decoration here -- the bars still read as a placeholder without
+   it, and an animation nobody asked for is the kind a vestibular disorder
+   punishes. */
+@media (prefers-reduced-motion: reduce) {
+  .overview-skeleton-line { animation: none; }
 }

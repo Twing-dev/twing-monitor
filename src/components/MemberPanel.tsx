@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { DesignStatement, ProjectSummary } from "../api/types.js";
 import { uniqueBy } from "../lib/aggregate.js";
-import { designTitle } from "../lib/designTitle.js";
 import { relativeTime } from "../lib/time.js";
 import { RepoBadge } from "./RepoBadge.js";
 
@@ -25,14 +24,16 @@ import { RepoBadge } from "./RepoBadge.js";
  * against. Changes and chat still stack per member, so the label is still
  * what tells them apart.
  *
- * **`summary` is the load-bearing label here**, not the metadata beside it. A
- * linked chain is typically one developer's consecutive work in one session, so
- * `developerId` is identical across members and `lastActivityAt` differs by
- * minutes -- neither distinguishes anything. The summaries genuinely differ
- * (they are separate designs), and they are the only field that always does.
- * Run through `designTitle` because a real summary accumulates each amendment's
- * text and runs to hundreds of words; that helper extracts the headline -- and
- * prefers the owner's own title (2026-10-02) when they have set one.
+ * **The design's own title is no longer printed here** (2026-10-07). It was
+ * the load-bearing label while nothing else told the members apart, and it
+ * stopped being so once the overview above began rendering every member's
+ * prose under its own repo heading: the title is `designTitle(summary)`, so
+ * the reader met the same sentence twice, truncated the second time. What is
+ * left is the metadata that genuinely differs -- a closed half beside an open
+ * one is worth seeing, and `status` is the field that says so.
+ *
+ * The repo label is what distinguishes the panels now, which is why the
+ * badge below is the one piece of labelling that stayed.
  *
  * The repo badge moved in here from each call site and now renders only when
  * the group actually spans repos. `groupId` is a *cross-project* label by
@@ -65,7 +66,6 @@ export function MemberPanel({
 
   return (
     <div className="member-panel">
-      <div className="member-panel-title">{designTitle(member)}</div>
       <div className="member-panel-heading">
         {showRepoBadge && spansRepos && <RepoBadge project={projectsById[member.projectId] ?? { projectId: member.projectId }} />}
         <span>{member.developerId}</span>

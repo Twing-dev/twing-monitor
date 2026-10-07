@@ -361,6 +361,32 @@ describe("WorkView (desktop baseline)", () => {
         expect(within(sections[1]).getByText(/Add the owner-only overview route/)).toBeInTheDocument();
       });
 
+      /* The changes section had the same shape of duplication the overview
+         did: a title per member (the same sentence the overview above
+         already prints in full) and a "What's changing" heading per member.
+         Both are said once now, with the repo cards telling the halves
+         apart. */
+      it("prints one What's changing heading for the whole group", async () => {
+        // Structured `changes` deliberately: the heading belongs to
+        // `DeclaredChanges`, and a design without them falls back to bare
+        // Creates/Touches lists that carry their own titles instead.
+        const withChanges = twoRepos.map((d, i) => ({
+          ...d,
+          changes: [{ id: "c1", action: "modify", kind: "code", target: `src/thing-${i}.ts`, intent: "Do the thing." }],
+        }));
+        stubApiByProject(withChanges);
+        const { container } = renderWork(["proj-1", "proj-2"]);
+        await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBe(2));
+        expect(within(detailPane(container)).getAllByText(/what.s changing/i)).toHaveLength(1);
+      });
+
+      it("drops the per-member title the overview already shows", async () => {
+        stubApiByProject(twoRepos);
+        const { container } = renderWork(["proj-1", "proj-2"]);
+        await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBe(2));
+        expect(container.querySelector(".member-panel-title")).toBeNull();
+      });
+
       it("badges each overview with its repo when the group spans repos", async () => {
         stubApiByProject(twoRepos);
         const { container } = renderWork(["proj-1", "proj-2"]);
@@ -370,12 +396,15 @@ describe("WorkView (desktop baseline)", () => {
         }
       });
 
-      /* Several designs inside one repo is still a group, and badging each of
-         its overviews would repeat the header's own repo once per section.
-         Found by running the real page: a four-member twing-cli group carried
-         four identical badges. Same rule, and same reason, as
-         `MemberPanel`'s `spansRepos`. */
-      it("omits the badge when every linked design is in the same repo", async () => {
+      /* **No discrepancy between a one-repo design and a cross-repo one**
+         (2026-10-07). The card used to appear only when a group straddled
+         repos, so the same tab was drawn two different ways depending on
+         where somebody's work happened to land -- bare prose in one case,
+         labelled cards in the other. A reader should not have to learn a
+         second layout for that. The card is unconditional now; only the label
+         follows the view's own `showRepoBadge` rule, like every other repo
+         label on this page. */
+      it("labels every card, including a group living in one repo", async () => {
         stubApiByProject([
           design({ id: "d-1", groupId: "g-1", projectId: "proj-1", summary: "First half of the work. It lands in the server." }),
           design({ id: "d-2", groupId: "g-1", projectId: "proj-1", summary: "Second half of the work. It lands in the CLI." }),
@@ -383,18 +412,33 @@ describe("WorkView (desktop baseline)", () => {
         const { container } = renderWork(["proj-1", "proj-2"]);
         await waitFor(() => expect(container.querySelectorAll(".work-overview-section").length).toBe(2));
         for (const section of container.querySelectorAll(".work-overview-section")) {
-          expect(section.querySelector(".overview-repo-label")).toBeNull();
+          expect(section.querySelector(".overview-repo-label")).toBeInTheDocument();
         }
       });
 
-      // The common case, unchanged: one section, and no badge repeating the
-      // repo the detail header already names.
-      it("renders one unbadged section for a design with no sibling", async () => {
+      it("draws a lone design exactly as it draws a linked one", async () => {
         stubApiByProject([design()]);
         const { container } = renderWork(["proj-1", "proj-2"]);
         await waitFor(() => expect(container.querySelector(".work-overview-section")).toBeInTheDocument());
-        expect(container.querySelectorAll(".work-overview-section").length).toBe(1);
-        expect(container.querySelector(".work-overview-section .overview-repo-label")).toBeNull();
+        const sections = container.querySelectorAll(".work-overview-section");
+        expect(sections).toHaveLength(1);
+        // Same card, same header band, same label as any member of a group.
+        expect(sections[0]).toHaveClass("work-scope-card");
+        expect(sections[0].querySelector(".overview-edit-row")).toBeInTheDocument();
+        expect(sections[0].querySelector(".overview-repo-label")).toBeInTheDocument();
+      });
+
+      /* A single-repo *view* still shows no repo labels anywhere -- the
+         selection already says which repo you are in. That rule belongs to the
+         view, not to the group, which is the point of keying off
+         `showRepoBadge`: the card, and so the layout, is identical either
+         way. */
+      it("drops the label in a single-repo view, keeping the card", async () => {
+        stubApiByProject([design()]);
+        const { container } = renderWork(["proj-1"]);
+        await waitFor(() => expect(container.querySelector(".work-overview-section")).toBeInTheDocument());
+        expect(container.querySelector(".work-overview-section")).toHaveClass("work-scope-card");
+        expect(container.querySelector(".overview-repo-label")).toBeNull();
       });
 
       /* Rephrasing one design must not appear to rephrase the other. The pane
@@ -433,11 +477,18 @@ describe("WorkView (desktop baseline)", () => {
       }
     });
 
-    it("keeps the repo badge when the group really does span repos", async () => {
+    /* The label moved out of the panel heading and onto the card that
+       encloses it (2026-10-07) -- same job, one level up, so the repo now
+       labels everything belonging to that design rather than just the
+       metadata line. What matters is still that a cross-repo group says
+       which repo each panel is for. */
+    it("labels each panel's repo when the group really does span repos", async () => {
       stubApi([linked[0], design({ id: "d-2", groupId: "g-1", projectId: "proj-2", summary: "Sibling in another repo" })]);
       const { container } = renderWork(["proj-1", "proj-2"]);
       await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBeGreaterThan(0));
-      expect(container.querySelector(".member-panel-heading .repo-badge")).toBeInTheDocument();
+      for (const panel of container.querySelectorAll(".member-panel")) {
+        expect(panel.closest(".work-scope-card")?.querySelector(".overview-repo-label")).toBeInTheDocument();
+      }
     });
   });
 

@@ -1001,17 +1001,24 @@ button {
    does not also need a line drawn above it. This still covers the group that
    has several designs inside *one* repo, which gets no card (there would be
    nothing to tell the cards apart) and so still needs the separator. */
-.work-overview-section:not(.work-overview-section--scoped) + .work-overview-section:not(.work-overview-section--scoped) {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-}
+/* Nothing here any more: every overview section is a card as of 2026-10-07,
+   so the separator that used to stand in for one is unreachable. Kept as a
+   note rather than a rule -- a design in one repo and a design across two are
+   drawn identically now, and a selector that fires for neither is worse than
+   no selector at all. */
 
-/* Each repo's half of a cross-repo change, enclosed. The box is what binds
-   the prose to the repo label at its top -- see `RepoScopeLabel`. The inner
+/* One repo's half of a cross-repo change, enclosed. The box is what binds the
+   content to the repo label at its top -- see `RepoScopeLabel`. The inner
    elements bring their own 18px of horizontal padding, so this adds an outer
-   gutter and no inner one, keeping the text where it has always sat. */
-.work-overview-section--scoped {
+   gutter and no inner one, keeping the text where it has always sat.
+
+   Shared by both halves of the Overview tab (2026-10-07): the design's prose
+   and its declared changes. One treatment, because a reader should learn
+   "boxed and labelled = that repo's" once rather than meeting cards at the
+   top of the tab and pill-tagged panels at the bottom. Kept separate from
+   `.work-overview-section`, which marks what a section *is* rather than how
+   it is drawn. */
+.work-scope-card {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -1021,7 +1028,7 @@ button {
 
 /* The label row is the card's header: tinted, and sealed to the card's top
    edge so it reads as a header band rather than a first row of content. */
-.work-overview-section--scoped .overview-edit-row {
+.work-scope-card .overview-edit-row {
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border);
   border-radius: 9px 9px 0 0;
@@ -1031,21 +1038,21 @@ button {
 
 /* The outer gutter above already separates the cards, so the body does not
    need the top padding it uses when it sits directly under the tab strip. */
-.work-overview-section--scoped .summary-bullets,
-.work-overview-section--scoped > p {
+.work-scope-card .summary-bullets,
+.work-scope-card > p {
   padding-top: 6px;
 }
 
 /* The plan disclosure closes its design's card. Ruled off and set on the
    card's own tint so it reads as a footer belonging to this repo's half,
    rather than as another body paragraph of it. */
-.work-overview-section--scoped .work-raw-plans {
+.work-scope-card .work-raw-plans {
   margin: 12px 0 0;
   padding: 10px 14px 0;
   border-top: 1px solid var(--border);
 }
 
-.work-overview-section--scoped .work-raw-plan {
+.work-scope-card .work-raw-plan {
   margin-top: 0;
 }
 
@@ -1179,16 +1186,31 @@ button {
   border-top: 1px solid var(--border);
 }
 
-/* The member's own summary -- the field that actually distinguishes siblings,
-   since a linked chain is usually one developer's consecutive work and the
-   metadata line below barely varies. Weighted like `.design-comments h3` so it
-   reads as the panel's heading rather than a caption. */
-.member-panel-title {
-  font-size: 0.95rem;
-  font-weight: 800;
-  line-height: 1.4;
-  color: var(--text);
-  margin-bottom: 3px;
+/* `.member-panel-title` was removed 2026-10-07 -- it printed `designTitle` of
+   the same summary the overview above now renders in full, so the reader met
+   the sentence twice, clamped the second time. The repo label on the card
+   distinguishes the panels instead. */
+
+/* A carded member needs no separator of its own: the card is the boundary,
+   and a rule above it drew a second one. */
+.work-scope-card .member-panel + .member-panel,
+.work-scope-card > .member-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* The group's single changes heading. Sits above the cards rather than inside
+   the first one, for the same reason the overview's does: it introduces the
+   whole group, and printing it in a repo's box would make it that repo's. */
+.work-changes-heading {
+  margin: 18px 18px 0;
+}
+
+/* Inside a card the metadata line is the card header's business, so it sits
+   in the header band's gutter rather than the body's. */
+.work-scope-card .member-panel-heading {
+  padding: 0 18px;
 }
 
 .member-panel-heading {

@@ -801,14 +801,14 @@ function RawPlan({ designId, text }: { designId: string; text: string }) {
   );
 }
 
-function MemberChanges({ member }: { member: DesignStatement }) {
+function MemberChanges({ member, showHeading = true }: { member: DesignStatement; showHeading?: boolean }) {
   const apiFetch = useApiFetch();
   const claimsState = useAsyncData(() => fetchClaims(apiFetch, member.projectId, member.sessionId), [apiFetch, member.projectId, member.sessionId]);
 
   return (
     <>
       {hasStructuredChanges(member.changes) ? (
-        <DeclaredChanges designId={member.id} changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} />
+        <DeclaredChanges designId={member.id} changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} showHeading={showHeading} />
       ) : (
         <>
           <PathList title="Creates" paths={member.creates} />
@@ -975,7 +975,6 @@ function DesignOverviewSection({
   design,
   isPrimary,
   showBadge,
-  showHeading,
   project,
   readOnly,
   onResolved,
@@ -985,7 +984,6 @@ function DesignOverviewSection({
   showBadge: boolean;
   /** Whether this design carries the group's single overview heading -- true
    * for the first member with prose to show. See the call site. */
-  showHeading: boolean;
   project: ProjectSummary | { projectId: string };
   readOnly?: boolean;
   onResolved: () => void;
@@ -1094,7 +1092,7 @@ function DesignOverviewSection({
        makes the boundary the thing you see first. Only when the group spans
        repos -- a lone design is the whole panel and needs no box drawn around
        it. */
-    <div className={`work-overview-section${showBadge ? " work-overview-section--scoped" : ""}`}>
+    <div className="work-overview-section work-scope-card">
       {/* Which repo this overview belongs to. Only for a real group: a group
           of one already has the repo in the detail header above, so badging
           it again would be noise on the overwhelmingly common case.
@@ -1227,7 +1225,6 @@ function DesignOverviewSection({
           the header, so it always has something to say. */}
       {!editing && proposal === undefined && !rewriting && (authoredMarkdown || restPoints.length > 0 || showProse) && (
         <>
-          {showHeading && <h3>What this design says it&rsquo;s doing</h3>}
           {/* Two renderings, chosen by whether the text has structure in
               it (2026-10-02). An author who wrote headings, lists or
               several paragraphs gets exactly that back -- splitting
@@ -1371,13 +1368,20 @@ function DesignDetailPane({
   /** Every member's declared changes, for the group-level stat tiles. A group
    * of one yields exactly `primary.changes`, so the common case is unchanged. */
   const groupChanges = group.members.flatMap((m) => m.changes ?? []);
-  /** Whether this group's designs live in different repos -- the same rule
-   * `MemberPanel` uses, and for the reason its own test records: several
-   * designs inside *one* repo would otherwise be labelled with the repo the
-   * detail header already names, once per design. It decides both the label
-   * and the card around each half, since neither means anything without the
-   * other. `showRepoBadge` keeps it off a single-repo view entirely. */
-  const spansRepos = showRepoBadge && uniqueBy(group.members, (m) => m.projectId).length > 1;
+  /** Whether each design's blocks carry a repo label (2026-10-07).
+   *
+   * The view's own rule, not the group's. This used to be `spansRepos` --
+   * label and card only when a group straddled repos -- which meant a design
+   * in one repo and a design across two were drawn as two different UIs: bare
+   * prose in one, labelled cards in the other. A reader should not have to
+   * learn a second layout because somebody's work happened to span
+   * repositories, so the card is now unconditional and only the label follows
+   * `showRepoBadge`, exactly as every other repo label on this page does.
+   *
+   * The cost is a same-repo group of several designs repeating one label per
+   * card. That is accurate, if unhelpful; the card boundary is what separates
+   * those, and the label is what names them. */
+  const labelRepos = showRepoBadge;
 
   const activityState = useAsyncData(
     () =>
@@ -1462,27 +1466,16 @@ function DesignDetailPane({
                 repo label on each design's own control row is what tells the
                 two apart.
 
-                Where that heading lives depends on whether the halves are
-                carded. Cross-repo, it sits here, above them: it introduces
-                the whole group, and printing it inside the first repo's box
-                would make it that repo's heading. Otherwise it stays inside
-                the first design with prose, so it still disappears with the
-                body it introduces -- a lone design whose editor is open must
-                not leave a heading stranded above a form. */}
-            {spansRepos && group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3>What this design says it&rsquo;s doing</h3>}
+                It sits here, above the cards, always: it introduces the whole
+                group, and printing it inside a card would make it that
+                design's heading rather than the section's. */}
+            {group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>}
             {group.members.map((member) => (
               <DesignOverviewSection
                 key={member.id}
                 design={member}
                 isPrimary={member.id === primary.id}
-                /* `spansRepos`, not "more than one member" -- the same rule
-                   `MemberPanel` uses, and for the reason its own test records:
-                   a group of several designs inside *one* repo would otherwise
-                   repeat the header's own repo once per overview, which is most
-                   of what reads as duplication. Seen immediately on a
-                   four-member twing-cli group. */
-                showBadge={spansRepos}
-                showHeading={!spansRepos && member.id === group.members.find((m) => hasOverviewBody(m, m.id === primary.id))?.id}
+                showBadge={labelRepos}
                 project={projectsById[member.projectId] ?? { projectId: member.projectId }}
                 readOnly={readOnly}
                 onResolved={onResolved}
@@ -1553,11 +1546,32 @@ function DesignDetailPane({
                   rail, which spans the whole tab and is handed every member
                   (`designs={group.members}`), so it says which design a
                   comment is against itself rather than needing a panel to say
-                  it. */}
+                  it.
+
+                  **The heading is printed once, here** (2026-10-07), not by
+                  each member's `DeclaredChanges`. Two linked designs meant
+                  two identical "What's changing" headings under two copies of
+                  the same title, which read as one panel rendered twice. The
+                  repo label on each card is what tells them apart, exactly as
+                  in the overview above -- one idiom for the whole tab rather
+                  than cards at the top and pill-tagged panels at the bottom.
+
+                  Rendered only when some member actually has something to
+                  show, since `MemberChanges` falls back to bare path lists
+                  for a design with no structured changes and those carry
+                  their own titles. */}
+              {group.members.some((m) => hasStructuredChanges(m.changes)) && <h3 className="work-changes-heading">What&rsquo;s changing</h3>}
               {group.members.map((member) => (
-                <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
-                  <MemberChanges member={member} />
-                </MemberPanel>
+                <div key={member.id} className="work-scope-card">
+                  {labelRepos && (
+                    <div className="overview-edit-row">
+                      <RepoScopeLabel project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                    </div>
+                  )}
+                  <MemberPanel member={member} members={group.members} showRepoBadge={false} projectsById={projectsById}>
+                    <MemberChanges member={member} showHeading={false} />
+                  </MemberPanel>
+                </div>
               ))}
             </div>
           </div>

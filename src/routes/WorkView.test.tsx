@@ -199,22 +199,17 @@ describe("WorkView (desktop baseline)", () => {
     await waitFor(() => expect(openDesignTitle(container)).toBe("Second thing"));
   });
 
-  it("offers the filter pills and narrows the list with them", async () => {
+  it("narrows the list through the Showing selector", async () => {
     stubApi([design(), design({ id: "design-2", summary: "Second thing", status: "closed" })]);
     const { container } = renderWork();
     await waitFor(() => expect(screen.getByText("Add retry backoff to the sync client")).toBeInTheDocument());
-    // The pills themselves are part of the list pane's chrome; clicking one
-    // must not throw or empty the view.
     const list = listPane(container);
-    const pills = within(list)
-      .getAllByRole("button")
-      .filter((b) => b.className.includes("work-pill"));
-    expect(pills.length).toBeGreaterThan(1);
+    // The list opens complete, so both are here.
+    expect(within(list).getByText("Second thing")).toBeInTheDocument();
 
-    // "Resolved" holds the closed design and not the open one -- the pills
-    // genuinely narrow the list rather than just restyling themselves.
-    const resolved = pills.find((p) => /resolved/i.test(p.textContent ?? ""))!;
-    await userEvent.click(resolved);
+    // Asking for Closed genuinely narrows it rather than restyling a
+    // control: the open design goes, the closed one stays.
+    await userEvent.selectOptions(screen.getByLabelText("Finished work"), "closed");
     await waitFor(() => expect(within(list).queryByText("Add retry backoff to the sync client")).not.toBeInTheDocument());
     expect(within(list).getByText("Second thing")).toBeInTheDocument();
   });
@@ -674,16 +669,77 @@ describe("WorkView (desktop baseline)", () => {
     );
     const { container } = renderWork();
 
+    // The invariant this test found live is about *loading*, not about which
+    // view shows it: a design that went dormant weeks ago sits on a later
+    // created-at page, and the list used to miss it entirely. It is fetched
+    // in full regardless, so asking for Dormant finds it without paging.
+    await waitFor(() => expect(screen.getByRole("option", { name: /^Dormant \(1\)$/ })).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText("Finished work"), "dormant");
     await waitFor(() => expect(listPane(container)).toHaveTextContent("Long-running work started weeks ago"));
-    expect([...container.querySelectorAll(".work-section-heading")].some((h) => h.textContent?.startsWith("In progress"))).toBe(true);
-    // Counted on the pill, not in the section heading. Both halves of what
-    // this test found live matter -- the list showed 5 of 13 in-progress
-    // designs *and counted 5* -- but the heading stopped carrying the number:
-    // it sat directly under a pill showing the same count for the same set,
-    // and "UI/monitor ux fixes" (21b54d6) dropped it as one control printed
-    // twice. The pill reads the identical array through the identical
-    // predicate, so this asserts the same fact at its one remaining source.
-    expect(screen.getByRole("button", { name: /^In progress 1$/ })).toBeInTheDocument();
+
+    // Dormant is no longer part of the default view (2026-10-07): twing
+    // decided nobody has touched these inside their TTL, so they are asked
+    // for by name like any other finished-ish state.
+    await userEvent.click(screen.getByRole("button", { name: /^Active \d+$/ }));
+    await waitFor(() => expect(listPane(container)).not.toHaveTextContent("Long-running work started weeks ago"));
+  });
+
+  /* The list opens on everything and the filters narrow it (2026-10-07).
+     Defaulting to live work only was tried first and overshot: on a real
+     coordinator `active` can be a single design, and a one-row list reads as
+     broken rather than focused. Finished work is a scroll away; an empty
+     screen is a support question. */
+  describe("filtering finished work", () => {
+    const closedDesigns = Array.from({ length: 8 }, (_, i) => design({ id: `done-${i}`, summary: `Finished thing ${i}`, status: "closed" }));
+    const liveDesign = design({ id: "live-1", summary: "Still being worked on", status: "open" });
+
+    it("shows them by default, alongside the live work", async () => {
+      stubApi([liveDesign, ...closedDesigns]);
+      const { container } = renderWork();
+      await waitFor(() => expect(listPane(container)).toHaveTextContent("Still being worked on"));
+      expect(listPane(container)).toHaveTextContent("Finished thing");
+    });
+
+    it("drops them when Active is chosen", async () => {
+      stubApi([liveDesign, ...closedDesigns]);
+      const { container } = renderWork();
+      await waitFor(() => expect(listPane(container)).toHaveTextContent("Finished thing"));
+
+      await userEvent.click(screen.getByRole("button", { name: /^Active \d+$/ }));
+
+      await waitFor(() => expect(listPane(container)).not.toHaveTextContent("Finished thing"));
+      expect(listPane(container)).toHaveTextContent("Still being worked on");
+    });
+
+    /* A pill reading 9 that lists 1 would be a worse lie than the clutter
+       this removes. */
+    it("counts each view against what selecting it would show", async () => {
+      stubApi([liveDesign, ...closedDesigns]);
+      renderWork();
+      await waitFor(() => expect(screen.getByRole("button", { name: /^Active 1$/ })).toBeInTheDocument());
+      expect(screen.getByRole("option", { name: /^Closed \(8\)$/ })).toBeInTheDocument();
+    });
+
+    it("shows every one of them when their own filter is selected", async () => {
+      stubApi([liveDesign, ...closedDesigns]);
+      const { container } = renderWork();
+      await waitFor(() => expect(listPane(container)).toHaveTextContent("Still being worked on"));
+
+      await userEvent.selectOptions(screen.getByLabelText("Finished work"), "closed");
+
+      await waitFor(() => expect(listPane(container)).toHaveTextContent("Finished thing 0"));
+      // Capped at five with the rest behind the filtered view's own expander.
+      expect(screen.getByRole("button", { name: /^Load 3 more$/ })).toBeInTheDocument();
+    });
+
+    it("caps a section at five, with the rest behind its heading", async () => {
+      stubApi(Array.from({ length: 7 }, (_, i) => design({ id: `open-${i}`, summary: `Live thing ${i}`, status: "open" })));
+      const { container } = renderWork();
+      await waitFor(() => expect(listPane(container)).toHaveTextContent("Live thing 0"));
+      // The default view spans sections, so the expander belongs to the
+      // section heading rather than to the filtered list as a whole.
+      expect(screen.getByRole("button", { name: /^\+2 more$/ })).toBeInTheDocument();
+    });
   });
 });
 
@@ -832,8 +888,10 @@ describe("WorkView mine filter", () => {
     );
   }
 
-  function mineButton() {
-    return screen.getByRole("button", { name: "Mine" });
+  /** "Mine" is a pill again in the hybrid bar (2026-10-07) -- daily views
+   * get pills, the archive gets the selector. */
+  async function showMine() {
+    await userEvent.click(screen.getByRole("button", { name: /^Mine \d+$/ }));
   }
 
   it("keeps my designs and drops everyone else's", async () => {
@@ -841,13 +899,13 @@ describe("WorkView mine filter", () => {
     const { container } = renderWork();
     await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
 
-    await userEvent.click(mineButton());
+    await showMine();
 
     await waitFor(() => expect(within(listPane(container)).queryByText("Bob's work")).not.toBeInTheDocument());
     expect(within(listPane(container)).getByText("Mine to do")).toBeInTheDocument();
   });
 
-  it("counts only my designs in the pills while it is on", async () => {
+  it("counts each view against the searched list, not the whole project", async () => {
     stubApi([
       design({ summary: "Mine to do" }),
       design({ id: "design-2", developerId: "bob@example.com", summary: "Bob's work" }),
@@ -855,13 +913,15 @@ describe("WorkView mine filter", () => {
     ]);
     const { container } = renderWork();
     await waitFor(() => expect(within(listPane(container)).getByText("Bob's other work")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^All 3$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Active 3$/ })).toBeInTheDocument();
 
-    await userEvent.click(mineButton());
+    // Mine reports 1 of the 3 -- the count describes the list selecting it
+    // would produce, not the project's totals.
+    expect(screen.getByRole("button", { name: /^Mine 1$/ })).toBeInTheDocument();
 
-    // The point of the assertion: the pill reports the filtered list, not
-    // the project.
-    await waitFor(() => expect(screen.getByRole("button", { name: /^All 1$/ })).toBeInTheDocument());
+    await showMine();
+    await waitFor(() => expect(within(listPane(container)).queryByText("Bob's work")).not.toBeInTheDocument());
+    expect(within(listPane(container)).getByText("Mine to do")).toBeInTheDocument();
   });
 
   it("counts someone else's design as mine when an open thread puts me on the other side of it", async () => {
@@ -887,14 +947,14 @@ describe("WorkView mine filter", () => {
     const { container } = renderWork();
     await waitFor(() => expect(within(listPane(container)).getByText("Collides with mine")).toBeInTheDocument());
 
-    await userEvent.click(mineButton());
+    await showMine();
 
     // Bob authored it, but alice has to answer for it -- so it stays.
     await waitFor(() => expect(within(listPane(container)).getByText("Mine to do")).toBeInTheDocument());
     expect(within(listPane(container)).getByText("Collides with mine")).toBeInTheDocument();
   });
 
-  it("composes with the section pills rather than replacing them", async () => {
+  it("composes the Conflicts pill with the selected view", async () => {
     stubApi([
       design({ summary: "My conflict", status: "flagged" }),
       design({ id: "design-2", summary: "My ongoing work" }),
@@ -903,25 +963,28 @@ describe("WorkView mine filter", () => {
     const { container } = renderWork();
     await waitFor(() => expect(within(listPane(container)).getByText("Bob's conflict")).toBeInTheDocument());
 
-    await userEvent.click(mineButton());
+    await showMine();
     await userEvent.click(screen.getByRole("button", { name: /^Conflicts/ }));
 
-    // "My conflicts" -- both axes applied at once, which a fifth
-    // mutually-exclusive pill could not express.
+    // "My conflicts" -- both axes at once. The Conflicts pill narrows
+    // whatever the dropdown selected rather than replacing it, which is what
+    // keeps this expressible now that Mine is one of the dropdown's values.
     await waitFor(() => expect(within(listPane(container)).getByText("My conflict")).toBeInTheDocument());
     expect(within(listPane(container)).queryByText("Bob's conflict")).not.toBeInTheDocument();
     expect(within(listPane(container)).queryByText("My ongoing work")).not.toBeInTheDocument();
   });
 
-  it("restores everyone's designs when switched back off", async () => {
+  it("restores everyone's designs when the default view is chosen again", async () => {
     stubApi([design({ summary: "Mine to do" }), design({ id: "design-2", developerId: "bob@example.com", summary: "Bob's work" })]);
     const { container } = renderWork();
     await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
 
-    await userEvent.click(mineButton());
+    await showMine();
     await waitFor(() => expect(within(listPane(container)).queryByText("Bob's work")).not.toBeInTheDocument());
 
-    await userEvent.click(mineButton());
+    // A dropdown is not a toggle: you go back by choosing the default view,
+    // not by picking the same option twice.
+    await userEvent.click(screen.getByRole("button", { name: /^Active \d+$/ }));
     await waitFor(() => expect(within(listPane(container)).getByText("Bob's work")).toBeInTheDocument());
   });
 

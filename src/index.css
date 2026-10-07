@@ -1023,7 +1023,29 @@ button {
   border-radius: 10px;
   background: var(--surface);
   margin: 14px 18px 0;
-  padding: 2px 0 12px;
+  /* No top padding: the header band seals against the border. A 2px gap here
+     left a pale sliver between the band and the card's own outline at the top
+     corners, which is why the band never looked attached to the card. */
+  padding: 0 0 12px;
+  /* Full-bleed rows -- the declared-changes list spans the card edge to edge
+     on purpose, the way a table's rows do -- so their separators and hover
+     fills have to be clipped to the radius. Without this they ran square into
+     a rounded border and read as text stuck to the line. */
+  overflow: hidden;
+}
+
+/* One inset for everything a card contains: **14px**, the figure the header
+   band and the plan disclosure already used. The body used to sit 22px deeper
+   than the label naming it (`.summary-bullets`' 36px left padding, inherited
+   from when it sat in a full-width panel) and 18px shallower on the right, so
+   the prose looked both pushed in and crowded. The marker keeps a 12px hang
+   inside that inset rather than outside it. */
+.work-scope-card .summary-bullets {
+  padding: 8px 14px 4px 26px;
+}
+
+.work-scope-card .summary-bullets li {
+  padding-left: 0;
 }
 
 /* The label row is the card's header: tinted, and sealed to the card's top
@@ -1031,16 +1053,18 @@ button {
 .work-scope-card .overview-edit-row {
   background: var(--surface-hover);
   border-bottom: 1px solid var(--border);
-  border-radius: 9px 9px 0 0;
+  /* Square: the card clips it (`overflow: hidden`), so the band inherits the
+     card's own corners exactly rather than approximating them one pixel in --
+     which is what produced the sliver this used to leave. */
+  border-radius: 0;
   margin-bottom: 4px;
   padding: 8px 14px;
 }
 
-/* The outer gutter above already separates the cards, so the body does not
-   need the top padding it uses when it sits directly under the tab strip. */
-.work-scope-card .summary-bullets,
+/* A one-paragraph overview takes the same 14px inset as everything else in
+   the card, where it used to inherit the panel's wider one. */
 .work-scope-card > p {
-  padding-top: 6px;
+  padding: 8px 14px 4px;
 }
 
 /* The plan disclosure closes its design's card. Ruled off and set on the
@@ -1210,7 +1234,8 @@ button {
 /* Inside a card the metadata line is the card header's business, so it sits
    in the header band's gutter rather than the body's. */
 .work-scope-card .member-panel-heading {
-  padding: 0 18px;
+  padding: 10px 14px 0;
+  margin-bottom: 6px;
 }
 
 .member-panel-heading {
@@ -1276,6 +1301,19 @@ button {
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
+}
+
+/* Inside the card the entries take the card's own 14px inset, and their
+   rules run full-bleed to its edges -- the same treatment the declared-changes
+   rows get, so the two lists read as one kind of thing. The card's bottom
+   padding would otherwise sit below the last entry's rule; `:last-child`
+   already drops that rule, so the card closes on text. */
+.work-activity-card {
+  padding-bottom: 0;
+}
+
+.work-activity-card .work-activity-item {
+  padding: 10px 14px;
 }
 
 .work-activity-item:last-child {
@@ -1609,6 +1647,278 @@ li:first-child > .preview-row {
   gap: 12px;
 }
 
+/* The Team page (2026-10-07).
+ *
+ * Was one full-width row per person, name left and grey chips right, which
+ * is how the name came to be clipped: a row forces the name and the badges
+ * to compete for one line. A card gives each person their own space, so the
+ * question never arises -- and a grid of them reads as a team rather than as
+ * a table of strings.
+ *
+ * `auto-fill` with a 15.5rem floor rather than a fixed column count: the
+ * page is used at anything from a laptop half-screen to a wide monitor, and
+ * the number of people varies more than the width does. */
+/* The Team page (2026-10-07), in two layouts the reader chooses between.
+ *
+ * `By person` asks "what is X on", `By repo` asks "who is on X". Neither
+ * answers the other -- by person a repo's admins are scattered down the page;
+ * by repo, somebody on six repos appears six times -- so both are offered
+ * rather than one being chosen for everybody.
+ *
+ * Both replaced a single full-width row per person, which is how names came
+ * to be clipped in production: a row makes the name and the badges compete
+ * for one line, and the badges were the ones that never yielded. */
+.member-layout-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+/* ---- By person: the roster ---- */
+
+/* Two fixed columns, not a flex row. This is the part that matters: the name
+   owns its column and the repos own theirs, so neither can take width from
+   the other and the clipping cannot come back by construction. */
+.member-roster {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.member-roster-head,
+.member-roster-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) 3fr;
+  gap: 20px;
+  align-items: center;
+  padding: 11px 18px;
+}
+
+.member-roster-head {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.member-roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.member-roster-row + .member-roster-row {
+  border-top: 1px solid var(--border);
+}
+
+.member-roster-row:hover {
+  background: var(--surface-hover);
+}
+
+.member-who {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+/* ---- Shared: avatar and identity ---- */
+
+/* Initials on a hue derived from the id (`hueFor`). Colour is what makes a
+   list of people scannable -- you find someone by their colour before reading
+   a character -- and it is decoration only: every role is written in words, so
+   nothing depends on telling two hues apart. Light fill, dark text of the same
+   hue, which holds contrast right around the wheel. */
+.member-avatar {
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: hsl(var(--member-hue) 62% 90%);
+  color: hsl(var(--member-hue) 45% 30%);
+  border: 1px solid hsl(var(--member-hue) 50% 82%);
+}
+
+.member-avatar-md {
+  width: 32px;
+  height: 32px;
+  font-size: 0.74rem;
+}
+
+.member-avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 0.62rem;
+}
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.member-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The id the name was derived from. Dim, but present: `developerLabel` can
+   collide, so the value that is actually unique stays on screen. */
+.member-id {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Shared: a membership ---- */
+
+.member-repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.member-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 7px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.72rem;
+  min-width: 0;
+}
+
+/* Admin tinted as well as labelled -- the label is what carries the meaning,
+   the tint is what makes it findable while scanning. */
+.member-repo-admin {
+  border-color: #f6d5dd;
+  background: #fff7f9;
+}
+
+.member-repo-name {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- By repo ---- */
+
+.member-repo-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.member-repo-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+.member-repo-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 18px;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+}
+
+.member-repo-group-name {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.member-repo-group-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.member-subhead {
+  font-size: 0.64rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin: 12px 0 0;
+  padding: 0 18px;
+}
+
+.member-chip-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  min-width: 0;
+}
+
+.member-chip-admin {
+  border-color: #f6d5dd;
+  background: #fff7f9;
+}
+
+.member-chip-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Team page stopped using these rules entirely (2026-10-07) -- it builds
+   its own grid above -- so the scoped fix that briefly lived here is gone.
+   The cause is worth keeping written down, because the rules below still
+   carry it: `.card-badges` is `flex-shrink: 0` and never yields, while
+   `.card-summary` is `flex: 1 1 auto; min-width: 0`, so the summary absorbs
+   the whole deficit. On the Team page that meant 650px of an 834px row went
+   to badges, leaving 172px for a 376px name, hard-clipped mid-character and
+   reported from a real deployment.
+
+   The other three users (Designs, Constraints, Alignment) are unaffected for
+   a reason rather than by luck: their summary is a sentence, which wraps.
+   Only an unbreakable token -- an email, a 49-character GitHub noreply
+   address -- clips instead, which is why the Team page was the one that
+   broke. A future list keyed on ids rather than prose should expect the same
+   and lay itself out in columns, rather than re-adding a scoped patch
+   here. */
+
 .card-summary {
   font-size: 0.92rem;
   line-height: 1.4;
@@ -1850,15 +2160,28 @@ li:first-child > .preview-row {
   gap: 3px;
 }
 
+/* A fixed label column, not an auto-width one (2026-10-07).
+
+   As a flex row each `dt` was only as wide as its own word, so every value
+   began at a different x -- "clean" at 593, "components/DesignDetail.tsx" at
+   623, a path list at 641 -- and one entry's five fields started in five
+   different places. Nothing was misaligned with anything in particular, which
+   is precisely what made the tab read as scattered rather than as wrong.
+
+   `7rem` clears the longest label in use ("Added touches") with room spare; a
+   longer one wraps inside its own column instead of pushing the values out of
+   line, which is the failure mode the flex version had. `minmax(0, 1fr)` is
+   what lets the value column shrink far enough for `overflow-wrap` below to
+   break a long path rather than overflow it. */
 .activity-detail-field {
-  display: flex;
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
   gap: 8px;
   font-size: 0.82rem;
   line-height: 1.5;
 }
 
 .activity-detail-field dt {
-  flex-shrink: 0;
   color: var(--text-dim);
 }
 

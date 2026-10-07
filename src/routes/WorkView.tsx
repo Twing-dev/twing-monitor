@@ -1618,12 +1618,21 @@ function DesignDetailPane({
             </p>
           )}
           {activityState.status === "ready" && activityState.data.length === 0 && <p className="empty-state">No activity yet.</p>}
+          {/* Carded, like Overview's blocks (2026-10-07). The entries were
+              already separated by rules; what they lacked was an edge, so the
+              list floated at the full width of the panel while every other
+              tab's content sat inside something. Switching tabs read as
+              moving between two differently-built pages. The card is the same
+              `work-scope-card`, so its `overflow: hidden` clips the row rules
+              to the radius exactly as it does the declared-changes rows. */}
           {activityState.status === "ready" && activityState.data.length > 0 && (
-            <ul className="work-activity-list">
-              {activityState.data.map((event) => (
-                <ActivityRow key={event.id} event={event} />
-              ))}
-            </ul>
+            <div className="work-scope-card work-activity-card">
+              <ul className="work-activity-list">
+                {activityState.data.map((event) => (
+                  <ActivityRow key={event.id} event={event} />
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

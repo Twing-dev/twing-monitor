@@ -1185,13 +1185,15 @@ describe("WorkView: rewrite overview", () => {
 
   // Kept on screen and disabled rather than hidden: a button that appears and
   // disappears teaches a rule nobody can see.
-  it("keeps the button visible but inert when there is nothing to fold, and says why", async () => {
+  it("keeps the button visible but inert when there is nothing to fold", async () => {
     stubApiWithRewrite([design({ summary: BASE })]);
     const { container } = renderWork();
     await waitFor(() => expect(detailPane(container)).toHaveTextContent(/resumes from the last acknowledged offset/i));
 
-    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeDisabled();
-    expect(within(detailPane(container)).getByText(/nothing to rephrase yet/i)).toBeInTheDocument();
+    const button = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(button).toBeDisabled();
+    // The reason lives on the tooltip rather than on the page (2026-10-07).
+    expect(button).toHaveAttribute("title", expect.stringMatching(/nothing to rephrase yet/i));
   });
 
   it("needs two amendments before offering to replace text a person wrote", async () => {
@@ -1199,8 +1201,9 @@ describe("WorkView: rewrite overview", () => {
     const { container } = renderWork();
     await waitFor(() => expect(container.querySelector(".work-amendments")).toBeTruthy());
 
-    expect(within(detailPane(container)).getByRole("button", { name: /rephrase overview/i })).toBeDisabled();
-    expect(within(detailPane(container)).getByText(/not enough has changed/i)).toBeInTheDocument();
+    const button = within(detailPane(container)).getByRole("button", { name: /rephrase overview/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringMatching(/not enough has changed/i));
   });
 
   it("offers it again once a second amendment lands on that text", async () => {

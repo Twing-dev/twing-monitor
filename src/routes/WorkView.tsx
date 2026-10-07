@@ -1233,10 +1233,6 @@ function DesignDetailPane({
                       </button>
                     )}
                   </div>
-                  {/* Spelled out under the button as well as in its tooltip: a
-                      greyed control whose reason is only discoverable by
-                      hovering is a control nobody understands. */}
-                  {!rephrase.allowed && !rewriting && <p className="overview-rephrase-reason">{rephrase.because}</p>}
                   {rewriteError && <p className="overview-editor-error">{rewriteError}</p>}
                 </>
               )

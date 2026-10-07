@@ -3906,12 +3906,3 @@ li:first-child > .preview-row {
 @media (prefers-reduced-motion: reduce) {
   .overview-skeleton-line { animation: none; }
 }
-
-/* Why a greyed Rephrase button is greyed, stated rather than hidden in a
-   tooltip. */
-.overview-rephrase-reason {
-  margin: 6px 18px 0;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-  text-align: right;
-}

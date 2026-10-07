@@ -991,6 +991,64 @@ button {
   max-width: 720px;
 }
 
+/* One linked design's overview (2026-10-07). A group of one is a single
+   section and must look exactly as it did before this existed, so the rule
+   is scoped to a *following* sibling: only the second and later overviews
+   take a rule and the space above it, which is what makes two stacked
+   overviews read as two designs rather than one run-on panel.
+
+   `:not(--scoped)` because a repo-scoped half is a card already, and a card
+   does not also need a line drawn above it. This still covers the group that
+   has several designs inside *one* repo, which gets no card (there would be
+   nothing to tell the cards apart) and so still needs the separator. */
+.work-overview-section:not(.work-overview-section--scoped) + .work-overview-section:not(.work-overview-section--scoped) {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+/* Each repo's half of a cross-repo change, enclosed. The box is what binds
+   the prose to the repo label at its top -- see `RepoScopeLabel`. The inner
+   elements bring their own 18px of horizontal padding, so this adds an outer
+   gutter and no inner one, keeping the text where it has always sat. */
+.work-overview-section--scoped {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin: 14px 18px 0;
+  padding: 2px 0 12px;
+}
+
+/* The label row is the card's header: tinted, and sealed to the card's top
+   edge so it reads as a header band rather than a first row of content. */
+.work-overview-section--scoped .overview-edit-row {
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+  border-radius: 9px 9px 0 0;
+  margin-bottom: 4px;
+  padding: 8px 14px;
+}
+
+/* The outer gutter above already separates the cards, so the body does not
+   need the top padding it uses when it sits directly under the tab strip. */
+.work-overview-section--scoped .summary-bullets,
+.work-overview-section--scoped > p {
+  padding-top: 6px;
+}
+
+/* The plan disclosure closes its design's card. Ruled off and set on the
+   card's own tint so it reads as a footer belonging to this repo's half,
+   rather than as another body paragraph of it. */
+.work-overview-section--scoped .work-raw-plans {
+  margin: 12px 0 0;
+  padding: 10px 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.work-overview-section--scoped .work-raw-plan {
+  margin-top: 0;
+}
+
 .work-raw-plans {
   margin-top: 18px;
 }
@@ -3545,6 +3603,32 @@ li:first-child > .preview-row {
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px 0;
+  align-items: center;
+}
+
+/* The repo label leads its own design's control row (2026-10-07). `auto`
+   margin rather than `space-between` so the buttons stay hard right whether
+   or not a label is present -- a group of one has none and must keep the
+   flush-right row it has always had.
+
+   Styled as a heading rather than a chip: this names the half of the change
+   you are reading, so it carries the weight a section label carries. See
+   `RepoScopeLabel` for the argument. */
+.overview-repo-label {
+  margin-right: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-repo-owner {
+  font-weight: 400;
+  color: var(--text-dim);
 }
 
 /* The rewrite affordance (2026-10-06). Same shape as the edit button beside

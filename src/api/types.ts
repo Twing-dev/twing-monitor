@@ -11,6 +11,22 @@
  */
 
 /** Mirrors GET /v1/projects's per-item shape (packages/server/src/app.ts). */
+export type DesignDocumentSection = "problemStatement" | "solutionAbstract" | "fullSolution" | "implementationDetails" | "risksAndLimitations" | "validation";
+
+export interface DesignDocumentContent {
+  schemaVersion: 1;
+  title: string;
+  sections: Partial<Record<DesignDocumentSection, string>>;
+}
+
+export interface DesignDocumentResponse {
+  groupId: string;
+  revision: number;
+  status: "missing" | "pending" | "running" | "ready" | "failed" | "unavailable";
+  stale: boolean;
+  content?: DesignDocumentContent;
+}
+
 export interface ProjectSummary {
   projectId: string;
   /** "" for a GitHub-founded project with no twing org at all (§17 Phase 3). */
@@ -379,7 +395,7 @@ export interface ProjectMember {
 /** Which text a highlight was taken from: the overview (`summary`), the
  * original plan text (`plan`), or one declared change's intent (`change`,
  * with `changeId`). */
-export type CommentAnchorField = "summary" | "plan" | "change";
+export type CommentAnchorField = "summary" | "plan" | "change" | `document:${DesignDocumentSection}`;
 
 /**
  * What a comment is attached to: the highlighted words and a little of what
@@ -391,6 +407,8 @@ export type CommentAnchorField = "summary" | "plan" | "change";
 export interface CommentAnchor {
   field: CommentAnchorField;
   changeId?: string;
+  documentGroupId?: string;
+  documentRevision?: number;
   quote: string;
   prefix?: string;
   suffix?: string;

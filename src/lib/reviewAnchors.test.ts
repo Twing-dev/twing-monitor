@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DesignComment, DesignStatement } from "../api/types.js";
+import type { DesignComment, DesignDocumentResponse, DesignStatement } from "../api/types.js";
 import { bulletOffsets, locateComment, locateQuote, segmentText } from "./reviewAnchors.js";
 
 const design = {
@@ -55,6 +55,15 @@ describe("locateQuote", () => {
 });
 
 describe("locateComment", () => {
+  it("locates shared-document quotes from another member and tracks regeneration", () => {
+    const document: DesignDocumentResponse = { groupId: "shared", revision: 2, status: "ready", stale: false,
+      content: { schemaVersion: 1, title: "Shared budget", sections: { problemStatement: "A shared budget avoids starvation." } } };
+    const shared = comment({ anchor: { field: "document:problemStatement", documentGroupId: "shared", documentRevision: 1, quote: "shared budget" } });
+    expect(locateComment(shared, undefined, document)).toMatchObject({ outdated: false, designChanged: true });
+    expect(locateComment(shared, design, { ...document, content: { ...document.content!, sections: { problemStatement: "Use separate budgets." } } }))
+      .toMatchObject({ outdated: true, range: null, designChanged: true });
+    expect(locateComment(shared, design, { ...document, groupId: "other" })).toMatchObject({ outdated: true, range: null });
+  });
   it("locates an anchored comment in its field", () => {
     const located = locateComment(comment({ anchor: { field: "change", changeId: "c1", quote: "exponential growth" } }), design);
     expect(located.outdated).toBe(false);

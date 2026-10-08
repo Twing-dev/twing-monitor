@@ -27,12 +27,16 @@ import type { CommentAnchorField } from "../api/types.js";
  * Consecutive list items are grouped into one `<ul>`/`<ol>` so a list reads
  * as a list, while each item stays a separate run.
  */
-export function Markdown({ source, designId, field = "summary" }: { source: string | null | undefined; designId?: string; field?: CommentAnchorField }) {
+export function Markdown({ source, designId, field = "summary", documentGroupId, documentRevision }: {
+  source: string | null | undefined; designId?: string; field?: CommentAnchorField;
+  documentGroupId?: string; documentRevision?: number;
+}) {
   const blocks = parseMarkdownBlocks(source);
   if (blocks.length === 0) return null;
 
   const text = (block: MarkdownBlock): ReactNode =>
-    designId ? <HighlightableText designId={designId} field={field} text={block.text} offset={block.offset} /> : block.text;
+    designId ? <HighlightableText designId={designId} field={field} documentGroupId={documentGroupId}
+      documentRevision={documentRevision} text={block.text} offset={block.offset} /> : block.text;
 
   const rendered: ReactNode[] = [];
   let i = 0;

@@ -1777,3 +1777,63 @@ describe("WorkView: composed overview", () => {
     expect(within(pane).getAllByText(/Record the group a design was born into/)).toHaveLength(1);
   });
 });
+
+
+describe("shared design documents in the work view", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  for (const linked of [false, true]) {
+    it(`shows one document for ${linked ? "linked repositories" : "a single repository"} and keeps originals expandable`, async () => {
+      const designs = [design({ id: "doc-cli", groupId: "shared", projectId: "proj-1", summary: "Server contribution. Keep concurrent work.", rawPlanExcerpt: "Original server plan" })];
+      if (linked) designs.push(design({ id: "doc-monitor", groupId: "shared", projectId: "proj-2", summary: "Monitor contribution. Preserve the user's draft.", rawPlanExcerpt: "Original monitor plan" }));
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/document")) return new Response(JSON.stringify({
+          groupId: "shared", revision: 1, status: "ready", stale: false,
+          content: { schemaVersion: 1, title: "Keep every contributor's work", sections: { problemStatement: "An old save loses newer work.", solutionAbstract: "Compare versions and reconcile updates." } },
+        }));
+        if (url.includes("/v1/designs?")) {
+          const projectId = new URL(url).searchParams.get("projectId");
+          return new Response(JSON.stringify({ items: designs.filter((d) => d.projectId === projectId) }));
+        }
+        return new Response(JSON.stringify({ items: [], comments: [], replies: {} }));
+      }));
+      const { container } = renderWork(linked ? ["proj-1", "proj-2"] : ["proj-1"]);
+      await waitFor(() => expect(within(detailPane(container)).getByRole("heading", { name: "Problem statement" })).toBeInTheDocument());
+      const pane = detailPane(container);
+      expect(within(pane).getAllByRole("region", { name: "Design document" })).toHaveLength(1);
+      const originals = pane.querySelector("details.work-original-designs")!;
+      expect(originals).not.toHaveAttribute("open");
+      expect(pane.querySelector(".work-detail-changes")!.compareDocumentPosition(originals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await userEvent.click(within(pane).getByText("Original designs"));
+      expect(originals).toHaveAttribute("open");
+      expect(originals.querySelectorAll(".work-overview-section")).toHaveLength(linked ? 2 : 1);
+      expect(within(originals as HTMLElement).getAllByRole("button", { name: /edit title & overview/i })).toHaveLength(linked ? 2 : 1);
+    });
+  }
+});
+
+
+it("preserves an unsaved original overview when the shared document arrives", async () => {
+  let finishDocument!: (response: Response) => void;
+  const designs = [design({ summary: "Original title. Original overview text." })];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/document")) return new Promise<Response>((resolve) => { finishDocument = resolve; });
+    return new Response(JSON.stringify({ items: url.includes("/v1/designs?") ? designs : [], replies: {} }));
+  }));
+  const { container } = renderWork();
+  try {
+    await userEvent.click(await screen.findByRole("button", { name: /edit title & overview/i }));
+    const editor = container.querySelector("textarea.overview-editor-source") as HTMLTextAreaElement;
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "Unsaved human wording");
+    finishDocument(new Response(JSON.stringify({ groupId: "design-1", status: "ready", revision: 1, stale: false,
+      content: { schemaVersion: 1, title: "Combined explanation", sections: { problemStatement: "A shared problem." } },
+    })));
+    await screen.findByRole("heading", { name: "Combined explanation" });
+    await userEvent.click(screen.getByText("Original designs"));
+    expect(screen.getByDisplayValue("Unsaved human wording")).toBeVisible();
+    expect(container.querySelector("textarea.overview-editor-source")).toBe(editor);
+  } finally { vi.unstubAllGlobals(); }
+});

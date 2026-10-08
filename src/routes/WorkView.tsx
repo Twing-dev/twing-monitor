@@ -25,6 +25,7 @@ import { developerLabel } from "../lib/developerLabel.js";
 import { hasMarkdownStructure } from "../lib/markdown.js";
 import { splitAmendments } from "../lib/amendments.js";
 import { Markdown } from "../components/Markdown.js";
+import { DesignDocumentView } from "../components/DesignDocumentView.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
 import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
@@ -1581,134 +1582,97 @@ function DesignDetailPane({
       {tab === "overview" && (
         <DesignReview designs={group.members} readOnly={readOnly}>
           <div className="work-tab-panel">
-            {/* **One overview per linked design** (2026-10-07), not just
-                `group.members[0]`. A design spanning two repos used to render
-                the first repo's overview and drop the sibling's text
-                entirely, while the plan text and the change tiles below had
-                always been per-member. Which member won was arbitrary on top
-                of that: `dedupeDesignsByGroup` pushes members in the order the
-                projects' pages happened to return them and sorts only the
-                groups, so a reload could change whose overview you read.
+            <DesignDocumentView
+              key={primary.id}
+              designId={primary.id}
+              sourceKey={JSON.stringify(group.members.map((m) => [m.id, m.projectId, m.scopeVersion, m.overviewRevision, m.summary]))}
+              readOnly={readOnly}
+            >
+              {(hasDocument) => {
+                // Stable sibling keys preserve an unsaved original editor
+                // when generation completes and the sections change order.
+                const declaredChanges = (
+                  <div key="changes" className="work-detail-changes">
+                    {/* Says up front that this row is several linked designs, so the
+                        stacked panels below read as a list of designs rather than as
+                        one design's content repeated. Absent for a group of one --
+                        the overwhelmingly common case, unchanged. */}
+                    {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
+                    {/* Counted across every member, not just `primary`: with one
+                        labelled panel per design below, tiles describing only the
+                        first would be a headline number for a fraction of what
+                        follows. Identical to `primary.changes` for a group of one. */}
+                    {hasStructuredChanges(groupChanges) && (
+                      <div className="work-change-grid">
+                        {changeTiles(groupChanges).map((t) => (
+                          /* Keyed on value *and* label: "Schema touched" and "API
+                             touched" share a label, so the label alone stopped being
+                             unique once those two became named warnings rather than
+                             ticks. */
+                          <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
+                            <div className="n">{t.n}</div>
+                            <div className="l">{t.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-                A group of one renders exactly as before -- one section, no
-                badge -- which is the overwhelmingly common case.
+                    {/* One labelled panel per member, so a linked group's stacked
+                        changes read as several designs rather than as one design's
+                        content repeated. Only the declared changes sit in the panel
+                        now: the discussion that used to share it became the review
+                        rail, which spans the whole tab and is handed every member
+                        (`designs={group.members}`), so it says which design a
+                        comment is against itself rather than needing a panel to say
+                        it.
 
-                **One heading for the whole group**, not one per design. A
-                linked group is one piece of work that happens to span repos,
-                so repeating "What this design says it's doing" above each
-                half read as two unrelated designs stacked up, and said the
-                same sentence twice on a page already short of room. The
-                repo label on each design's own control row is what tells the
-                two apart.
+                        **The heading is printed once, here** (2026-10-07), not by
+                        each member's `DeclaredChanges`. Two linked designs meant
+                        two identical "What's changing" headings under two copies of
+                        the same title, which read as one panel rendered twice. The
+                        repo label on each card is what tells them apart, exactly as
+                        in the overview above -- one idiom for the whole tab rather
+                        than cards at the top and pill-tagged panels at the bottom.
 
-                It sits here, above the cards, always: it introduces the whole
-                group, and printing it inside a card would make it that
-                design's heading rather than the section's. */}
-            {group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>}
-            {group.members.map((member) => (
-              <DesignOverviewSection
-                key={member.id}
-                design={member}
-                isPrimary={member.id === primary.id}
-                showBadge={labelRepos}
-                project={projectsById[member.projectId] ?? { projectId: member.projectId }}
-                readOnly={readOnly}
-                onResolved={onResolved}
-              />
-            ))}
-            {/* No edit provenance in this panel, deliberately (removed
-                2026-10-02, the day it was added). An "Edited by X · 2m ago"
-                line restated what the detail header already says -- the
-                owner's id and `updated 2m ago` are both up there, and only
-                the owner can edit, so "by whom" was never in question. The
-                "view the original overview" disclosure went with it: it was
-                justified as the way to recover wording an `outdated` comment
-                referred to, but such a comment already displays its own
-                quoted text in the review rail, so it answered a question
-                nobody had -- while sitting next to "View original plan text"
-                below with a near-identical label.
-                `overviewRevision`/`summaryExtracted` are still populated and
-                still load-bearing (the guard against a future resynthesis
-                overwriting human text, and Julian's "revised since you
-                commented" marker); a revision's full history, text included,
-                renders in the Activity tab as `design_overview_revised`,
-                which is where "what changed when" belongs. */}
-
-            {/* The raw plans used to sit here, as their own block of
-                repo-pill-then-disclosure pairs (moved into each design's own
-                section, 2026-10-07). On a cross-repo group that put the same
-                repo on the page twice in two different idioms -- a card
-                header above, a pill below -- for two things that belong to
-                one design. Each design now carries its own plan inside its
-                own card, so a repo appears once and everything under that
-                label is that repo's. */}
-
-            {/* What the design declares it will change, merged in from its own
-                "Design change" tab (2026-09) -- see DetailTab's doc comment for
-                why. Sits last, so one scroll reads what the design says it's
-                doing -> what it actually changes, which is the order a reviewer
-                works in. Inside the review scope along with the rest: a
-                declared change is as commentable as the summary above it. */}
-            <div className="work-detail-changes">
-              {/* Says up front that this row is several linked designs, so the
-                  stacked panels below read as a list of designs rather than as
-                  one design's content repeated. Absent for a group of one --
-                  the overwhelmingly common case, unchanged. */}
-              {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
-              {/* Counted across every member, not just `primary`: with one
-                  labelled panel per design below, tiles describing only the
-                  first would be a headline number for a fraction of what
-                  follows. Identical to `primary.changes` for a group of one. */}
-              {hasStructuredChanges(groupChanges) && (
-                <div className="work-change-grid">
-                  {changeTiles(groupChanges).map((t) => (
-                    /* Keyed on value *and* label: "Schema touched" and "API
-                       touched" share a label, so the label alone stopped being
-                       unique once those two became named warnings rather than
-                       ticks. */
-                    <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
-                      <div className="n">{t.n}</div>
-                      <div className="l">{t.label}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* One labelled panel per member, so a linked group's stacked
-                  changes read as several designs rather than as one design's
-                  content repeated. Only the declared changes sit in the panel
-                  now: the discussion that used to share it became the review
-                  rail, which spans the whole tab and is handed every member
-                  (`designs={group.members}`), so it says which design a
-                  comment is against itself rather than needing a panel to say
-                  it.
-
-                  **The heading is printed once, here** (2026-10-07), not by
-                  each member's `DeclaredChanges`. Two linked designs meant
-                  two identical "What's changing" headings under two copies of
-                  the same title, which read as one panel rendered twice. The
-                  repo label on each card is what tells them apart, exactly as
-                  in the overview above -- one idiom for the whole tab rather
-                  than cards at the top and pill-tagged panels at the bottom.
-
-                  Rendered only when some member actually has something to
-                  show, since `MemberChanges` falls back to bare path lists
-                  for a design with no structured changes and those carry
-                  their own titles. */}
-              {group.members.some((m) => hasStructuredChanges(m.changes)) && <h3 className="work-changes-heading">What&rsquo;s changing</h3>}
-              {group.members.map((member) => (
-                <div key={member.id} className="work-scope-card">
-                  {labelRepos && (
-                    <div className="overview-edit-row">
-                      <RepoScopeLabel project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
-                    </div>
-                  )}
-                  <MemberPanel member={member} members={group.members} showRepoBadge={false} projectsById={projectsById}>
-                    <MemberChanges member={member} showHeading={false} />
-                  </MemberPanel>
-                </div>
-              ))}
-            </div>
+                        Rendered only when some member actually has something to
+                        show, since `MemberChanges` falls back to bare path lists
+                        for a design with no structured changes and those carry
+                        their own titles. */}
+                    {group.members.some((m) => hasStructuredChanges(m.changes)) && <h3 className="work-changes-heading">What&rsquo;s changing</h3>}
+                    {group.members.map((member) => (
+                      <div key={member.id} className="work-scope-card">
+                        {labelRepos && (
+                          <div className="overview-edit-row">
+                            <RepoScopeLabel project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                          </div>
+                        )}
+                        <MemberPanel member={member} members={group.members} showRepoBadge={false} projectsById={projectsById}>
+                          <MemberChanges member={member} showHeading={false} />
+                        </MemberPanel>
+                      </div>
+                    ))}
+                  </div>
+                );
+                const originalDesigns = (
+                  <details key="originals" className="work-original-designs" open={hasDocument ? undefined : true}>
+                    <summary hidden={!hasDocument}>Original designs</summary>
+                    {group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>}
+                    {group.members.map((member) => (
+                      <DesignOverviewSection
+                        key={member.id}
+                        design={member}
+                        isPrimary={member.id === primary.id}
+                        showBadge={labelRepos}
+                        project={projectsById[member.projectId] ?? { projectId: member.projectId }}
+                        readOnly={readOnly}
+                        onResolved={onResolved}
+                      />
+                    ))}
+                  </details>
+                );
+                return <>{hasDocument ? [declaredChanges, originalDesigns] : [originalDesigns, declaredChanges]}</>;
+              }}
+            </DesignDocumentView>
           </div>
         </DesignReview>
       )}

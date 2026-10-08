@@ -36,7 +36,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchDesignComments, postCommentReply, postDesignComment, resolveComment } from "../api/comments.js";
-import type { CommentAnchor, CommentAnchorField, DesignComment, DesignCommentReply, DesignStatement } from "../api/types.js";
+import type { CommentAnchor, CommentAnchorField, DesignComment, DesignCommentReply, DesignDocumentResponse, DesignDocumentSection, DesignStatement } from "../api/types.js";
 import { relativeTime } from "../lib/time.js";
 import { anchorSourceText, blockKey, CONTEXT_CHARS, locateComment, segmentText, type LocatedComment, type TextRange } from "../lib/reviewAnchors.js";
 
@@ -63,6 +63,19 @@ interface ReviewContextValue {
 }
 
 const ReviewContext = createContext<ReviewContextValue | null>(null);
+const DocumentReviewContext = createContext<{
+  setDocument: (document: DesignDocumentResponse | undefined) => void;
+} | null>(null);
+
+/** The document fetcher shares its current revision with the surrounding review scope. */
+export function useDocumentReview(document: DesignDocumentResponse | undefined): void {
+  const context = useContext(DocumentReviewContext);
+  useEffect(() => {
+    if (!context) return;
+    context.setDocument(document);
+    return () => context.setDocument(undefined);
+  }, [context, document]);
+}
 
 /** Whether an open comment is anchored in this field of this design -- for a
  * `change` field, in any of these declared changes. False outside a
@@ -77,6 +90,13 @@ export function useHasReviewAnchors(designId: string | undefined, field: Comment
 /** Where a comment's highlight lives, for a card whose highlight may be on
  * the other tab. */
 function fieldLabel(field: CommentAnchorField): string {
+  if (field.startsWith("document:")) {
+    const labels: Record<DesignDocumentSection, string> = {
+      problemStatement: "Problem statement", solutionAbstract: "Solution abstract", fullSolution: "Full solution",
+      implementationDetails: "Implementation details", risksAndLimitations: "Risks and limitations", validation: "Validation",
+    };
+    return `in the shared overview · ${labels[field.slice("document:".length) as DesignDocumentSection]}`;
+  }
   switch (field) {
     case "summary":
       return "in the overview";
@@ -85,6 +105,7 @@ function fieldLabel(field: CommentAnchorField): string {
     case "change":
       return "on a declared change";
   }
+  return "in the shared overview";
 }
 
 /**
@@ -98,13 +119,17 @@ function fieldLabel(field: CommentAnchorField): string {
  * Outside a `DesignReview` it renders plain text, so shared components can
  * use it unconditionally.
  */
-export function HighlightableText({ designId, field, changeId, text, offset = 0 }: { designId: string; field: CommentAnchorField; changeId?: string; text: string; offset?: number }) {
+export function HighlightableText({ designId, field, changeId, documentGroupId, documentRevision, text, offset = 0 }: {
+  designId: string; field: CommentAnchorField; changeId?: string; documentGroupId?: string;
+  documentRevision?: number; text: string; offset?: number;
+}) {
   const ctx = useContext(ReviewContext);
   if (!ctx) return <>{text}</>;
-  const ranges = offset < 0 ? [] : (ctx.rangesByBlock.get(blockKey(designId, field, changeId)) ?? []);
+  const ranges = offset < 0 ? [] : (ctx.rangesByBlock.get(blockKey(designId, field, changeId, documentGroupId)) ?? []);
   const segments = segmentText(text, Math.max(0, offset), ranges);
   return (
-    <span className="review-block" data-review-block="" data-design-id={designId} data-field={field} data-change-id={changeId ?? ""} data-offset={offset}>
+    <span className="review-block" data-review-block="" data-design-id={designId} data-field={field} data-change-id={changeId ?? ""}
+      data-document-group-id={documentGroupId} data-document-revision={documentRevision} data-offset={offset}>
       {segments.map((segment, i) =>
         segment.commentIds.length === 0 ? (
           segment.text
@@ -185,6 +210,9 @@ function readSelection(scope: HTMLElement, sourceFor: (designId: string, field: 
     anchor: {
       field,
       ...(field === "change" && changeId ? { changeId } : {}),
+      ...(field.startsWith("document:") ? {
+        documentGroupId: block.dataset.documentGroupId, documentRevision: Number(block.dataset.documentRevision),
+      } : {}),
       quote,
       prefix: text.slice(Math.max(0, start - CONTEXT_CHARS), start),
       suffix: text.slice(end, end + CONTEXT_CHARS),
@@ -213,6 +241,8 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const [composer, setComposer] = useState<{ designId: string; anchor?: CommentAnchor } | null>(null);
   const [activeId, setActiveId] = useState<string | undefined>();
+  const [sharedDocument, setSharedDocument] = useState<DesignDocumentResponse>();
+  const documentContext = useMemo(() => ({ setDocument: setSharedDocument }), []);
 
   const designIds = designs.map((d) => d.id).join(",");
   const load = useCallback(async () => {
@@ -254,18 +284,23 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
   const designsById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
   const located = useMemo(() => {
     const all: LocatedComment[] = [];
+    const seen = new Set<string>();
     for (const [designId, review] of Object.entries(data)) {
-      for (const comment of review.items) all.push(locateComment(comment, designsById.get(designId)));
+      for (const comment of review.items) {
+        if (seen.has(comment.id)) continue;
+        seen.add(comment.id);
+        all.push(locateComment(comment, designsById.get(comment.designId) ?? designsById.get(designId), sharedDocument));
+      }
     }
     return all.sort((a, b) => a.comment.createdAt - b.comment.createdAt);
-  }, [data, designsById]);
+  }, [data, designsById, sharedDocument]);
 
   const context = useMemo<ReviewContextValue>(() => {
     const rangesByBlock = new Map<string, { range: TextRange; commentId: string }[]>();
     const anchoredBlocks = new Set<string>();
     for (const { comment, range } of located) {
       if (comment.status !== "open" || !comment.anchor) continue;
-      const key = blockKey(comment.designId, comment.anchor.field, comment.anchor.changeId);
+      const key = blockKey(comment.designId, comment.anchor.field, comment.anchor.changeId, comment.anchor.documentGroupId);
       anchoredBlocks.add(key);
       if (!range) continue;
       rangesByBlock.set(key, [...(rangesByBlock.get(key) ?? []), { range, commentId: comment.id }]);
@@ -279,11 +314,12 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
     if (readOnly || !scopeRef.current) return;
     setPending(
       readSelection(scopeRef.current, (designId, field, changeId) => {
+        if (field.startsWith("document:")) return sharedDocument?.content?.sections[field.slice("document:".length) as DesignDocumentSection];
         const design = designsById.get(designId);
         return design ? anchorSourceText(design, field, changeId) : undefined;
       }),
     );
-  }, [readOnly, designsById]);
+  }, [readOnly, designsById, sharedDocument]);
 
   // A click anywhere that is not the button itself dismisses it.
   useEffect(() => {
@@ -304,6 +340,7 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
 
   return (
     <ReviewContext.Provider value={context}>
+      <DocumentReviewContext.Provider value={documentContext}>
       <div className="review-layout">
         <div className="review-content" ref={scopeRef} onMouseUp={onSelectionDone} onKeyUp={onSelectionDone} onTouchEnd={onSelectionDone}>
           {children}
@@ -328,6 +365,7 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
           Comment
         </button>
       )}
+      </DocumentReviewContext.Provider>
     </ReviewContext.Provider>
   );
 }
@@ -362,7 +400,7 @@ function ReviewRail({
   const [showResolved, setShowResolved] = useState(false);
   const open = located.filter((l) => l.comment.status === "open");
   const resolved = located.filter((l) => l.comment.status === "resolved");
-  const repliesFor = (c: DesignComment) => replies[c.designId]?.replies[c.id] ?? [];
+  const repliesFor = (c: DesignComment) => Object.values(replies).find((review) => review.replies[c.id])?.replies[c.id] ?? [];
 
   return (
     <aside className="review-rail" aria-label="Design review">
@@ -425,7 +463,7 @@ function Quote({ anchor, outdated }: { anchor: CommentAnchor; outdated: boolean 
       <span className="review-quote-where">
         {fieldLabel(anchor.field)}
         {outdated && (
-          <span className="review-tag review-tag-outdated" title="The design no longer says this -- it was edited after the comment was left.">
+          <span className="review-tag review-tag-outdated" title="The text no longer says this -- it changed after the comment was left.">
             outdated
           </span>
         )}
@@ -562,7 +600,7 @@ function CommentCard({
       {comment.anchor ? <Quote anchor={comment.anchor} outdated={outdated} /> : <p className="review-whole">On the whole design</p>}
       {designChanged && comment.status === "open" && (
         <p className="review-tag review-tag-changed" title="The design was amended or re-planned after this comment was left -- that may be the answer.">
-          design changed since this comment
+          {comment.anchor?.documentGroupId ? "shared overview" : "design"} changed since this comment
         </p>
       )}
       <p className="comment-body">{comment.body}</p>

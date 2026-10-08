@@ -1,5 +1,14 @@
 import type { DesignStatement } from "./types.js";
 import type { Fetcher } from "./client.js";
+import type { DesignDocumentResponse } from "./types.js";
+
+export async function fetchDesignDocument(fetcher: Fetcher, designId: string): Promise<DesignDocumentResponse> {
+  return fetcher<DesignDocumentResponse>(`/v1/designs/${encodeURIComponent(designId)}/document`);
+}
+
+export async function regenerateDesignDocument(fetcher: Fetcher, designId: string): Promise<void> {
+  await fetcher(`/v1/designs/${encodeURIComponent(designId)}/document/regenerate`, { method: "POST" });
+}
 
 export interface DesignsPage {
   items: DesignStatement[];

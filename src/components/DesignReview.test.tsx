@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { ServerProvider } from "../auth/ServerContext.js";
 import { saveAuth } from "../auth/storage.js";
 import { DesignReview, HighlightableText } from "./DesignReview.js";
-import type { DesignComment, DesignCommentReply, DesignStatement } from "../api/types.js";
+import { DesignDocumentView } from "./DesignDocumentView.js";
+import type { DesignComment, DesignCommentReply, DesignDocumentResponse, DesignStatement } from "../api/types.js";
 import { bulletOffsets } from "../lib/reviewAnchors.js";
 
 const design: DesignStatement = {
@@ -48,7 +49,7 @@ type Call = { url: string; method: string; body?: string };
 
 /** Stubs `GET /v1/designs/:id/comments` and records every other request.
  * `post` answers the comment POST, so a test can make it fail. */
-function stubReview(items: DesignComment[], replies: Record<string, DesignCommentReply[]> = {}, post?: () => Response) {
+function stubReview(items: DesignComment[], replies: Record<string, DesignCommentReply[]> = {}, post?: () => Response, document?: DesignDocumentResponse) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -56,6 +57,7 @@ function stubReview(items: DesignComment[], replies: Record<string, DesignCommen
       const url = String(input);
       const method = init?.method ?? "GET";
       calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/document")) return new Response(JSON.stringify(document ?? {}));
       if (url.includes("/comments") && method === "GET") return new Response(JSON.stringify({ items, replies }), { status: 200 });
       if (url.endsWith("/comments") && method === "POST" && post) return post();
       return new Response(JSON.stringify({ comment: items[0] ?? null }), { status: 200 });
@@ -64,12 +66,13 @@ function stubReview(items: DesignComment[], replies: Record<string, DesignCommen
   return calls;
 }
 
-function renderReview(options: { readOnly?: boolean; design?: DesignStatement } = {}) {
+function renderReview(options: { readOnly?: boolean; design?: DesignStatement; document?: boolean; linked?: boolean } = {}) {
   const d = options.design ?? design;
   saveAuth("https://coordination-server.twing.dev", "a-pat", "alice@example.com");
   return render(
     <ServerProvider>
-      <DesignReview designs={[d]} readOnly={options.readOnly}>
+      <DesignReview designs={options.linked ? [d, { ...d, id: "design-2" }] : [d]} readOnly={options.readOnly}>
+        {options.document && <DesignDocumentView designId={d.id} readOnly={options.readOnly} />}
         <p data-testid="summary">
           <HighlightableText designId={d.id} field="summary" text={d.summary} />
         </p>
@@ -102,6 +105,47 @@ describe("DesignReview", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.getSelection()?.removeAllRanges();
+  });
+
+  const sharedDocument: DesignDocumentResponse = { groupId: "shared", revision: 3, status: "ready", stale: false,
+    content: { schemaVersion: 1, title: "Shared retry budget", sections: { problemStatement: "An unbounded shared budget can starve other hosts." } } };
+
+  it("posts highlighted overview text with its section, group and document revision", async () => {
+    const calls = stubReview([], {}, undefined, sharedDocument);
+    renderReview({ document: true });
+    const paragraph = await screen.findByText("An unbounded shared budget can starve other hosts.");
+    selectText(paragraph, "shared budget");
+    await userEvent.click(await screen.findByRole("button", { name: /^Comment$/ }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Your comment" }), "Should this be capped?");
+    await userEvent.click(screen.getByRole("button", { name: /^Comment$/ }));
+    await waitFor(() => expect(calls.some(c => c.method === "POST")).toBe(true));
+    const posted = JSON.parse(calls.find(c => c.method === "POST")!.body!);
+    expect(posted.anchor).toMatchObject({ field: "document:problemStatement", quote: "shared budget", documentGroupId: "shared", documentRevision: 3 });
+    expect(screen.getByText("Add a retry budget to the HTTP client, capped at 30s.")).toBeInTheDocument();
+  });
+
+  it("deduplicates shared comments from linked members and highlights the generated section", async () => {
+    const shared = comment({ anchor: { field: "document:problemStatement", quote: "shared budget", documentGroupId: "shared", documentRevision: 3 } });
+    stubReview([shared], {}, undefined, sharedDocument);
+    const { container } = renderReview({ document: true, linked: true });
+    await waitFor(() => expect(container.querySelector('.design-document mark')?.textContent).toBe("shared budget"));
+    expect(screen.getAllByText("why 30s and not 10s?")).toHaveLength(1);
+    expect(screen.getByText("in the shared overview · Problem statement")).toBeInTheDocument();
+  });
+
+  it("loads shared comments and replies when their owning design is outside the selected repo", async () => {
+    const shared = comment({ designId: "outside-member", anchor: { field: "document:problemStatement", quote: "shared budget", documentGroupId: "shared", documentRevision: 3 } });
+    stubReview([shared], { cm1: [{ commentId: "cm1", authorId: "bob", message: "A cap prevents starvation.", ts: Date.now() }] }, undefined, sharedDocument);
+    const { container } = renderReview({ document: true });
+    await waitFor(() => expect(container.querySelector('.design-document mark')?.textContent).toBe("shared budget"));
+    expect(screen.getByText("A cap prevents starvation.")).toBeInTheDocument();
+  });
+
+  it("does not offer commenting on generated text in read-only observe mode", async () => {
+    stubReview([], {}, undefined, sharedDocument);
+    renderReview({ document: true, readOnly: true });
+    selectText(await screen.findByText("An unbounded shared budget can starve other hosts."), "shared budget");
+    expect(screen.queryByRole("button", { name: /^Comment$/ })).not.toBeInTheDocument();
   });
 
   it("explains how to comment when a design has none, and who answers", async () => {

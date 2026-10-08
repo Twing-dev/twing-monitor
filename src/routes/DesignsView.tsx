@@ -13,6 +13,7 @@ import { useOnDemandDesigns } from "../hooks/useOnDemandDesigns.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { RepoBadge } from "../components/RepoBadge.js";
 import { DesignDetail, type SemanticOverlap } from "../components/DesignDetail.js";
+import { DesignDocumentView } from "../components/DesignDocumentView.js";
 import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { relativeTime } from "../lib/time.js";
 import { toBullets } from "../lib/summaryBullets.js";
@@ -213,24 +214,20 @@ function DesignCardBody({
   onOpenTab?: (tab: "conflicts") => void;
   readOnly?: boolean;
 }) {
+  const originalOverview = toBullets(primary.summary).length > 0 ? (
+    <ul className="summary-bullets">
+      {toBullets(primary.summary).map((line, i) => <li key={i}>{line}</li>)}
+    </ul>
+  ) : null;
   return (
-    <>
-      {/* The clamped line in the header above is the card's title; this is
-          the summary in full, one bullet per sentence -- a real extracted
-          plan describes four or five separate things in one block, and as
-          prose you can't tell where one ends. Rendered once for the group
-          rather than per member: a groupId-linked group shares one summary
-          by design (only `summary` and closing propagate across a group),
-          so per-member would repeat the same text. Skipped for an
-          already-single-sentence summary, which would just repeat the
-          title. */}
-      {toBullets(primary.summary).length > 0 && (
-        <ul className="summary-bullets">
-          {toBullets(primary.summary).map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      )}
+    <DesignDocumentView
+      key={primary.id}
+      designId={primary.id}
+      sourceKey={JSON.stringify(members.map((m) => [m.id, m.projectId, m.scopeVersion, m.overviewRevision, m.summary]))}
+      readOnly={readOnly}
+    >
+      {(hasDocument) => <>
+        {hasDocument ? <details className="work-original-designs"><summary>Original overview</summary>{originalOverview}</details> : originalOverview}
       {members.map((member) => {
         const semanticThread = findSemanticOverlapThread(openThreads, member.id);
         const semanticOverlap: SemanticOverlap | undefined = semanticThread
@@ -247,7 +244,8 @@ function DesignCardBody({
           </div>
         );
       })}
-    </>
+      </>}
+    </DesignDocumentView>
   );
 }
 

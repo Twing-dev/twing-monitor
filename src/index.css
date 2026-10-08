@@ -4438,3 +4438,13 @@ li:first-child > .preview-row {
 @media (prefers-reduced-motion: reduce) {
   .overview-skeleton-line { animation: none; }
 }
+
+/* One document introduces the shared problem before the repository scopes. */
+.design-document { margin-bottom: 24px; }
+.design-document-title { font-size: 1.2rem; line-height: 1.4; margin: 0 0 20px; overflow-wrap: anywhere; }
+.design-document-section { margin: 0 0 22px; max-width: 78ch; }
+.design-document-section > h3 { font-size: 1rem; margin: 0 0 8px; }
+.design-document-section .md { line-height: 1.65; overflow-wrap: anywhere; }
+.design-document-state { font-size: 0.875rem; }
+.work-original-designs { margin-top: 24px; }
+.work-original-designs > summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }

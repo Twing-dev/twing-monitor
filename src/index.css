@@ -677,15 +677,89 @@ button {
   border-color: var(--text);
 }
 
+/* The view selector (2026-10-07). Shaped like the pill beside it rather than
+   like a form field -- it is doing the same job, picking what the list shows,
+   and a default browser select next to a pill reads as two unrelated
+   controls. */
+/* Sized to the pills, not to the browser's idea of a select: same border,
+   same radius, same 5px/10px padding and font, so the row has one height
+   (27.5px) instead of a 2px step at the selector. */
+.work-view-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+/* Our own caret. `appearance: none` strips the platform one, which was the
+   single loudest thing in the row -- a native dropdown arrow beside four
+   rounded pills reads as a form dropped into a toolbar. */
+.work-view-select::after {
+  content: "";
+  position: absolute;
+  right: 11px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Carries the same active treatment as a pill when one of its own values is
+   showing, so the bar always says where the list came from. */
+.work-view-select.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+
+.work-view-select.active select {
+  color: #fff;
+}
+
+.work-view-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: normal;
+  color: inherit;
+  cursor: pointer;
+  padding: 5px 24px 5px 10px;
+}
+
+.work-view-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 100px;
+}
+
+.work-filter-note {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
 /* Separates the "which section" pills from the "whose designs" toggle --
    they filter on different axes and compose, rather than being four
    choices of one thing. `auto` margin rather than a fixed gap so the
    toggle sits at the end of the row; on a wrapped phone row it simply
    collapses and the pills keep their normal spacing. */
+/* Symmetric. The `margin-left: auto` this used to carry dated from when
+   Mine was the last thing in the row and wanted pushing right; with the
+   archive selector after it, it left a 59px hole on one side and 9px on the
+   other. */
 .work-filter-divider {
   width: 1px;
   align-self: stretch;
-  margin: 2px 2px 2px auto;
+  margin: 2px 4px;
   background: var(--border);
 }
 
@@ -780,12 +854,24 @@ button {
   border-left-color: var(--accent);
 }
 
+/* Two lines, not one (2026-10-07). As `nowrap` eight of ten rows overflowed
+   by an average of 235px -- a 119-character title showed about 45 characters
+   -- while the row sat at a uniform 58px with the second line unused. Row
+   heights vary now; a tidy column bought at the cost of half the title is
+   not a trade worth making.
+
+   `line-clamp` with `-webkit-box` rather than a height cap, so a one-line
+   title still occupies one line instead of being padded to two. */
 .work-row-summary {
   font-size: 0.87rem;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .work-row-meta {
@@ -803,11 +889,28 @@ button {
    and the severity badge off the pane edge. Everything else in the meta
    row is short and fixed, so it all refuses to shrink and this absorbs
    the overflow instead. */
+/* The author needs a floor, because it was the only flexible thing in this
+   row and so absorbed the whole deficit: on a two-repo design the badges
+   took 176px + 148px and this was left with **6px** for an 84px name,
+   rendering as one letter and an ellipsis. Same mechanism as the Team page
+   clipping. */
 .work-row-meta .dev {
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 4.5rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Badges yield before the author does. With several repos they truncate --
+   losing the tail of a repo name is recoverable (the full name is on their
+   `title`), where losing the author tells you nothing about whose work this
+   is. */
+.work-row-meta .repo-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .work-row-meta .sep {

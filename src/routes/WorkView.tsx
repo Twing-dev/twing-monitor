@@ -50,16 +50,73 @@ type Section = "attention" | "progress" | "resolved";
 // production data showed the two sets are the same often enough that
 // the split just reads as two labels for one thing, not two different
 // things worth filtering to separately.
-type FilterPill = "all" | Section;
+/** Whether one row belongs in a given view.
+ *
+ * Status-first, because that is the axis every option but `mine` and
+ * `conflicts` selects on. `conflicts` stays on `section`, not on
+ * `status === "flagged"`, because a design can need attention without being
+ * flagged -- an unresolved file overlap or a live semantic thread both count,
+ * and `designFlags` is what already knows that.
+ *
+ * `active` is open-or-flagged only. Dormant is excluded on purpose: twing
+ * decided nobody has touched those inside their TTL, and 23 of the 40
+ * not-finished designs here are dormant, so folding them in would make
+ * "Active" mostly mean "stalled".
+ */
+function matchesView(row: { primary: DesignStatement; section: Section }, view: DesignView, isMineRow: boolean): boolean {
+  switch (view) {
+    case "everything":
+      return true;
+    case "mine":
+      return isMineRow;
+    case "active":
+      return row.primary.status === "open" || row.primary.status === "flagged";
+    default:
+      return row.primary.status === view;
+  }
+}
 
-// Urgency-first: Conflicts is why someone opens this screen, so it leads.
-// All trails rather than leads -- it's the no-filter reset, not a priority.
-const PILLS: { value: FilterPill; label: string }[] = [
-  { value: "attention", label: "Conflicts" },
-  { value: "progress", label: "In progress" },
-  { value: "resolved", label: "Resolved" },
-  { value: "all", label: "All" },
+/**
+ * What the list is showing (2026-10-07).
+ *
+ * One value, where there used to be a row of mutually-exclusive section
+ * pills *plus* an orthogonal Mine toggle. Two controls that each silently
+ * narrowed the same list made "why am I seeing these rows" a question with
+ * two places to look, and neither of them could express "the closed ones" --
+ * closed, expired and superseded were lumped into a single Resolved bucket
+ * with no way to tell them apart, let alone filter between them.
+ *
+ * `active` leads because it is the default: live work, which on a real
+ * coordinator is a small fraction of what exists (189 designs across three
+ * repos, 149 of them finished). Everything past the separator is finished or
+ * abandoned work, which is now something you ask for by name.
+ */
+type DesignView = "active" | "mine" | "dormant" | "closed" | "expired" | "superseded" | "everything";
+
+/** Split by how often a view is wanted, not by what it filters on.
+ *
+ * The two people actually use daily get pills -- one click, always visible,
+ * countable at a glance. The archive is five options that matter rarely and
+ * would otherwise take five pills of permanent chrome to serve a question
+ * asked once a week, so it folds into a selector.
+ *
+ * A single dropdown for all of it was tried first and was worse: it buried
+ * the default view one interaction deep and made the common case cost the
+ * same as the rare one. */
+const QUICK_VIEWS: { value: DesignView; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "mine", label: "Mine" },
 ];
+
+const ARCHIVE_VIEWS: { value: DesignView; label: string }[] = [
+  { value: "dormant", label: "Dormant" },
+  { value: "closed", label: "Closed" },
+  { value: "expired", label: "Expired" },
+  { value: "superseded", label: "Superseded" },
+  { value: "everything", label: "Everything" },
+];
+
+const VIEWS = [...QUICK_VIEWS, ...ARCHIVE_VIEWS];
 
 const SECTION_HEADING: Record<Section, string> = {
   attention: "Conflicts",
@@ -284,11 +341,24 @@ export function WorkView({
   // False on every desktop render and in jsdom, so every branch below that
   // reads it is inert there -- see `useIsPhone`.
   const isPhone = useIsPhone();
-  const [pill, setPill] = useState<FilterPill>("all");
-  // Orthogonal to `pill`, not a fifth value of it: "my conflicts" is the
-  // question someone actually arrives with, and collapsing the two axes
-  // into one row of mutually-exclusive pills would make that unaskable.
-  const [mineOnly, setMineOnly] = useState(false);
+  /* **Everything** by default (2026-10-07).
+   *
+   * `active` was tried first, on the argument that finished work is four
+   * fifths of a real coordinator and should be asked for. True, but it
+   * overshot: on this data `active` is a single design, and a list showing
+   * one row reads as broken rather than focused -- the signal it removes is
+   * the signal that the screen is working.
+   *
+   * So the list opens complete and the pills are there to narrow it. The
+   * cost of showing too much is a scroll; the cost of showing too little is
+   * someone concluding the dashboard is empty. */
+  const [view, setView] = useState<DesignView>("everything");
+  /* Narrows whatever the dropdown selected rather than replacing it. Keeping
+     these two axes separate is what preserves "my conflicts" -- the question
+     the old Mine toggle existed for, and one a single-value selector cannot
+     express. It also buys a question nothing could ask before: the conflicts
+     among *closed* designs. */
+  const [conflictsOnly, setConflictsOnly] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -414,13 +484,15 @@ export function WorkView({
     [groups, latestChecks, openThreads],
   );
 
-  const mineRows = useMemo(() => (mineOnly ? rows.filter((r) => isMine(r.group, openThreads, auth?.developerId)) : rows), [rows, mineOnly, openThreads, auth?.developerId]);
-
+  /* Search narrows before the view does, so a view's count always describes
+     the list it switches to. A defect in its own right when it was the other
+     way round: with a search active the pills read the whole project's totals
+     beside a nine-row list, which reads as the filter having failed. */
   const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return mineRows;
-    return mineRows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
-  }, [mineRows, query]);
+    if (!q) return rows;
+    return rows.filter((r) => r.primary.summary.toLowerCase().includes(q) || r.primary.developerId.toLowerCase().includes(q));
+  }, [rows, query]);
 
   // Counted off the owner- and search-filtered rows rather than every row,
   // so a pill's number always describes the list it switches to. Found while
@@ -428,12 +500,44 @@ export function WorkView({
   // the pills already read the whole project's totals (12/16/25/53 beside a
   // nine-row list), which reads as the filter having silently failed.
   const counts = useMemo(() => {
-    const c: Record<Exclude<FilterPill, "all">, number> = { attention: 0, progress: 0, resolved: 0 };
-    for (const r of searched) c[r.section]++;
+    const c = {} as Record<DesignView, number>;
+    for (const v of VIEWS.map((x) => x.value)) {
+      c[v] = searched.filter((r) => matchesView(r, v, isMine(r.group, openThreads, auth?.developerId))).length;
+    }
     return c;
-  }, [searched]);
+  }, [searched, openThreads, auth?.developerId]);
 
-  const visibleRows = pill === "all" ? searched : searched.filter((r) => r.section === pill);
+  /* The unfiltered view is **live work only** (2026-10-07).
+   *
+   * It used to mean literally everything, which on a real coordinator is
+   * mostly a graveyard: 100 designs in twing-cli, 79 of them closed, expired
+   * or superseded. Finished designs were the bulk of the list by a factor of
+   * four, sitting between the reader and the work still in flight.
+   *
+   * Collapsing that section was tried first and was the wrong shape -- the
+   * rows were still there, still counted, just folded. Finished work is not
+   * something to tidy away; it is something you should have to *ask* for.
+   * Selecting the Resolved pill is that ask, and it still shows every one of
+   * them. */
+  const visibleRows = useMemo(
+    () =>
+      searched.filter(
+        (r) => matchesView(r, view, isMine(r.group, openThreads, auth?.developerId)) && (!conflictsOnly || r.section === "attention"),
+      ),
+    [searched, view, conflictsOnly, openThreads, auth?.developerId],
+  );
+
+  /* Section headings only earn their place when the list actually spans
+     sections. Every view but these two selects a single status, so a heading
+     above it would be one label for the whole list. */
+  const grouped = !conflictsOnly && (view === "everything" || view === "mine");
+
+  /* Counted inside the current view, not across the project: the pill has to
+     describe the list pressing it produces. */
+  const conflictCount = useMemo(
+    () => searched.filter((r) => matchesView(r, view, isMine(r.group, openThreads, auth?.developerId)) && r.section === "attention").length,
+    [searched, view, openThreads, auth?.developerId],
+  );
 
   // Auto-select the first visible row whenever the current selection drops
   // out of view (filter/search changed, or nothing selected yet) -- keeps
@@ -487,7 +591,12 @@ export function WorkView({
    * counterpart) -- jumps straight to that design regardless of the current
    * filter/search, same as DesignsView's own jumpToDesign. */
   function openDesign(designId: string) {
-    setPill("all");
+    /* `everything`, not the default `active`: the design being jumped to is
+       very often closed or superseded -- that is usually *why* it was the
+       counterpart of a conflict -- and landing on a filter that excludes it
+       would silently do nothing. */
+    setView("everything");
+    setConflictsOnly(false);
     onQueryChange("");
     const group = groups.find((g) => g.members.some((m) => m.id === designId));
     setSelectedKey(group?.key ?? designId);
@@ -536,33 +645,59 @@ export function WorkView({
     <div className="work-body" data-phone-pane={selected ? "detail" : "list"}>
       <div className="work-pane-list" ref={listRef}>
         <div className="work-filter-row">
-          {PILLS.map((p) => (
-            <button key={p.value} type="button" className={`work-pill${pill === p.value ? " active" : ""}`} onClick={() => setPill(p.value)}>
-              {p.label} {p.value === "all" ? searched.length : counts[p.value]}
+          {/* Conflicts keeps a pill of its own. It is why someone opens this
+              screen, and a thing you open this screen for should never be a
+              menu away. */}
+          <button
+            type="button"
+            className={`work-pill${conflictsOnly ? " active" : ""}`}
+            aria-pressed={conflictsOnly}
+            onClick={() => setConflictsOnly((v) => !v)}
+          >
+            Conflicts {conflictCount}
+          </button>
+          {/* Everything else is one selector. Two controls that each silently
+              narrowed the same list -- section pills plus an orthogonal Mine
+              toggle -- made "why am I seeing these rows" a question with two
+              places to look, and neither could express "the closed ones":
+              closed, expired and superseded were one Resolved bucket with no
+              way to tell them apart. */}
+          {QUICK_VIEWS.map((v) => (
+            <button key={v.value} type="button" className={`work-pill${view === v.value ? " active" : ""}`} onClick={() => setView(v.value)}>
+              {v.label} {counts[v.value]}
             </button>
           ))}
-          {/* Separated from the section pills: those pick one of three
-              sections, this cuts across all of them, and sitting it in the
-              same row without a divider would read as a fourth section.
-              Hidden for the read-only /observe viewer, whose synthetic
-              "public-viewer" identity (ObserveContext.tsx) owns nothing --
-              the toggle would only ever empty the list for it. */}
-          {!readOnly && (
-            <>
-              <span className="work-filter-divider" aria-hidden="true" />
-              <button type="button" className={`work-pill${mineOnly ? " active" : ""}`} aria-pressed={mineOnly} onClick={() => setMineOnly((v) => !v)}>
-                Mine
-              </button>
-            </>
-          )}
+          <span className="work-filter-divider" aria-hidden="true" />
+          {/* The archive. Shown as a selector rather than five more pills:
+              these are asked for rarely, and permanent chrome for a weekly
+              question crowds out the daily ones. It carries the active style
+              when one of its own values is selected, so the bar always shows
+              where the list came from. */}
+          <label className={`work-view-select${ARCHIVE_VIEWS.some((v) => v.value === view) ? " active" : ""}`}>
+            <select value={ARCHIVE_VIEWS.some((v) => v.value === view) ? view : ""} onChange={(e) => setView(e.target.value as DesignView)} aria-label="Finished work">
+              {/* No ellipsis: the caret already says there is more behind
+                  it, and "Finished…" read as a truncated word. */}
+              <option value="" disabled>
+                Finished
+              </option>
+              {ARCHIVE_VIEWS.map((v) => (
+                <option key={v.value} value={v.value}>
+                  {v.label} ({counts[v.value]})
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* `readOnly` is /observe, whose synthetic "public-viewer" identity
+              owns nothing -- Mine would only ever empty the list for it. */}
+          {readOnly && <span className="work-filter-note">viewing publicly</span>}
         </div>
 
         {visibleRows.length === 0 ? (
           <p className="empty-state">No designs match this filter.</p>
         ) : (
           <div className="work-rows">
-            {(pill === "all" ? (["attention", "progress", "resolved"] as Section[]) : [pill]).map((section) => {
-              const inSection = pill === "all" ? visibleRows.filter((r) => r.section === section) : visibleRows;
+            {(grouped ? (["attention", "progress", "resolved"] as Section[]) : (["progress"] as Section[])).map((section) => {
+              const inSection = grouped ? visibleRows.filter((r) => r.section === section) : visibleRows;
               if (inSection.length === 0) return null;
               const expanded = expandedSections[section];
               const shown = expanded ? inSection : inSection.slice(0, SECTION_PAGE_SIZE);
@@ -574,7 +709,7 @@ export function WorkView({
                       sat close enough to read as one control repeated. The
                       heading earns its place as a scroll landmark, so it
                       keeps the label and hosts the expander. */}
-                  {pill === "all" && (
+                  {grouped && (
                     <div className={`work-section-heading${section === "attention" ? " attention" : ""}`}>
                       {SECTION_HEADING[section]}
                       {remaining > 0 && (
@@ -594,7 +729,7 @@ export function WorkView({
                       <div className="work-row-summary">{designTitle(primary)}</div>
                       <div className="work-row-meta">
                         <span className={`work-status-dot ${rowSection}`} aria-hidden="true" />
-                        {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
+                        {showRepoBadge && uniqueBy(group.members, (m) => m.projectId).map((m) => <RepoBadge key={m.projectId} short project={projectsById[m.projectId] ?? { projectId: m.projectId }} />)}
                         {/* Shortened for the row, full id on hover -- see
                             lib/developerLabel.ts for why the raw value is
                             the wrong thing to clip. */}
@@ -613,7 +748,7 @@ export function WorkView({
                       section is on screen, so it's one button rather than
                       the three that used to stack up in the "all" view
                       alongside the server-side "Load older". */}
-                  {pill !== "all" && remaining > 0 && (
+                  {!grouped && remaining > 0 && (
                     <button
                       type="button"
                       className="section-load-more-button"

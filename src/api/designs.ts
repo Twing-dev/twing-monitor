@@ -71,6 +71,16 @@ export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: str
   return fetcher<{ summary: string | null; unavailable?: string }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
 }
 
+/** `GET /v1/designs/:id/group-overview` (2026-10-09) -- one combined
+ * overview across every design sharing this one's `groupId`, computed from
+ * each member's own overview (and, when available, the conversation that
+ * produced it). `overview: null` covers both "not linked to anyone" and "a
+ * coordinator with no model configured" -- same honest "nothing to offer"
+ * shape `resynthesizeDesignOverview` above uses, not a failure. */
+export async function fetchGroupOverview(fetcher: Fetcher, designId: string): Promise<{ overview: string | null }> {
+  return fetcher<{ overview: string | null }>(`/v1/designs/${designId}/group-overview`);
+}
+
 /** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
  * proposal the coordinator computed for this design's current state.
  *

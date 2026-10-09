@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase } from "../api/designs.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase, fetchGroupOverview } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -1525,6 +1525,17 @@ function DesignDetailPane({
       ),
     [apiFetch, group.key, tab === "activity"],
   );
+  // One combined overview across the whole group, in place of one section per
+  // member (2026-10-09). `group.members.length > 1` is the only new branch --
+  // a group of one skips the request entirely and renders exactly as before.
+  // Falls back to the existing per-member sections (below) whenever there's
+  // nothing to show yet: loading, an error, or the coordinator genuinely has
+  // no combined overview to offer (no model configured, or not enough members
+  // this viewer can see) -- never a reason to hide the real, editable
+  // per-member text that's still there underneath.
+  const isGroup = group.members.length > 1;
+  const groupOverviewState = useAsyncData(() => (isGroup ? fetchGroupOverview(apiFetch, primary.id) : Promise.resolve({ overview: null })), [apiFetch, group.key, isGroup]);
+  const combinedOverview = isGroup && groupOverviewState.status === "ready" ? groupOverviewState.data.overview : null;
 
   return (
     <>
@@ -1604,18 +1615,27 @@ function DesignDetailPane({
                 It sits here, above the cards, always: it introduces the whole
                 group, and printing it inside a card would make it that
                 design's heading rather than the section's. */}
-            {group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>}
-            {group.members.map((member) => (
-              <DesignOverviewSection
-                key={member.id}
-                design={member}
-                isPrimary={member.id === primary.id}
-                showBadge={labelRepos}
-                project={projectsById[member.projectId] ?? { projectId: member.projectId }}
-                readOnly={readOnly}
-                onResolved={onResolved}
-              />
-            ))}
+            {combinedOverview ? (
+              <>
+                <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>
+                <p className="work-combined-overview">{combinedOverview}</p>
+              </>
+            ) : (
+              <>
+                {group.members.some((m) => hasOverviewBody(m, m.id === primary.id)) && <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>}
+                {group.members.map((member) => (
+                  <DesignOverviewSection
+                    key={member.id}
+                    design={member}
+                    isPrimary={member.id === primary.id}
+                    showBadge={labelRepos}
+                    project={projectsById[member.projectId] ?? { projectId: member.projectId }}
+                    readOnly={readOnly}
+                    onResolved={onResolved}
+                  />
+                ))}
+              </>
+            )}
             {/* No edit provenance in this panel, deliberately (removed
                 2026-10-02, the day it was added). An "Edited by X · 2m ago"
                 line restated what the detail header already says -- the

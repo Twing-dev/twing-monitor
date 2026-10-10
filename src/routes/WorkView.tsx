@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApiFetch, ApiError } from "../api/client.js";
-import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase, fetchGroupOverview } from "../api/designs.js";
+import { fetchDesigns, fetchDesignById, reviseDesignOverview, resynthesizeDesignOverview, applyDesignRephrase, fetchGroupOverview, saveGroupOverview } from "../api/designs.js";
 import { fetchActivity } from "../api/activity.js";
 import { fetchAlignmentThreads } from "../api/alignmentThreads.js";
 import { fetchClaims } from "../api/claims.js";
@@ -911,6 +911,54 @@ function OverviewEditor({
   );
 }
 
+/** Editing the group's combined overview (2026-10-10) -- the same
+ * textarea-plus-Save/Cancel shape `OverviewEditor` uses for a single
+ * design, deliberately simpler: no title field (a group has none), no
+ * write/preview split (this isn't markdown-rendered the way a design's own
+ * overview is). A separate component rather than a generalization of
+ * `OverviewEditor`, since that one is tightly coupled to one `design`'s
+ * `title`/`summary`/`reviseDesignOverview` and bending it to also cover a
+ * group would risk the per-design path for a feature it wasn't written for.
+ */
+function GroupOverviewEditor({ designId, initialOverview, onCancel, onSaved }: { designId: string; initialOverview: string; onCancel: () => void; onSaved: () => void }) {
+  const apiFetch = useApiFetch();
+  const [text, setText] = useState(initialOverview);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  const trimmed = text.trim();
+  const canSave = trimmed.length > 0 && trimmed !== initialOverview.trim() && !saving;
+
+  async function save() {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await saveGroupOverview(apiFetch, designId, trimmed);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "could not save -- try again");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overview-editor">
+      <div className="overview-editor-field">
+        <textarea className="overview-editor-source" value={text} rows={6} spellCheck onChange={(e) => setText(e.target.value)} />
+      </div>
+      {error && <p className="overview-editor-error">{error}</p>}
+      <div className="overview-editor-actions">
+        <button type="button" className="overview-editor-cancel" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+        <button type="button" className="overview-editor-save" onClick={save} disabled={!canSave}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** A member's original plan text -- collapsed, since the summary above is
  * the paraphrase most readers want, but opened by itself (once) when an open
  * review comment is anchored in it: a highlight nobody can see is a comment
@@ -1525,17 +1573,39 @@ function DesignDetailPane({
       ),
     [apiFetch, group.key, tab === "activity"],
   );
-  // One combined overview across the whole group, in place of one section per
-  // member (2026-10-09). `group.members.length > 1` is the only new branch --
-  // a group of one skips the request entirely and renders exactly as before.
-  // Falls back to the existing per-member sections (below) whenever there's
-  // nothing to show yet: loading, an error, or the coordinator genuinely has
-  // no combined overview to offer (no model configured, or not enough members
-  // this viewer can see) -- never a reason to hide the real, editable
-  // per-member text that's still there underneath.
-  const isGroup = group.members.length > 1;
-  const groupOverviewState = useAsyncData(() => (isGroup ? fetchGroupOverview(apiFetch, primary.id) : Promise.resolve({ overview: null })), [apiFetch, group.key, isGroup]);
-  const combinedOverview = isGroup && groupOverviewState.status === "ready" ? groupOverviewState.data.overview : null;
+  // The design's current overview, computed the same way for every design
+  // (2026-10-10) -- a lone design is a group of one (its `groupId` is its
+  // own id when nothing else shares it), so this now runs unconditionally
+  // instead of only above two members. Before this, a standalone design
+  // showed its raw stored text while a linked group showed this computed
+  // one -- two different views of the same kind of thing, which is exactly
+  // the inconsistency this removes. Falls back to the old per-member
+  // sections (below) only while this is still loading, erred, or the
+  // coordinator genuinely has nothing to offer (no model configured) --
+  // never a reason to hide the real, editable per-member text underneath.
+  const [groupOverviewReload, setGroupOverviewReload] = useState(0);
+  const groupOverviewState = useAsyncData(() => fetchGroupOverview(apiFetch, primary.id), [apiFetch, group.key, groupOverviewReload]);
+  const combinedOverview = groupOverviewState.status === "ready" ? groupOverviewState.data.overview : null;
+  // Mirrors the server's own check (`app.ts`'s `/group-overview` PATCH route)
+  // as a client-side proxy: if every member's project is one this viewer has
+  // loaded (i.e. is a member of), they can plausibly see the whole group --
+  // for a group of one this is just "is a member of this one design's
+  // project", looser than the owner-only bar the per-design overview edit
+  // uses, a deliberate tradeoff for one consistent editing surface (see the
+  // route's own doc comment). A false positive here costs nothing -- the
+  // server re-checks for real and 403s -- it only ever hides the button
+  // from someone who'd be refused anyway, never the reverse.
+  const canEditGroupOverview = !readOnly && group.members.every((m) => Boolean(projectsById[m.projectId]));
+  const [groupEditing, setGroupEditing] = useState(false);
+  // Which member's private chat the Ask tab shows (2026-10-10). A group used
+  // to stack one full "Ask this design" panel per member -- same heading,
+  // same explanatory paragraph, repeated verbatim -- which read as broken
+  // once Overview stopped doing the equivalent thing. Unlike Overview's text,
+  // a chat can't be merged (each is its own private conversation grounded in
+  // one design's own session), so the fix is a switcher instead of a
+  // synthesis: one visible chat at a time. Defaults to `primary`, same
+  // convention every other "pick one member" default in this file uses.
+  const [askMemberId, setAskMemberId] = useState(primary.id);
 
   return (
     <>
@@ -1590,7 +1660,7 @@ function DesignDetailPane({
           scope, but the wrapper stays outside `work-tab-panel`: the rail sits
           beside the whole panel, not inside its flow. */}
       {tab === "overview" && (
-        <DesignReview designs={group.members} readOnly={readOnly}>
+        <DesignReview designs={group.members} readOnly={readOnly} groupOverviewText={combinedOverview ?? undefined}>
           <div className="work-tab-panel">
             {/* **One overview per linked design** (2026-10-07), not just
                 `group.members[0]`. A design spanning two repos used to render
@@ -1618,7 +1688,30 @@ function DesignDetailPane({
             {combinedOverview ? (
               <>
                 <h3 className="work-changes-heading">What this design says it&rsquo;s doing</h3>
-                <p className="work-combined-overview">{combinedOverview}</p>
+                {groupEditing ? (
+                  <GroupOverviewEditor
+                    designId={primary.id}
+                    initialOverview={combinedOverview}
+                    onCancel={() => setGroupEditing(false)}
+                    onSaved={() => {
+                      setGroupEditing(false);
+                      setGroupOverviewReload((n) => n + 1);
+                    }}
+                  />
+                ) : (
+                  <>
+                    <p className="work-combined-overview">
+                      <HighlightableText designId={primary.id} field="groupOverview" text={combinedOverview} />
+                    </p>
+                    {canEditGroupOverview && (
+                      <div className="overview-edit-row">
+                        <button type="button" className="overview-edit-button" onClick={() => setGroupEditing(true)}>
+                          Edit Overview
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -1738,11 +1831,23 @@ function DesignDetailPane({
           is a different, private space" better than proximity does. */}
       {tab === "ask" && (
         <div className="work-tab-panel">
-          {group.members.map((member) => (
-            <MemberPanel key={member.id} member={member} members={group.members} showRepoBadge={showRepoBadge} projectsById={projectsById}>
-              <DesignChat design={member} readOnly={readOnly} />
-            </MemberPanel>
-          ))}
+          {group.members.length > 1 && (
+            <div className="ask-member-switcher" role="tablist" aria-label="Which repo's session to ask">
+              {group.members.map((member) => (
+                <button
+                  key={member.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={askMemberId === member.id}
+                  className={`ask-member-tab${askMemberId === member.id ? " active" : ""}`}
+                  onClick={() => setAskMemberId(member.id)}
+                >
+                  <RepoScopeLabel project={projectsById[member.projectId] ?? { projectId: member.projectId }} />
+                </button>
+              ))}
+            </div>
+          )}
+          <DesignChat design={group.members.find((m) => m.id === askMemberId) ?? primary} readOnly={readOnly} />
         </div>
       )}
 

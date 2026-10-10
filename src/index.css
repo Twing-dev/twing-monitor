@@ -1090,6 +1090,42 @@ button {
   border-radius: 100px;
 }
 
+/* Which repo's session the Ask tab is showing (2026-10-10) -- same pill-group
+   look as .work-tabs above, one size down and without its own background
+   plate, so it reads as a sub-choice inside the panel rather than a second
+   row of top-level tabs. */
+.ask-member-switcher {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+  margin: 0 0 14px;
+}
+
+.ask-member-tab {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.ask-member-tab:hover {
+  color: var(--text);
+}
+
+.ask-member-tab.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(33, 31, 46, 0.08);
+}
+
 .work-tab-panel {
   max-width: 720px;
 }

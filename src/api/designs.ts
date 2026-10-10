@@ -81,6 +81,19 @@ export async function fetchGroupOverview(fetcher: Fetcher, designId: string): Pr
   return fetcher<{ overview: string | null }>(`/v1/designs/${designId}/group-overview`);
 }
 
+/** `PATCH /v1/designs/:id/group-overview` (2026-10-10) -- saves a
+ * human-written override for the whole group's combined overview. Once
+ * saved, every future `fetchGroupOverview` call returns this verbatim --
+ * nothing automatic regenerates over it, same as `reviseDesignOverview`'s
+ * per-design `owner_edit`. Server-side authorization requires the caller to
+ * see every member of the group, not just the one named in the URL. */
+export async function saveGroupOverview(fetcher: Fetcher, designId: string, overview: string): Promise<{ overview: string }> {
+  return fetcher<{ overview: string }>(`/v1/designs/${designId}/group-overview`, {
+    method: "PATCH",
+    body: JSON.stringify({ overview }),
+  });
+}
+
 /** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
  * proposal the coordinator computed for this design's current state.
  *

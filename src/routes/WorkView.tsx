@@ -30,6 +30,7 @@ import { hasStructuredChanges, type MemberSlice } from "../lib/designConformance
 import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 import { splitOverviewSections } from "../lib/overviewSections.js";
+import { DesignDiagrams } from "../components/DesignDiagrams.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
  * (2026-09): replaces the old Overview + Designs + Conflicts three-tab split
@@ -1717,6 +1718,9 @@ function DesignDetailPane({
                         </p>
                       </div>
                     ))}
+                    {/* Optional flow / UML diagrams (2026-10-11): renders
+                        nothing unless the coordinator decided one helps. */}
+                    <DesignDiagrams apiFetch={apiFetch} designId={primary.id} />
                     {canEditGroupOverview && (
                       <div className="overview-edit-row">
                         <button type="button" className="overview-edit-button" onClick={() => setGroupEditing(true)}>

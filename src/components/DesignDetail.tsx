@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useApiFetch } from "../api/client.js";
 import { fetchClaims } from "../api/claims.js";
 import { fetchActivity } from "../api/activity.js";
@@ -9,10 +9,23 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
 import { AsyncSection } from "./AsyncSection.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 import { relativeTime } from "../lib/time.js";
-import { computeConformance, groupByKind, hasStructuredChanges, kindDescription, kindLabel, pathOfTarget } from "../lib/designConformance.js";
+import {
+  computeConformance,
+  computeConformanceAcrossMembers,
+  groupByKind,
+  groupByKindAcrossMembers,
+  hasStructuredChanges,
+  kindColor,
+  kindDescription,
+  kindLabel,
+  pathOfTarget,
+  type MemberSlice,
+  type MergedChangeRow,
+  type MergedKindGroup,
+} from "../lib/designConformance.js";
 import { conflictKindInfo, isConflictBucket } from "../lib/conflictKind.js";
 import { StatusBadge } from "./StatusBadge.js";
-import { DesignReview, HighlightableText, useHasReviewAnchors } from "./DesignReview.js";
+import { DesignReview, HighlightableText, useHasReviewAnchors, useHasReviewAnchorsAcrossDesigns } from "./DesignReview.js";
 import { DesignChat } from "./DesignChat.js";
 
 /** A design's involvement in an open, semantic-conflict-origin alignment
@@ -215,6 +228,257 @@ export function DeclaredChanges({
                   <li key={symbolId}>
                     <code>{symbolId}</code>
                     <span className="undeclared-note">edited, but the plan never mentioned it</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="conformance-summary">Everything edited so far was part of the plan.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** `ChangeRow`, for a merged row that may belong to any member of a linked
+ * group -- same markup, plus the owning repo's label when the kind it's in
+ * actually spans more than one repo (`showRepoTag`; see `MergedKindGroup`'s
+ * own doc comment for why that's decided per kind, not once for the whole
+ * group). */
+function GroupChangeRow({ row, showRepoTag }: { row: MergedChangeRow; showRepoTag: boolean }) {
+  const { change, designId, repoLabel, state } = row;
+  const path = pathOfTarget(change.target);
+  const symbol = change.target.length > path.length ? change.target.slice(path.length + 2) : undefined;
+  return (
+    <li className={`change-row change-${change.action}`}>
+      <div className="change-head">
+        {showRepoTag && <span className="change-repo-tag">{repoLabel}</span>}
+        <span className={`change-action action-${change.action}`}>{change.action}</span>
+        <code className="change-target">
+          <span className="change-path">{path}</span>
+          {symbol && <span className="change-symbol">{symbol}</span>}
+        </code>
+        {change.from && <span className="change-from">← {change.from}</span>}
+        {state === "matched" && (
+          <span className="change-conformance" title="a recorded edit matches this target">
+            ✓
+          </span>
+        )}
+      </div>
+      <p className="change-intent">
+        <HighlightableText designId={designId} field="change" changeId={change.id} text={change.intent} />
+      </p>
+    </li>
+  );
+}
+
+/** `KindSection`, for one kind merged across every member of a group. Rows
+ * carry their own `designId`/`repoLabel` already (`MergedChangeRow`), so
+ * this differs from `KindSection` only in: filtering by `activeRepo`, the
+ * repo-chip breakdown under the header when this kind actually spans more
+ * than one repo, and checking review anchors across however many distinct
+ * designs this kind's rows belong to instead of just one. */
+function GroupKindSection({ group, activeRepo }: { group: MergedKindGroup; activeRepo: string | null }) {
+  const [open, setOpen] = useState(false);
+  const visibleRows = activeRepo ? group.rows.filter((r) => r.repoLabel === activeRepo) : group.rows;
+  const repoTagNeeded = group.repoCounts.length > 1;
+
+  const anchorPairs = useMemo(() => {
+    const byDesign = new Map<string, string[]>();
+    for (const r of group.rows) byDesign.set(r.designId, [...(byDesign.get(r.designId) ?? []), r.change.id]);
+    return [...byDesign.entries()].map(([designId, changeIds]) => ({ designId, changeIds }));
+  }, [group.rows]);
+  const hasAnchors = useHasReviewAnchorsAcrossDesigns(anchorPairs);
+  const openedForAnchors = useRef(false);
+  useEffect(() => {
+    if (hasAnchors && !openedForAnchors.current) {
+      openedForAnchors.current = true;
+      setOpen(true);
+    }
+  }, [hasAnchors]);
+
+  const label = kindLabel(group.kind);
+  const description = kindDescription(group.kind);
+  const count = visibleRows.length;
+
+  if (count === 0) {
+    return (
+      <div className="kind-section kind-empty">
+        <div className="kind-head" title={description}>
+          <span className="kind-caret" aria-hidden="true" />
+          <span className="kind-label">{label}</span>
+          <span className="kind-count kind-count-none">no changes</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`kind-section${open ? " open" : ""}`}>
+      <button type="button" className="kind-head kind-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} title={description}>
+        <span className="kind-caret" aria-hidden="true">
+          ▸
+        </span>
+        <span className="kind-label">{label}</span>
+        <span className="kind-count">
+          {count} change{count === 1 ? "" : "s"}
+        </span>
+        <span className="kind-hint">{open ? "hide" : "show files"}</span>
+      </button>
+      {open && (
+        <div className="kind-body">
+          {description && <p className="kind-description">{description}</p>}
+          {repoTagNeeded && (
+            <div className="kind-repo-split">
+              {group.repoCounts.map((rc) => (
+                <span key={rc.label} className="repo-chip-mini">
+                  {rc.label} · {rc.count}
+                </span>
+              ))}
+            </div>
+          )}
+          <ul className="change-list">
+            {visibleRows.map((row) => (
+              <GroupChangeRow key={`${row.designId}:${row.change.id}`} row={row} showRepoTag={repoTagNeeded} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * `DeclaredChanges`, across every member of a linked group at once (2026-10-11,
+ * "Option A" -- `whats-changing-redesign.html`). Kind is the primary axis,
+ * merged across repos first; a repo only shows up as a chip or a filter when
+ * the group actually spans more than one, and only on the specific kinds
+ * that do. A group of one (every design's `groupId` defaults to its own id)
+ * passes a single-member `members` array and renders identically to the old
+ * per-design `DeclaredChanges` -- there is deliberately no separate "linked
+ * group" layout.
+ *
+ * Takes already-fetched `claims` per member rather than fetching them itself
+ * -- same reason `DeclaredChanges` always has: claims are session-scoped,
+ * the caller already knows which project/session each member needs, and a
+ * component that fetched its own would duplicate that per repo.
+ */
+export function GroupDeclaredChanges({ members, showHeading = true }: { members: MemberSlice[]; showHeading?: boolean }) {
+  const [activeRepo, setActiveRepo] = useState<string | null>(null);
+  const [conformanceOpen, setConformanceOpen] = useState(false);
+
+  const kindGroups = groupByKindAcrossMembers(members);
+  const nonEmptyKinds = kindGroups.filter((g) => g.rows.length > 0);
+  const totalChanges = members.reduce((n, m) => n + m.changes.length, 0);
+  const totalFiles = new Set(members.flatMap((m) => m.changes.map((c) => pathOfTarget(c.target)))).size;
+  const repos = [...new Map(members.map((m) => [m.repoLabel, true])).keys()];
+  const spansRepos = repos.length > 1;
+
+  const conformance = computeConformanceAcrossMembers(members);
+  const drifted = conformance.undeclared.length > 0;
+
+  // Reach, not a count -- this design touches a contract other people's work
+  // depends on. Used to be its own full-size warning tile in the stat grid
+  // above this section; moved here (2026-10-11) once that grid's other two
+  // tiles ("N changes"/"N files") became pure duplicates of the diffstat
+  // line right below, which made the whole grid read as mostly restating
+  // this section rather than adding to it. The bar's own legend already
+  // colors schema/api like every other kind, which isn't the same as
+  // flagging them -- a reader scanning colors has no reason to know red
+  // means "ordinary" while this one amber word means "pay attention".
+  const reachKinds = nonEmptyKinds.filter((g) => g.kind === "schema" || g.kind === "api").map((g) => g.kind);
+
+  return (
+    <>
+      <div className="detail-field">
+        {showHeading && (
+          <div className="whats-changing-head">
+            <h3>What&rsquo;s changing</h3>
+            {reachKinds.map((kind) => (
+              <span key={kind} className="reach-badge">
+                {kind === "schema" ? "Schema" : "API"} touched
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="diffstat-head">
+          <span className="diffstat-total">
+            {totalChanges} change{totalChanges === 1 ? "" : "s"} · {totalFiles} file{totalFiles === 1 ? "" : "s"}
+            {spansRepos && ` · ${repos.length} repos`}
+          </span>
+        </div>
+        <div className="diffstat-bar">
+          {nonEmptyKinds.map((g) => (
+            <span key={g.kind} className="diffstat-seg" style={{ width: `${(g.rows.length / totalChanges) * 100}%`, background: kindColor(g.kind) }} />
+          ))}
+        </div>
+        <div className="diffstat-legend">
+          {nonEmptyKinds.map((g) => (
+            <span key={g.kind} className="diffstat-legend-item">
+              <i className="diffstat-dot" style={{ background: kindColor(g.kind) }} />
+              {kindLabel(g.kind)} · {g.rows.length}
+            </span>
+          ))}
+        </div>
+
+        {/* Narrows which files show under each kind below -- the group-wide
+            bar/legend/totals above stay as they are regardless of this,
+            since they answer "what's the shape of the whole change", not
+            "show me one repo's files" (see Option A's own rationale note). */}
+        {spansRepos && (
+          <div className="repo-filter" role="tablist" aria-label="Filter by repo">
+            <button type="button" className={activeRepo === null ? "active" : ""} onClick={() => setActiveRepo(null)}>
+              All repos
+            </button>
+            {repos.map((r) => (
+              <button key={r} type="button" className={activeRepo === r ? "active" : ""} onClick={() => setActiveRepo(r)}>
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="kind-list">
+          {kindGroups.map((g) => (
+            <GroupKindSection key={g.kind} group={g} activeRepo={activeRepo} />
+          ))}
+        </div>
+      </div>
+
+      <div className={`detail-field conformance${drifted ? " conformance-drift" : ""}`}>
+        <button
+          type="button"
+          className="kind-head kind-toggle conformance-toggle"
+          aria-expanded={conformanceOpen || drifted}
+          onClick={() => setConformanceOpen((v) => !v)}
+        >
+          <span className="kind-caret" aria-hidden="true">
+            ▸
+          </span>
+          <span className="kind-label">Did the code match the plan?</span>
+          <span className={`kind-count${drifted ? " kind-count-drift" : " kind-count-ok"}`}>
+            {drifted ? `${conformance.undeclared.length} not planned` : "no surprises"}
+          </span>
+        </button>
+        {(conformanceOpen || drifted) && (
+          <div className="kind-body">
+            <p className="kind-description">
+              {conformance.matchedCount} of {totalChanges} planned change{totalChanges === 1 ? "" : "s"}{" "}
+              {conformance.matchedCount === 1 ? "has" : "have"} been edited so far
+              {conformance.matchedCount < totalChanges && <> · {totalChanges - conformance.matchedCount} not started yet</>}
+              {spansRepos && <> · across {repos.length} repos</>}
+            </p>
+            {drifted ? (
+              <ul className="path-list undeclared-list">
+                {conformance.undeclared.map((u) => (
+                  <li key={`${u.repoLabel}:${u.symbolId}`}>
+                    <code>{u.symbolId}</code>
+                    <span className="undeclared-note">
+                      {spansRepos && `${u.repoLabel} · `}
+                      edited, but the plan never mentioned it
+                    </span>
                   </li>
                 ))}
               </ul>

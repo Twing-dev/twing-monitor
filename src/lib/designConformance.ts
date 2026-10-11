@@ -243,3 +243,131 @@ export function groupByKind(changes: DesignChange[]): KindGroup[] {
     changes: changes.filter((change) => kindOf(change) === kind),
   }));
 }
+
+/** One accent per kind, for the diffstat bar and its legend dots. A
+ * dedicated small palette (`--kind-*`, index.css), not the app's existing
+ * semantic colors -- `--accent-text`/`--danger`/`--warning`/`--good` already
+ * mean something specific elsewhere on this same page (brand/selection,
+ * error, drift-risk, matched), and reusing them categorically made two
+ * unrelated kinds (code, schema) render as the same reddish blob in an 8px
+ * bar. */
+export function kindColor(kind: string): string {
+  switch (kind) {
+    case "code":
+      return "var(--kind-code)";
+    case "schema":
+      return "var(--kind-schema)";
+    case "api":
+      return "var(--kind-api)";
+    case "test":
+      return "var(--kind-test)";
+    case "docs":
+      return "var(--kind-docs)";
+    case "config":
+      return "var(--kind-config)";
+    default:
+      return "var(--text-dim)";
+  }
+}
+
+/** One group member's slice of the group-level "What's changing" merge: its
+ * declared changes, its already-fetched claims, and a short label for which
+ * repo it belongs to. Claims stay fetched per member (a linked group can
+ * span sessions and projects, same reason `MemberChanges` always fetched its
+ * own) -- this type is just what `groupByKindAcrossMembers` folds into one
+ * kind-grouped view instead of stacking N per-member panels. */
+export interface MemberSlice {
+  designId: string;
+  repoLabel: string;
+  changes: DesignChange[];
+  claims: Claim[];
+}
+
+export interface MergedChangeRow {
+  change: DesignChange;
+  designId: string;
+  repoLabel: string;
+  state: ConformanceState;
+}
+
+export interface RepoCount {
+  label: string;
+  count: number;
+}
+
+export interface MergedKindGroup {
+  kind: string;
+  rows: MergedChangeRow[];
+  /** Every repo represented in this kind, each with its count -- length 1
+   * for a kind that happens to live entirely in one repo, even inside a
+   * group that spans several. This is the per-row cue for whether a repo
+   * chip is worth printing (`length > 1`), rather than printing one on
+   * every row just because the group as a whole spans repos -- see Option
+   * A's own rationale note (`whats-changing-redesign.html`) for why that
+   * distinction is the point. */
+  repoCounts: RepoCount[];
+}
+
+/**
+ * `groupByKind`, across every member of a group at once.
+ *
+ * Reuses `computeConformance` per member rather than re-deriving match state
+ * here, so "matched" means exactly what it means in the single-design view
+ * -- a merge of that same report, not a second definition of conformance
+ * that could drift from the first. A member's claims are only ever compared
+ * against that same member's declared targets (one `computeConformance`
+ * call per member, never pooled across them), so a symbol built in one repo
+ * can never "satisfy" a declaration in another.
+ */
+export function groupByKindAcrossMembers(members: MemberSlice[]): MergedKindGroup[] {
+  const rows: MergedChangeRow[] = members.flatMap((member) => {
+    const report = computeConformance(member.changes, member.claims);
+    const stateByChangeId = new Map(report.declared.map((row) => [row.change.id, row.state]));
+    return member.changes.map((change) => ({
+      change,
+      designId: member.designId,
+      repoLabel: member.repoLabel,
+      state: stateByChangeId.get(change.id) ?? ("not_yet_edited" as ConformanceState),
+    }));
+  });
+
+  const seen = [...new Set(rows.map((r) => kindOf(r.change)))];
+  const extras = seen.filter((kind) => !KIND_ORDER.includes(kind)).sort();
+  return [...KIND_ORDER, ...extras].map((kind) => {
+    const kindRows = rows.filter((r) => kindOf(r.change) === kind);
+    const counts = new Map<string, number>();
+    for (const r of kindRows) counts.set(r.repoLabel, (counts.get(r.repoLabel) ?? 0) + 1);
+    return { kind, rows: kindRows, repoCounts: [...counts.entries()].map(([label, count]) => ({ label, count })) };
+  });
+}
+
+export interface MergedUndeclared {
+  symbolId: string;
+  repoLabel: string;
+}
+
+export interface MergedConformanceReport {
+  matchedCount: number;
+  totalCount: number;
+  undeclared: MergedUndeclared[];
+}
+
+/**
+ * `computeConformance`'s "N of M edited so far" line, across every member of
+ * a group at once -- one number for the whole group instead of one per
+ * member, which is the number a reviewer actually wants (see this file's
+ * module doc, and Option A's own rationale note on why two separate "3 of
+ * 4" lines just make the reader do the addition themselves).
+ */
+export function computeConformanceAcrossMembers(members: MemberSlice[]): MergedConformanceReport {
+  let matchedCount = 0;
+  let totalCount = 0;
+  const undeclared: MergedUndeclared[] = [];
+  for (const member of members) {
+    const report = computeConformance(member.changes, member.claims);
+    matchedCount += report.matchedCount;
+    totalCount += member.changes.length;
+    undeclared.push(...report.undeclared.map((symbolId) => ({ symbolId, repoLabel: member.repoLabel })));
+  }
+  return { matchedCount, totalCount, undeclared };
+}

@@ -74,6 +74,18 @@ export function useHasReviewAnchors(designId: string | undefined, field: Comment
   return ctx.anchoredBlocks.has(blockKey(designId, field));
 }
 
+/** `useHasReviewAnchors`, for a "change" section that merges rows from more
+ * than one design (the group "What's changing" view, 2026-10-11) -- a single
+ * `designId` isn't enough once a kind's rows can belong to any member of a
+ * linked group. One hook call, same rule, just checked per-pair instead of
+ * per-id -- looping `useHasReviewAnchors` itself would call a hook a
+ * variable number of times, which React disallows. */
+export function useHasReviewAnchorsAcrossDesigns(pairs: { designId: string; changeIds: string[] }[]): boolean {
+  const ctx = useContext(ReviewContext);
+  if (!ctx) return false;
+  return pairs.some(({ designId, changeIds }) => changeIds.some((id) => ctx.anchoredBlocks.has(blockKey(designId, "change", id))));
+}
+
 /** Where a comment's highlight lives, for a card whose highlight may be on
  * the other tab. */
 function fieldLabel(field: CommentAnchorField): string {

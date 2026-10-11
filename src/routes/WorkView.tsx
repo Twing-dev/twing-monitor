@@ -15,7 +15,7 @@ import { repoLabel } from "../lib/repoLabel.js";
 import { MemberPanel } from "../components/MemberPanel.js";
 import { CopyLinkButton } from "../components/CopyLinkButton.js";
 import { buildShareUrl } from "../lib/urlState.js";
-import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, DeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
+import { LatestCheckOutcome, SemanticOverlapNote, ResolveActions, GroupDeclaredChanges, PathList, type SemanticOverlap } from "../components/DesignDetail.js";
 import { DesignReview, HighlightableText, useHasReviewAnchors } from "../components/DesignReview.js";
 import { DesignChat } from "../components/DesignChat.js";
 import { bulletOffsets } from "../lib/reviewAnchors.js";
@@ -26,7 +26,7 @@ import { hasMarkdownStructure } from "../lib/markdown.js";
 import { splitAmendments } from "../lib/amendments.js";
 import { Markdown } from "../components/Markdown.js";
 import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggregate.js";
-import { hasStructuredChanges, kindOf, pathOfTarget } from "../lib/designConformance.js";
+import { hasStructuredChanges, type MemberSlice } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
 
@@ -210,27 +210,20 @@ function designFlags(group: DesignGroup, latestChecks: Map<string, { verdict: st
   return { anyUnresolvedWarning, anySemanticOverlap };
 }
 
-/** The "N changes / N files / N renames / schema" stat tiles for the Design
- * change tab -- same underlying counts `blastRadius` (designConformance.ts)
- * joins into one line for a list row, just kept as separate tiles here since
- * the detail pane has the room for them. */
-function changeTiles(changes: DesignChange[]): { n: string; label: string; tone?: "warn" }[] {
-  const files = new Set(changes.map((c) => pathOfTarget(c.target)));
+/** The "N renames" stat tile for the Design change tab.
+ *
+ * Used to also carry "N changes"/"N files" and the schema/API "touched"
+ * warnings (2026-10-11) -- both dropped once `GroupDeclaredChanges`'s own
+ * diffstat header started saying "N changes · N files · N repos" directly
+ * above this grid, which made the two tiles pure duplication. The schema/API
+ * warning moved to `GroupDeclaredChanges`'s own heading instead of
+ * disappearing: that "reaches a shared contract" signal isn't something the
+ * diffstat bar's categorical coloring says on its own, so it still needs
+ * saying somewhere, just no longer as a second full-size tile repeating a
+ * color the bar's legend already shows. */
+function changeTiles(changes: DesignChange[]): { n: string; label: string }[] {
   const renames = changes.filter((c) => c.action === "rename" || c.action === "move").length;
-  const kinds = new Set(changes.map(kindOf));
-  const tiles: { n: string; label: string; tone?: "warn" }[] = [
-    { n: String(changes.length), label: changes.length === 1 ? "change" : "changes" },
-    { n: String(files.size), label: files.size === 1 ? "file" : "files" },
-  ];
-  if (renames > 0) tiles.push({ n: String(renames), label: renames === 1 ? "rename" : "renames" });
-  // Reach, not a count. These used to render as `✓` over "schema"/"API" --
-  // a tick in the same slot that holds "8" beside it, which reads as a check
-  // that passed when the fact is the opposite one: this design reaches a
-  // contract other people's work depends on. Named and toned as a warning
-  // instead, since it's the highest-signal thing in the row when present.
-  if (kinds.has("schema")) tiles.push({ n: "Schema", label: "touched", tone: "warn" });
-  if (kinds.has("api")) tiles.push({ n: "API", label: "touched", tone: "warn" });
-  return tiles;
+  return renames > 0 ? [{ n: String(renames), label: renames === 1 ? "rename" : "renames" }] : [];
 }
 
 function sectionFor(primary: DesignStatement, flags: { anyUnresolvedWarning: boolean; anySemanticOverlap: boolean }): Section {
@@ -800,11 +793,6 @@ export function WorkView({
   );
 }
 
-/** One member's declared changes, with its own claims fetched by session --
- * a linked group can span sessions (and projects), so conformance ("did the
- * code match the plan") has to be checked per member rather than once for
- * the group. Mirrors DesignDetail's own top-level claims fetch, just scoped
- * to whichever member this is. */
 /**
  * The owner's inline editor for a design's title and overview (2026-10-02).
  *
@@ -981,25 +969,6 @@ function RawPlan({ designId, text }: { designId: string; text: string }) {
         <HighlightableText designId={designId} field="plan" text={text} />
       </pre>
     </details>
-  );
-}
-
-function MemberChanges({ member, showHeading = true }: { member: DesignStatement; showHeading?: boolean }) {
-  const apiFetch = useApiFetch();
-  const claimsState = useAsyncData(() => fetchClaims(apiFetch, member.projectId, member.sessionId), [apiFetch, member.projectId, member.sessionId]);
-
-  return (
-    <>
-      {hasStructuredChanges(member.changes) ? (
-        <DeclaredChanges designId={member.id} changes={member.changes} claims={claimsState.status === "ready" ? claimsState.data : []} showHeading={showHeading} />
-      ) : (
-        <>
-          <PathList title="Creates" paths={member.creates} />
-          <PathList title="Touches" paths={member.touches} />
-        </>
-      )}
-      <PathList title="Depends on" paths={member.dependsOn} />
-    </>
   );
 }
 
@@ -1551,6 +1520,41 @@ function DesignDetailPane({
   /** Every member's declared changes, for the group-level stat tiles. A group
    * of one yields exactly `primary.changes`, so the common case is unchanged. */
   const groupChanges = group.members.flatMap((m) => m.changes ?? []);
+  /** Short repo label for the merged "What's changing" view's repo chips/
+   * filter pills -- `githubRepo` alone (falling back to `repoLabel`'s
+   * owner/repo, or the bare projectId) rather than the full "owner/repo"
+   * `RepoScopeLabel` prints above each member's own overview section. Short
+   * enough to sit on a pill and repeat on every row of a kind that spans
+   * repos -- a project with no GitHub binding has only a raw id for
+   * `repoLabel` to fall back to, which is often far longer than any real
+   * repo name, so that one case alone gets truncated rather than blowing out
+   * the pill. */
+  const repoLabelFor = (m: DesignStatement) => {
+    const project = projectsById[m.projectId] ?? { projectId: m.projectId };
+    if (project.githubOwner && project.githubRepo) return project.githubRepo;
+    const fallback = repoLabel(project);
+    return fallback.length > 12 ? `${fallback.slice(0, 8)}…` : fallback;
+  };
+  /** Split once: a member registered without a template (no `changes`) has
+   * nothing for the merged view to fold in and still falls back to its own
+   * bare Creates/Touches/Depends-on lists, exactly as before. */
+  const structuredMembers = group.members.filter((m) => hasStructuredChanges(m.changes));
+  const unstructuredMembers = group.members.filter((m) => !hasStructuredChanges(m.changes));
+  /** One claims fetch for the whole group instead of one per member panel
+   * (`MemberChanges` used to run its own) -- a linked group can span
+   * sessions and projects, so each member's claims still come from its own
+   * `projectId`/`sessionId`, just gathered together before handing them to
+   * `GroupDeclaredChanges`. */
+  const groupClaimsState = useAsyncData(
+    () => Promise.all(structuredMembers.map((m) => fetchClaims(apiFetch, m.projectId, m.sessionId))),
+    [apiFetch, group.key],
+  );
+  const memberSlices: MemberSlice[] = structuredMembers.map((m, i) => ({
+    designId: m.id,
+    repoLabel: repoLabelFor(m),
+    changes: m.changes ?? [],
+    claims: groupClaimsState.status === "ready" ? groupClaimsState.data[i] ?? [] : [],
+  }));
   /** Whether each design's blocks carry a repo label (2026-10-07).
    *
    * The view's own rule, not the group's. This used to be `spansRepos` --
@@ -1769,17 +1773,16 @@ function DesignDetailPane({
                   the overwhelmingly common case, unchanged. */}
               {group.members.length > 1 && <div className="work-group-count">{group.members.length} linked designs</div>}
               {/* Counted across every member, not just `primary`: with one
-                  labelled panel per design below, tiles describing only the
+                  labelled panel per design below, a tile describing only the
                   first would be a headline number for a fraction of what
-                  follows. Identical to `primary.changes` for a group of one. */}
-              {hasStructuredChanges(groupChanges) && (
+                  follows. Identical to `primary.changes` for a group of one.
+                  Only ever a rename count now (see `changeTiles`'s doc
+                  comment) -- absent entirely when there are none, rather
+                  than an empty grid. */}
+              {changeTiles(groupChanges).length > 0 && (
                 <div className="work-change-grid">
                   {changeTiles(groupChanges).map((t) => (
-                    /* Keyed on value *and* label: "Schema touched" and "API
-                       touched" share a label, so the label alone stopped being
-                       unique once those two became named warnings rather than
-                       ticks. */
-                    <div key={`${t.n}-${t.label}`} className={`work-change-stat${t.tone ? ` ${t.tone}` : ""}`}>
+                    <div key={`${t.n}-${t.label}`} className="work-change-stat">
                       <div className="n">{t.n}</div>
                       <div className="l">{t.label}</div>
                     </div>
@@ -1787,29 +1790,22 @@ function DesignDetailPane({
                 </div>
               )}
 
-              {/* One labelled panel per member, so a linked group's stacked
-                  changes read as several designs rather than as one design's
-                  content repeated. Only the declared changes sit in the panel
-                  now: the discussion that used to share it became the review
-                  rail, which spans the whole tab and is handed every member
-                  (`designs={group.members}`), so it says which design a
-                  comment is against itself rather than needing a panel to say
-                  it.
-
-                  **The heading is printed once, here** (2026-10-07), not by
-                  each member's `DeclaredChanges`. Two linked designs meant
-                  two identical "What's changing" headings under two copies of
-                  the same title, which read as one panel rendered twice. The
-                  repo label on each card is what tells them apart, exactly as
-                  in the overview above -- one idiom for the whole tab rather
-                  than cards at the top and pill-tagged panels at the bottom.
-
-                  Rendered only when some member actually has something to
-                  show, since `MemberChanges` falls back to bare path lists
-                  for a design with no structured changes and those carry
-                  their own titles. */}
-              {group.members.some((m) => hasStructuredChanges(m.changes)) && <h3 className="work-changes-heading">What&rsquo;s changing</h3>}
-              {group.members.map((member) => (
+              {/* Merged by kind across every member first (2026-10-11,
+                  "Option A" -- `whats-changing-redesign.html`), not stacked
+                  one labelled panel per member. A linked group used to print
+                  the same six kind names once per repo, mostly empty; this
+                  prints each kind once, with a repo chip only on the kinds
+                  that actually span repos and a filter pill row to narrow to
+                  one repo's files when that's genuinely what's wanted. A
+                  group of one (the overwhelmingly common case) renders
+                  identically to the old single-design view -- there's only
+                  ever one real "What's changing" shape now, not a bigger one
+                  for a link. */}
+              {structuredMembers.length > 0 && <GroupDeclaredChanges members={memberSlices} showHeading />}
+              {/* A member registered without a template has no structured
+                  changes for the merge above to fold in, so it still falls
+                  back to its own bare path lists, same as before. */}
+              {unstructuredMembers.map((member) => (
                 <div key={member.id} className="work-scope-card">
                   {labelRepos && (
                     <div className="overview-edit-row">
@@ -1817,7 +1813,9 @@ function DesignDetailPane({
                     </div>
                   )}
                   <MemberPanel member={member} members={group.members} showRepoBadge={false} projectsById={projectsById}>
-                    <MemberChanges member={member} showHeading={false} />
+                    <PathList title="Creates" paths={member.creates} />
+                    <PathList title="Touches" paths={member.touches} />
+                    <PathList title="Depends on" paths={member.dependsOn} />
                   </MemberPanel>
                 </div>
               ))}

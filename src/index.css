@@ -44,6 +44,23 @@
      This is 4.52:1 on that tint. The stat tile already worked around the
      old value by keeping its text near-black. */
   --warning-text: #986407;
+  /* A dedicated small palette for the "What's changing" diffstat bar's kind
+     colors (2026-10-11) -- deliberately NOT --accent-text/--danger/--warning/
+     --good, which already carry their own meaning elsewhere on this exact
+     page (brand/selection, error, drift-risk, matched/success). Reusing them
+     categorically here made two unrelated kinds (code, schema) render as
+     the same reddish blob, since --accent-text and --danger are close
+     enough in hue to be indistinguishable in an 8px bar. These six are
+     chosen for separation from each other and from the four above, not for
+     individual symbolism beyond --kind-test borrowing --good (a passing
+     test being "good" is the one case where the semantic color is also the
+     right categorical one). */
+  --kind-code: #3a6bc7;
+  --kind-schema: #c0472e;
+  --kind-api: #8a3fc0;
+  --kind-test: var(--good);
+  --kind-docs: #b8860b;
+  --kind-config: #5b5868;
   --font-display: "Quicksand", ui-rounded, "SF Pro Rounded", var(--font-body);
   --font-body: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
@@ -1088,6 +1105,42 @@ button {
   color: #fff;
   padding: 1px 6px;
   border-radius: 100px;
+}
+
+/* Which repo's session the Ask tab is showing (2026-10-10) -- same pill-group
+   look as .work-tabs above, one size down and without its own background
+   plate, so it reads as a sub-choice inside the panel rather than a second
+   row of top-level tabs. */
+.ask-member-switcher {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+  margin: 0 0 14px;
+}
+
+.ask-member-tab {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.ask-member-tab:hover {
+  color: var(--text);
+}
+
+.ask-member-tab.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(33, 31, 46, 0.08);
 }
 
 .work-tab-panel {
@@ -2387,6 +2440,37 @@ li:first-child > .preview-row {
   color: var(--text-dim);
 }
 
+/* Holds the group "What's changing" heading plus its reach badges
+   (2026-10-11) -- `.detail-field h3`'s own bottom margin still sits below
+   the whole row, so the gap above the diffstat bar is unchanged from when
+   the heading rendered alone. */
+.whats-changing-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.whats-changing-head h3 {
+  margin: 0;
+}
+
+/* "This design reaches a shared contract" -- moved off the stat-tile grid
+   (2026-10-11), which used to repeat it as a full-size tile beside two now-
+   duplicate "N changes"/"N files" ones. Same warning tone as
+   `.work-change-stat.warn` it replaced, as a small pill instead of a tile
+   the size of an actual count. */
+.reach-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  border-radius: 100px;
+  padding: 2px 9px;
+}
+
 /* 2026-08-19 severity split: this panel now covers two distinct cases --
    an error-severity, actually-blocking flag (red/danger, same tone as
    status-badge's tone-critical) and a warning-severity, display-only
@@ -2711,6 +2795,29 @@ li:first-child > .preview-row {
   color: var(--text-dim);
 }
 
+/* Which repos a kind's rows actually come from, shown only when a kind
+   spans more than one -- a same-repo kind inside a multi-repo group
+   doesn't get one, since it would just repeat the filter pill above it. */
+.kind-repo-split {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+  flex-wrap: wrap;
+}
+
+.repo-chip-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
 .kind-count-ok {
   color: var(--good);
 }
@@ -2718,6 +2825,88 @@ li:first-child > .preview-row {
 .kind-count-drift {
   color: var(--warning);
   font-weight: 700;
+}
+
+/* The merged group "What's changing" view's diffstat bar (2026-10-11,
+   "Option A" -- whats-changing-redesign.html): one glance at a two-color bar
+   answers "mostly code, or a schema migration hiding in there" before
+   anyone reads a single kind row. */
+.diffstat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.diffstat-total {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.diffstat-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 100px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 10px;
+}
+
+.diffstat-seg {
+  height: 100%;
+}
+
+.diffstat-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.diffstat-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.diffstat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Narrows the kind rows below to one repo's files -- same pill-switcher
+   look as `.ask-member-switcher`, not a second idiom for the same idea. */
+.repo-filter {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+  margin-bottom: 14px;
+}
+
+.repo-filter button {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.repo-filter button.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(33, 31, 46, 0.08);
 }
 
 .conformance {
@@ -2822,6 +3011,21 @@ li:first-child > .preview-row {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--text-dim);
+}
+
+/* Only printed on a row inside a kind that spans more than one repo
+   (`GroupKindSection`'s `repoTagNeeded`) -- a same-repo kind never gets one,
+   even inside a group that spans repos overall. */
+.change-repo-tag {
+  flex: none;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: var(--text-dim);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .change-conformance {

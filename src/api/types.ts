@@ -379,7 +379,7 @@ export interface ProjectMember {
 /** Which text a highlight was taken from: the overview (`summary`), the
  * original plan text (`plan`), or one declared change's intent (`change`,
  * with `changeId`). */
-export type CommentAnchorField = "summary" | "plan" | "change";
+export type CommentAnchorField = "summary" | "plan" | "change" | "groupOverview";
 
 /**
  * What a comment is attached to: the highlighted words and a little of what

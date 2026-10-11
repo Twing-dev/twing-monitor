@@ -74,6 +74,18 @@ export function useHasReviewAnchors(designId: string | undefined, field: Comment
   return ctx.anchoredBlocks.has(blockKey(designId, field));
 }
 
+/** `useHasReviewAnchors`, for a "change" section that merges rows from more
+ * than one design (the group "What's changing" view, 2026-10-11) -- a single
+ * `designId` isn't enough once a kind's rows can belong to any member of a
+ * linked group. One hook call, same rule, just checked per-pair instead of
+ * per-id -- looping `useHasReviewAnchors` itself would call a hook a
+ * variable number of times, which React disallows. */
+export function useHasReviewAnchorsAcrossDesigns(pairs: { designId: string; changeIds: string[] }[]): boolean {
+  const ctx = useContext(ReviewContext);
+  if (!ctx) return false;
+  return pairs.some(({ designId, changeIds }) => changeIds.some((id) => ctx.anchoredBlocks.has(blockKey(designId, "change", id))));
+}
+
 /** Where a comment's highlight lives, for a card whose highlight may be on
  * the other tab. */
 function fieldLabel(field: CommentAnchorField): string {
@@ -84,6 +96,8 @@ function fieldLabel(field: CommentAnchorField): string {
       return "in the plan";
     case "change":
       return "on a declared change";
+    case "groupOverview":
+      return "in the combined overview";
   }
 }
 
@@ -204,7 +218,22 @@ function scrollIntoViewIfPossible(element: Element | null | undefined) {
  * it. `designs` is usually one design, or a linked group's members -- each
  * member's comments are loaded and anchored to its own text.
  */
-export function DesignReview({ designs, readOnly, children }: { designs: DesignStatement[]; readOnly?: boolean; children: ReactNode }) {
+export function DesignReview({
+  designs,
+  readOnly,
+  children,
+  groupOverviewText,
+}: {
+  designs: DesignStatement[];
+  readOnly?: boolean;
+  children: ReactNode;
+  /** The combined overview's current text (2026-10-10), when this scope
+   * includes one -- threaded through to `locateComment`/`anchorSourceText`
+   * so a `groupOverview`-anchored comment can be matched against it. Not
+   * derivable from `designs` alone: the combined text is synthesized, not
+   * stored on any one `DesignStatement`. */
+  groupOverviewText?: string;
+}) {
   const apiFetch = useApiFetch();
   const scopeRef = useRef<HTMLDivElement | null>(null);
   const [data, setData] = useState<Record<string, ReviewData>>({});
@@ -255,10 +284,10 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
   const located = useMemo(() => {
     const all: LocatedComment[] = [];
     for (const [designId, review] of Object.entries(data)) {
-      for (const comment of review.items) all.push(locateComment(comment, designsById.get(designId)));
+      for (const comment of review.items) all.push(locateComment(comment, designsById.get(designId), groupOverviewText));
     }
     return all.sort((a, b) => a.comment.createdAt - b.comment.createdAt);
-  }, [data, designsById]);
+  }, [data, designsById, groupOverviewText]);
 
   const context = useMemo<ReviewContextValue>(() => {
     const rangesByBlock = new Map<string, { range: TextRange; commentId: string }[]>();
@@ -280,10 +309,10 @@ export function DesignReview({ designs, readOnly, children }: { designs: DesignS
     setPending(
       readSelection(scopeRef.current, (designId, field, changeId) => {
         const design = designsById.get(designId);
-        return design ? anchorSourceText(design, field, changeId) : undefined;
+        return design ? anchorSourceText(design, field, changeId, groupOverviewText) : undefined;
       }),
     );
-  }, [readOnly, designsById]);
+  }, [readOnly, designsById, groupOverviewText]);
 
   // A click anywhere that is not the button itself dismisses it.
   useEffect(() => {

@@ -21,7 +21,7 @@
  * Pure -- no DOM -- so the rules are testable on their own.
  */
 
-import type { CommentAnchor, CommentAnchorField, DesignComment, DesignStatement } from "../api/types.js";
+import type { CommentAnchor, CommentAnchorField, DesignComment, DesignDocumentResponse, DesignDocumentSection, DesignStatement } from "../api/types.js";
 
 export interface TextRange {
   start: number;
@@ -101,8 +101,8 @@ export function anchorSourceText(design: Pick<DesignStatement, "summary" | "rawP
 
 /** Identifies one highlightable text: a field of a design, and for a change
  * which one. */
-export function blockKey(designId: string, field: CommentAnchorField, changeId?: string): string {
-  return `${designId}|${field}|${changeId ?? ""}`;
+export function blockKey(designId: string, field: CommentAnchorField, changeId?: string, documentGroupId?: string): string {
+  return `${field.startsWith("document:") ? documentGroupId ?? designId : designId}|${field}|${changeId ?? ""}`;
 }
 
 export interface LocatedComment {
@@ -117,11 +117,19 @@ export interface LocatedComment {
   designChanged: boolean;
 }
 
-export function locateComment(comment: DesignComment, design: DesignStatement | undefined): LocatedComment {
+export function locateComment(comment: DesignComment, design: DesignStatement | undefined, document?: DesignDocumentResponse): LocatedComment {
+  const anchor = comment.anchor;
+  if (anchor?.field.startsWith("document:")) {
+    const matchesGroup = !!document?.content && document.groupId === anchor.documentGroupId;
+    const source = matchesGroup ? document.content!.sections[anchor.field.slice("document:".length) as DesignDocumentSection] : undefined;
+    const range = locateQuote(source, anchor.quote, anchor.prefix, anchor.suffix);
+    return { comment, range, outdated: range === null,
+      designChanged: matchesGroup && document.revision !== anchor.documentRevision };
+  }
   const designChanged = !!design && typeof comment.designVersion === "number" && design.scopeVersion > comment.designVersion;
   if (!comment.anchor || !design) return { comment, range: null, outdated: false, designChanged };
-  const anchor: CommentAnchor = comment.anchor;
-  const range = locateQuote(anchorSourceText(design, anchor.field, anchor.changeId), anchor.quote, anchor.prefix, anchor.suffix);
+  const originalAnchor: CommentAnchor = comment.anchor;
+  const range = locateQuote(anchorSourceText(design, originalAnchor.field, originalAnchor.changeId), originalAnchor.quote, originalAnchor.prefix, originalAnchor.suffix);
   return { comment, range, outdated: range === null, designChanged };
 }
 

@@ -29,7 +29,7 @@ import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggrega
 import { hasStructuredChanges, type MemberSlice } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
-import { splitOverviewSections } from "../lib/overviewSections.js";
+import { splitBullets, splitOverviewSections } from "../lib/overviewSections.js";
 import { DesignDiagrams } from "../components/DesignDiagrams.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
@@ -1713,9 +1713,35 @@ function DesignDetailPane({
                     {splitOverviewSections(combinedOverview).map((section) => (
                       <div key={section.offset} className="work-combined-overview-section">
                         {section.label && <div className="work-combined-overview-label">{section.label}</div>}
-                        <p className="work-combined-overview">
-                          <HighlightableText designId={primary.id} field="groupOverview" text={section.body} offset={section.offset} />
-                        </p>
+                        {(() => {
+                          // An Approach written as "- " points renders as a
+                          // list; each item keeps its own offset so comments
+                          // still anchor to the right characters.
+                          const list = splitBullets(section.body, section.offset);
+                          if (!list) {
+                            return (
+                              <p className="work-combined-overview">
+                                <HighlightableText designId={primary.id} field="groupOverview" text={section.body} offset={section.offset} />
+                              </p>
+                            );
+                          }
+                          return (
+                            <>
+                              {list.lead && (
+                                <p className="work-combined-overview">
+                                  <HighlightableText designId={primary.id} field="groupOverview" text={list.lead.text} offset={list.lead.offset} />
+                                </p>
+                              )}
+                              <ul className="work-combined-overview-list">
+                                {list.items.map((item) => (
+                                  <li key={item.offset}>
+                                    <HighlightableText designId={primary.id} field="groupOverview" text={item.text} offset={item.offset} />
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                     {/* Optional flow / UML diagrams (2026-10-11): renders

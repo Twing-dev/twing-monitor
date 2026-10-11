@@ -1405,6 +1405,16 @@ button {
   margin-top: 0;
 }
 
+.work-combined-overview-list {
+  margin: 2px 0 0;
+  padding-left: 20px;
+}
+
+.work-combined-overview-list li {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
 /* Optional overview diagrams (DesignDiagrams.tsx). */
 .design-diagrams {
   margin-top: 16px;

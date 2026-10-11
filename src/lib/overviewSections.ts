@@ -43,3 +43,46 @@ export function splitOverviewSections(text: string): OverviewSection[] {
   });
   return sections;
 }
+
+export interface OverviewBullet {
+  text: string;
+  /** Position of `text` in the full overview, for comment anchoring. */
+  offset: number;
+}
+
+/**
+ * The Approach is written as `- ` bullet lines (2026-10-11). Splits a
+ * section body into its items so they render as a real list instead of one
+ * run-on paragraph. Any text before the first bullet comes back as `lead`;
+ * a non-bullet line after a bullet continues that bullet. Returns undefined
+ * when the body has no bullets, so plain prose renders as before.
+ *
+ * `offset` is the body's own offset in the full overview; every returned
+ * offset is absolute, like the section offsets above.
+ */
+export function splitBullets(body: string, offset: number): { lead?: OverviewBullet; items: OverviewBullet[] } | undefined {
+  const items: { start: number; end: number }[] = [];
+  let leadEnd = body.length;
+  let position = 0;
+  for (const line of body.split("\n")) {
+    const bullet = /^\s*[-*•]\s+/.exec(line);
+    if (bullet) {
+      if (items.length === 0) leadEnd = position;
+      items.push({ start: position + bullet[0].length, end: position + line.length });
+    } else if (items.length > 0 && line.trim()) {
+      items[items.length - 1].end = position + line.length;
+    }
+    position += line.length + 1;
+  }
+  if (items.length === 0) return undefined;
+
+  const trimmed = (start: number, end: number): OverviewBullet | undefined => {
+    const raw = body.slice(start, end);
+    const text = raw.trim();
+    return text ? { text, offset: offset + start + raw.indexOf(text) } : undefined;
+  };
+  return {
+    lead: trimmed(0, leadEnd),
+    items: items.map((i) => trimmed(i.start, i.end)).filter((i): i is OverviewBullet => i !== undefined),
+  };
+}

@@ -359,26 +359,27 @@ describe("WorkView (desktop baseline)", () => {
       /* The changes section had the same shape of duplication the overview
          did: a title per member (the same sentence the overview above
          already prints in full) and a "What's changing" heading per member.
-         Both are said once now, with the repo cards telling the halves
-         apart. */
+         Both are said once now -- and since 2026-10-11 ("Option A",
+         `whats-changing-redesign.html`) there's no per-member panel at all
+         here any more: every member's changes merge into one kind-grouped
+         view, with a repo chip only on the kinds that actually span repos. */
       it("prints one What's changing heading for the whole group", async () => {
         // Structured `changes` deliberately: the heading belongs to
-        // `DeclaredChanges`, and a design without them falls back to bare
-        // Creates/Touches lists that carry their own titles instead.
+        // `GroupDeclaredChanges`, and a design without them falls back to
+        // bare Creates/Touches lists that carry their own titles instead.
         const withChanges = twoRepos.map((d, i) => ({
           ...d,
           changes: [{ id: "c1", action: "modify", kind: "code", target: `src/thing-${i}.ts`, intent: "Do the thing." }],
         }));
         stubApiByProject(withChanges);
         const { container } = renderWork(["proj-1", "proj-2"]);
-        await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBe(2));
-        expect(within(detailPane(container)).getAllByText(/what.s changing/i)).toHaveLength(1);
+        await waitFor(() => expect(within(detailPane(container)).getAllByText(/what.s changing/i)).toHaveLength(1));
       });
 
       it("drops the per-member title the overview already shows", async () => {
         stubApiByProject(twoRepos);
         const { container } = renderWork(["proj-1", "proj-2"]);
-        await waitFor(() => expect(container.querySelectorAll(".member-panel").length).toBe(2));
+        await waitFor(() => expect(container.querySelectorAll(".work-overview-section").length).toBe(2));
         expect(container.querySelector(".member-panel-title")).toBeNull();
       });
 

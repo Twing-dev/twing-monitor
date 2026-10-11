@@ -87,8 +87,17 @@ export function locateQuote(source: string | undefined, quote: string, prefix?: 
 
 /** The text a field names on this design, as the dashboard renders it. A
  * change anchor is taken from its intent -- the one part of a change row
- * that is prose rather than a path. */
-export function anchorSourceText(design: Pick<DesignStatement, "summary" | "rawPlanExcerpt" | "changes">, field: CommentAnchorField, changeId?: string): string | undefined {
+ * that is prose rather than a path.
+ *
+ * `groupOverview` is the one field this design object can't answer by
+ * itself (2026-10-10) -- the combined overview is synthesized across a
+ * whole group, not stored on any single `DesignStatement`, so the caller
+ * supplies it the same way `WorkView.tsx` already has it on hand (it just
+ * fetched it to render the text in the first place). `undefined` here means
+ * the same thing it does for `summary` returning `undefined`: nothing to
+ * match against, so the comment shows as outdated rather than highlighted --
+ * correct the moment the combined overview is still loading, not a bug. */
+export function anchorSourceText(design: Pick<DesignStatement, "summary" | "rawPlanExcerpt" | "changes">, field: CommentAnchorField, changeId?: string, groupOverviewText?: string): string | undefined {
   switch (field) {
     case "summary":
       return design.summary;
@@ -96,6 +105,8 @@ export function anchorSourceText(design: Pick<DesignStatement, "summary" | "rawP
       return design.rawPlanExcerpt;
     case "change":
       return design.changes?.find((c) => c.id === changeId)?.intent;
+    case "groupOverview":
+      return groupOverviewText;
   }
 }
 
@@ -117,11 +128,11 @@ export interface LocatedComment {
   designChanged: boolean;
 }
 
-export function locateComment(comment: DesignComment, design: DesignStatement | undefined): LocatedComment {
+export function locateComment(comment: DesignComment, design: DesignStatement | undefined, groupOverviewText?: string): LocatedComment {
   const designChanged = !!design && typeof comment.designVersion === "number" && design.scopeVersion > comment.designVersion;
   if (!comment.anchor || !design) return { comment, range: null, outdated: false, designChanged };
   const anchor: CommentAnchor = comment.anchor;
-  const range = locateQuote(anchorSourceText(design, anchor.field, anchor.changeId), anchor.quote, anchor.prefix, anchor.suffix);
+  const range = locateQuote(anchorSourceText(design, anchor.field, anchor.changeId, groupOverviewText), anchor.quote, anchor.prefix, anchor.suffix);
   return { comment, range, outdated: range === null, designChanged };
 }
 

@@ -71,6 +71,29 @@ export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: str
   return fetcher<{ summary: string | null; unavailable?: string }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
 }
 
+/** `GET /v1/designs/:id/group-overview` (2026-10-09) -- one combined
+ * overview across every design sharing this one's `groupId`, computed from
+ * each member's own overview (and, when available, the conversation that
+ * produced it). `overview: null` covers both "not linked to anyone" and "a
+ * coordinator with no model configured" -- same honest "nothing to offer"
+ * shape `resynthesizeDesignOverview` above uses, not a failure. */
+export async function fetchGroupOverview(fetcher: Fetcher, designId: string): Promise<{ overview: string | null }> {
+  return fetcher<{ overview: string | null }>(`/v1/designs/${designId}/group-overview`);
+}
+
+/** `PATCH /v1/designs/:id/group-overview` (2026-10-10) -- saves a
+ * human-written override for the whole group's combined overview. Once
+ * saved, every future `fetchGroupOverview` call returns this verbatim --
+ * nothing automatic regenerates over it, same as `reviseDesignOverview`'s
+ * per-design `owner_edit`. Server-side authorization requires the caller to
+ * see every member of the group, not just the one named in the URL. */
+export async function saveGroupOverview(fetcher: Fetcher, designId: string, overview: string): Promise<{ overview: string }> {
+  return fetcher<{ overview: string }>(`/v1/designs/${designId}/group-overview`, {
+    method: "PATCH",
+    body: JSON.stringify({ overview }),
+  });
+}
+
 /** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
  * proposal the coordinator computed for this design's current state.
  *

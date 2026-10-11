@@ -23,20 +23,34 @@
  */
 
 import { toBullets } from "./summaryBullets.js";
+import { parseMarkdownBlocks } from "./markdown.js";
+import { splitAmendments } from "./amendments.js";
 
 /** Hard ceiling for the rare case even the extracted headline is still
  * long (a one-sentence summary with no newline, dash, or period break at
  * all) -- a safety net, not the primary mechanism. */
 const MAX_TITLE_CHARS = 120;
 
-function hardClamp(text: string): string {
-  if (text.length <= MAX_TITLE_CHARS) return text;
-  const cut = text.slice(0, MAX_TITLE_CHARS);
+/** What a detail header gets instead, and why it isn't the same number.
+ *
+ * A list row's title *stands in for* the summary -- the summary is nowhere
+ * else on screen, so the title is allowed to be nearly all of it. A detail
+ * header sits directly above the summary, so at 120 a one-sentence design
+ * showed a 113-character "title" over the same 190-character sentence and
+ * the pane read as the text printed twice. Short enough here that the
+ * header is clearly a heading and the summary below it is clearly the
+ * content. */
+export const DETAIL_TITLE_CHARS = 72;
+
+function hardClamp(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
   const lastSpace = cut.lastIndexOf(" ");
   // Only break on a word boundary if there's a reasonable amount of text
   // left after doing so -- otherwise a single very-long leading word would
-  // clip down to almost nothing.
-  return `${(lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  // clip down to almost nothing. A third of the budget, so this holds at
+  // either size.
+  return `${(lastSpace > max / 3 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 /** The first paragraph -- everything before the first blank line, or the
@@ -47,7 +61,7 @@ function firstParagraph(text: string): string {
   return text.split(/\n\s*\n/)[0].trim();
 }
 
-export function deriveTitle(summary: string | null | undefined): string {
+export function deriveTitle(summary: string | null | undefined, max: number = MAX_TITLE_CHARS): string {
   // `summary` is a required field on the wire, but this reads an external
   // API response -- a system boundary is exactly where a loose/legacy row
   // (or a test's own loose fixture) missing it shouldn't crash the row
@@ -69,9 +83,45 @@ export function deriveTitle(summary: string | null | undefined): string {
   const sentenceCut = bullets.length > 0 ? bullets[0].length : -1;
 
   const cut = Math.min(...[dashIndex, sentenceCut].filter((i) => i > 0));
-  if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim());
+  if (Number.isFinite(cut)) return hardClamp(head.slice(0, cut).trim(), max);
 
-  return hardClamp(head);
+  return hardClamp(head, max);
+}
+
+/** A design's title: the owner's own if they set one, else derived from the
+ * summary (2026-10-02).
+ *
+ * The **single** fallback point for every place a title is shown -- a list
+ * row, the detail header, the member panel. Deliberately not three separate
+ * `design.title ?? deriveTitle(...)` expressions: a stored title that
+ * appears in two of three places and not the third is worse than no stored
+ * title at all.
+ *
+ * `||` rather than `??`, so a title that is present but whitespace falls
+ * back too. The route refuses to store one, but a row written before that
+ * validation existed -- or by anything else that learns to write this
+ * column -- must not render as a blank heading.
+ *
+ * `max` is forwarded to `deriveTitle` only; a stored title is returned as
+ * the owner wrote it. The server caps it at `MAX_TITLE_CHARS` on the way in
+ * (app.ts's `MAX_DESIGN_TITLE_CHARS`), which is what makes that safe -- and
+ * why clamping here would only ever truncate text that already fits. */
+export function designTitle(design: { title?: string; summary: string | null | undefined }, max?: number): string {
+  const stored = design.title?.trim();
+  if (stored) return stored;
+  // Derive from the design's own text, not its amendments (2026-10-06): an
+  // amended summary ends in dated `Update (date):` entries, and a title is a
+  // statement of what the design *is*, which the first entry of its changelog
+  // is not. `base` is the summary itself for anything never amended.
+  const { base } = splitAmendments(design.summary);
+  // Derive from the first *block*, not the raw source, so a summary the
+  // author wrote as markdown (2026-10-02) doesn't surface its own syntax as a
+  // title -- `## Approach` should read "Approach". `deriveTitle` still does
+  // the headline extraction and clamping from there; this only decides what
+  // text it sees. Plain prose has exactly one paragraph whose text is the
+  // whole string, so this is a no-op for it.
+  const [first] = parseMarkdownBlocks(base);
+  return deriveTitle(first ? first.text : base, max);
 }
 
 /** The summary's full text, as a list of points instead of one paragraph

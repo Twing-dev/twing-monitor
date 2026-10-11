@@ -27,12 +27,23 @@
   --text-dim: #5b5868;
   --accent: #ff5c7a;
   --accent-dim: #ffe3e9;
+  /* The same hue as --accent, dark enough to be read. --accent itself is a
+     fill and border colour: on the cream background it measures 2.92:1,
+     where WCAG AA asks 4.5:1 for text this size, and every accent-coloured
+     label in this app is 0.72-0.8rem. This is 4.52:1 on --bg and 4.60:1 on
+     --surface. Use it for `color`, never for `background` or
+     `border-color` -- those are still the brand pink. */
+  --accent-text: #eb002b;
   --danger: #d9483f;
   --danger-bg: #fbe4e1;
   --good: #1e8f63;
   --good-bg: #e1f5ea;
   --warning: #d98e0a;
   --warning-bg: #fff1d6;
+  /* Same story for the warn chip: --warning on --warning-bg is 2.40:1.
+     This is 4.52:1 on that tint. The stat tile already worked around the
+     old value by keeping its text near-black. */
+  --warning-text: #986407;
   --font-display: "Quicksand", ui-rounded, "SF Pro Rounded", var(--font-body);
   --font-body: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
@@ -300,7 +311,7 @@ button {
   padding: 3px 8px;
   border-radius: 100px;
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .repo-card-meta {
@@ -364,10 +375,18 @@ button {
   margin-bottom: 18px;
 }
 
+/* Same neutral palette as `.repo-badge`, which labels the same thing (which
+   repo a row belongs to) further down the page -- these were accent-pink,
+   which made a row of inert labels the loudest element on the screen and
+   left it competing with the conflict badges for the eye. Pink now means
+   brand and selection; severity owns red and amber. Kept a separate rule
+   from `.repo-badge` rather than merged: this one sits in the top bar at a
+   larger size with its own padding, and `.repo-badge` carries flex
+   behaviour that only makes sense inside a row. */
 .repo-chip {
   display: inline-flex;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--border);
+  color: var(--text-dim);
   border-radius: 100px;
   padding: 4px 12px;
   font-size: 0.8rem;
@@ -491,7 +510,7 @@ button {
 
 .icon-btn.active {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-dim);
 }
 
@@ -658,6 +677,92 @@ button {
   border-color: var(--text);
 }
 
+/* The view selector (2026-10-07). Shaped like the pill beside it rather than
+   like a form field -- it is doing the same job, picking what the list shows,
+   and a default browser select next to a pill reads as two unrelated
+   controls. */
+/* Sized to the pills, not to the browser's idea of a select: same border,
+   same radius, same 5px/10px padding and font, so the row has one height
+   (27.5px) instead of a 2px step at the selector. */
+.work-view-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+/* Our own caret. `appearance: none` strips the platform one, which was the
+   single loudest thing in the row -- a native dropdown arrow beside four
+   rounded pills reads as a form dropped into a toolbar. */
+.work-view-select::after {
+  content: "";
+  position: absolute;
+  right: 11px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Carries the same active treatment as a pill when one of its own values is
+   showing, so the bar always says where the list came from. */
+.work-view-select.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+
+.work-view-select.active select {
+  color: #fff;
+}
+
+.work-view-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: normal;
+  color: inherit;
+  cursor: pointer;
+  padding: 5px 24px 5px 10px;
+}
+
+.work-view-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 100px;
+}
+
+.work-filter-note {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* Separates the "which section" pills from the "whose designs" toggle --
+   they filter on different axes and compose, rather than being four
+   choices of one thing. `auto` margin rather than a fixed gap so the
+   toggle sits at the end of the row; on a wrapped phone row it simply
+   collapses and the pills keep their normal spacing. */
+/* Symmetric. The `margin-left: auto` this used to carry dated from when
+   Mine was the last thing in the row and wanted pushing right; with the
+   archive selector after it, it left a 59px hole on one side and 9px on the
+   other. */
+.work-filter-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
 .work-rows {
   flex: 1;
 }
@@ -678,17 +783,35 @@ button {
   color: var(--danger);
 }
 
-.work-section-heading .n {
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 1px 7px;
-  font-size: 0.66rem;
+/* Reveals the rest of an already-loaded section from inside its own
+   heading. Sits opposite the label so the three sections' expanders line
+   up down one edge instead of interrupting the list as three full-width
+   buttons -- which, alongside the server-side "Load older", put four
+   near-identical controls on one screen. */
+.section-expand {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.section-expand:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* Reveals the rest of an already-loaded section (Conflicts/In progress/
    Resolved each cap at SECTION_PAGE_SIZE) -- distinct from .load-more-button,
-   which fetches an older page from the server. */
+   which fetches an older page from the server. Only rendered under an
+   active filter pill now, where there's no section heading to host the
+   expander above. */
 .section-load-more-button {
   display: block;
   width: calc(100% - 28px);
@@ -731,20 +854,68 @@ button {
   border-left-color: var(--accent);
 }
 
+/* Two lines, not one (2026-10-07). As `nowrap` eight of ten rows overflowed
+   by an average of 235px -- a 119-character title showed about 45 characters
+   -- while the row sat at a uniform 58px with the second line unused. Row
+   heights vary now; a tidy column bought at the cost of half the title is
+   not a trade worth making.
+
+   `line-clamp` with `-webkit-box` rather than a height cap, so a one-line
+   title still occupies one line instead of being padded to two. */
 .work-row-summary {
   font-size: 0.87rem;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .work-row-meta {
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-size: 0.7rem;
   color: var(--text-dim);
+}
+
+/* The developer id is the only elastic thing in the row -- it's a raw
+   address (often a ~50-char GitHub noreply one), so without this it sets
+   the row's intrinsic width and shoves the timestamp onto a second line
+   and the severity badge off the pane edge. Everything else in the meta
+   row is short and fixed, so it all refuses to shrink and this absorbs
+   the overflow instead. */
+/* The author needs a floor, because it was the only flexible thing in this
+   row and so absorbed the whole deficit: on a two-repo design the badges
+   took 176px + 148px and this was left with **6px** for an 84px name,
+   rendering as one letter and an ellipsis. Same mechanism as the Team page
+   clipping. */
+.work-row-meta .dev {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Badges yield before the author does. With several repos they truncate --
+   losing the tail of a repo name is recoverable (the full name is on their
+   `title`), where losing the author tells you nothing about whose work this
+   is. */
+.work-row-meta .repo-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-row-meta .sep {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .work-row-meta .sep::before {
@@ -774,11 +945,23 @@ button {
 }
 
 .work-badge {
+  flex-shrink: 0;
   font-size: 0.62rem;
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 100px;
   margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Three severities, three weights. `flagged` (the coordinator blocked this
+   design) and `overlap` (two designs touch the same ground, advisory) both
+   rendered as the same tinted red, so the one that needs a decision looked
+   identical to the one that just needs reading. Solid fill matches
+   `.work-tab .tab-count`, the other place a blocking count is shown. */
+.work-badge.flagged {
+  background: var(--danger);
+  color: #fff;
 }
 
 .work-badge.conflict {
@@ -788,7 +971,7 @@ button {
 
 .work-badge.warn {
   background: var(--warning-bg);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .work-pane-detail {
@@ -807,15 +990,51 @@ button {
   flex-wrap: wrap;
 }
 
+/* Wraps rather than ellipsising on one line. A design's headline is the
+   whole thing a reviewer is here to judge, and the pane is wide enough to
+   hold it -- a single line clipped it at roughly half its length while the
+   rest of the same sentence sat directly underneath in the summary. Clamped
+   to three lines for the rare runaway; `title` holds the full text. */
 .work-detail-title {
   font-size: 1.2rem;
   font-weight: 800;
   line-height: 1.35;
   flex: 1 1 100%;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+/* The pane's one-line answer to "what do I do about this". Only rendered
+   when there's something to say (see `designVerdict`), so it can afford to
+   be loud -- a bar that's present on every design would stop being read on
+   the ones that matter. Text stays on `--text` rather than the tone
+   colour: this is a full sentence at body size, not a chip. */
+.work-verdict {
+  border-left: 3px solid;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.work-verdict b {
+  font-weight: 800;
+}
+
+.work-verdict.critical {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.work-verdict.warn {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
 }
 
 .work-detail-meta {
@@ -875,6 +1094,95 @@ button {
   max-width: 720px;
 }
 
+/* One linked design's overview (2026-10-07). A group of one is a single
+   section and must look exactly as it did before this existed, so the rule
+   is scoped to a *following* sibling: only the second and later overviews
+   take a rule and the space above it, which is what makes two stacked
+   overviews read as two designs rather than one run-on panel.
+
+   `:not(--scoped)` because a repo-scoped half is a card already, and a card
+   does not also need a line drawn above it. This still covers the group that
+   has several designs inside *one* repo, which gets no card (there would be
+   nothing to tell the cards apart) and so still needs the separator. */
+/* Nothing here any more: every overview section is a card as of 2026-10-07,
+   so the separator that used to stand in for one is unreachable. Kept as a
+   note rather than a rule -- a design in one repo and a design across two are
+   drawn identically now, and a selector that fires for neither is worse than
+   no selector at all. */
+
+/* One repo's half of a cross-repo change, enclosed. The box is what binds the
+   content to the repo label at its top -- see `RepoScopeLabel`. The inner
+   elements bring their own 18px of horizontal padding, so this adds an outer
+   gutter and no inner one, keeping the text where it has always sat.
+
+   Shared by both halves of the Overview tab (2026-10-07): the design's prose
+   and its declared changes. One treatment, because a reader should learn
+   "boxed and labelled = that repo's" once rather than meeting cards at the
+   top of the tab and pill-tagged panels at the bottom. Kept separate from
+   `.work-overview-section`, which marks what a section *is* rather than how
+   it is drawn. */
+.work-scope-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin: 14px 18px 0;
+  /* No top padding: the header band seals against the border. A 2px gap here
+     left a pale sliver between the band and the card's own outline at the top
+     corners, which is why the band never looked attached to the card. */
+  padding: 0 0 12px;
+  /* Full-bleed rows -- the declared-changes list spans the card edge to edge
+     on purpose, the way a table's rows do -- so their separators and hover
+     fills have to be clipped to the radius. Without this they ran square into
+     a rounded border and read as text stuck to the line. */
+  overflow: hidden;
+}
+
+/* One inset for everything a card contains: **14px**, the figure the header
+   band and the plan disclosure already used. The body used to sit 22px deeper
+   than the label naming it (`.summary-bullets`' 36px left padding, inherited
+   from when it sat in a full-width panel) and 18px shallower on the right, so
+   the prose looked both pushed in and crowded. The marker keeps a 12px hang
+   inside that inset rather than outside it. */
+.work-scope-card .summary-bullets {
+  padding: 8px 14px 4px 26px;
+}
+
+.work-scope-card .summary-bullets li {
+  padding-left: 0;
+}
+
+/* The label row is the card's header: tinted, and sealed to the card's top
+   edge so it reads as a header band rather than a first row of content. */
+.work-scope-card .overview-edit-row {
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+  /* Square: the card clips it (`overflow: hidden`), so the band inherits the
+     card's own corners exactly rather than approximating them one pixel in --
+     which is what produced the sliver this used to leave. */
+  border-radius: 0;
+  margin-bottom: 4px;
+  padding: 8px 14px;
+}
+
+/* A one-paragraph overview takes the same 14px inset as everything else in
+   the card, where it used to inherit the panel's wider one. */
+.work-scope-card > p {
+  padding: 8px 14px 4px;
+}
+
+/* The plan disclosure closes its design's card. Ruled off and set on the
+   card's own tint so it reads as a footer belonging to this repo's half,
+   rather than as another body paragraph of it. */
+.work-scope-card .work-raw-plans {
+  margin: 12px 0 0;
+  padding: 10px 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.work-scope-card .work-raw-plan {
+  margin-top: 0;
+}
+
 .work-raw-plans {
   margin-top: 18px;
 }
@@ -898,6 +1206,61 @@ button {
 
 .work-raw-plan .plan-text {
   margin-top: 8px;
+}
+
+/* The amendment fold (2026-10-06). Styled as a sibling of the raw-plan
+   disclosure above rather than as part of the summary: both are "the design's
+   history, available but not in your way", and a reader who has learned one
+   affordance should recognise the other. Deliberately quieter than the
+   overview it sits under -- the point of the fold is that the design's current
+   position wins the page. */
+.work-amendments {
+  margin-top: 16px;
+}
+
+.work-amendments > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.work-amendments > summary:hover {
+  color: var(--text);
+}
+
+.work-amendment-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.work-amendment-list li {
+  /* A left rule rather than a bullet: these are dated entries in a log, and a
+     bullet is what made them read as peers of the summary's own points in the
+     first place. */
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 10px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  /* The text is a verbatim slice of the summary and an amendment may carry its
+     own paragraph breaks -- keep them rather than collapsing to one run. */
+  white-space: pre-wrap;
+}
+
+.work-amendment-list li:last-child {
+  margin-bottom: 0;
+}
+
+.work-amendment-date {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
 }
 
 /* What the design declares it will change, once it stopped being its own
@@ -950,16 +1313,32 @@ button {
   border-top: 1px solid var(--border);
 }
 
-/* The member's own summary -- the field that actually distinguishes siblings,
-   since a linked chain is usually one developer's consecutive work and the
-   metadata line below barely varies. Weighted like `.design-comments h3` so it
-   reads as the panel's heading rather than a caption. */
-.member-panel-title {
-  font-size: 0.95rem;
-  font-weight: 800;
-  line-height: 1.4;
-  color: var(--text);
-  margin-bottom: 3px;
+/* `.member-panel-title` was removed 2026-10-07 -- it printed `designTitle` of
+   the same summary the overview above now renders in full, so the reader met
+   the sentence twice, clamped the second time. The repo label on the card
+   distinguishes the panels instead. */
+
+/* A carded member needs no separator of its own: the card is the boundary,
+   and a rule above it drew a second one. */
+.work-scope-card .member-panel + .member-panel,
+.work-scope-card > .member-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* The group's single changes heading. Sits above the cards rather than inside
+   the first one, for the same reason the overview's does: it introduces the
+   whole group, and printing it in a repo's box would make it that repo's. */
+.work-changes-heading {
+  margin: 18px 18px 0;
+}
+
+/* Inside a card the metadata line is the card header's business, so it sits
+   in the header band's gutter rather than the body's. */
+.work-scope-card .member-panel-heading {
+  padding: 10px 14px 0;
+  margin-bottom: 6px;
 }
 
 .member-panel-heading {
@@ -991,6 +1370,15 @@ button {
   background: var(--surface-hover);
 }
 
+/* A reach flag rather than a count. Tinted and bordered amber so it reads
+   as a warning at a glance, but the text itself stays on the default
+   near-black -- `--warning` on `--warning-bg` is fine for the 0.62rem
+   `.work-badge.warn` chip and not for a tile this size. */
+.work-change-stat.warn {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+}
+
 .work-change-stat .n {
   font-family: var(--font-display);
   font-weight: 700;
@@ -1018,8 +1406,54 @@ button {
   font-size: 0.85rem;
 }
 
+/* Inside the card the entries take the card's own 14px inset, and their
+   rules run full-bleed to its edges -- the same treatment the declared-changes
+   rows get, so the two lists read as one kind of thing. The card's bottom
+   padding would otherwise sit below the last entry's rule; `:last-child`
+   already drops that rule, so the card closes on text. */
+.work-activity-card {
+  padding-bottom: 0;
+}
+
+.work-activity-card .work-activity-item {
+  padding: 10px 14px;
+}
+
 .work-activity-item:last-child {
   border-bottom: none;
+}
+
+/* An activity row that carries details (2026-10-06): the label becomes the
+   expander, and the details sit under it clamped, so the list still scans. */
+.work-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.work-activity-label {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-activity-label:hover {
+  color: var(--accent-text);
+}
+
+/* A `newSummary` payload is a whole overview; three of them at full height
+   bury everything else in the tab. Clamped until the row is opened. */
+.activity-details.clamped dd {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .work-activity-time {
@@ -1155,7 +1589,7 @@ button {
 
 .see-all {
   font-size: 0.78rem;
-  color: var(--accent);
+  color: var(--accent-text);
   background: none;
   border: none;
   cursor: pointer;
@@ -1316,6 +1750,278 @@ li:first-child > .preview-row {
   gap: 12px;
 }
 
+/* The Team page (2026-10-07).
+ *
+ * Was one full-width row per person, name left and grey chips right, which
+ * is how the name came to be clipped: a row forces the name and the badges
+ * to compete for one line. A card gives each person their own space, so the
+ * question never arises -- and a grid of them reads as a team rather than as
+ * a table of strings.
+ *
+ * `auto-fill` with a 15.5rem floor rather than a fixed column count: the
+ * page is used at anything from a laptop half-screen to a wide monitor, and
+ * the number of people varies more than the width does. */
+/* The Team page (2026-10-07), in two layouts the reader chooses between.
+ *
+ * `By person` asks "what is X on", `By repo` asks "who is on X". Neither
+ * answers the other -- by person a repo's admins are scattered down the page;
+ * by repo, somebody on six repos appears six times -- so both are offered
+ * rather than one being chosen for everybody.
+ *
+ * Both replaced a single full-width row per person, which is how names came
+ * to be clipped in production: a row makes the name and the badges compete
+ * for one line, and the badges were the ones that never yielded. */
+.member-layout-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+/* ---- By person: the roster ---- */
+
+/* Two fixed columns, not a flex row. This is the part that matters: the name
+   owns its column and the repos own theirs, so neither can take width from
+   the other and the clipping cannot come back by construction. */
+.member-roster {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.member-roster-head,
+.member-roster-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) 3fr;
+  gap: 20px;
+  align-items: center;
+  padding: 11px 18px;
+}
+
+.member-roster-head {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.member-roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.member-roster-row + .member-roster-row {
+  border-top: 1px solid var(--border);
+}
+
+.member-roster-row:hover {
+  background: var(--surface-hover);
+}
+
+.member-who {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+/* ---- Shared: avatar and identity ---- */
+
+/* Initials on a hue derived from the id (`hueFor`). Colour is what makes a
+   list of people scannable -- you find someone by their colour before reading
+   a character -- and it is decoration only: every role is written in words, so
+   nothing depends on telling two hues apart. Light fill, dark text of the same
+   hue, which holds contrast right around the wheel. */
+.member-avatar {
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: hsl(var(--member-hue) 62% 90%);
+  color: hsl(var(--member-hue) 45% 30%);
+  border: 1px solid hsl(var(--member-hue) 50% 82%);
+}
+
+.member-avatar-md {
+  width: 32px;
+  height: 32px;
+  font-size: 0.74rem;
+}
+
+.member-avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 0.62rem;
+}
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.member-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The id the name was derived from. Dim, but present: `developerLabel` can
+   collide, so the value that is actually unique stays on screen. */
+.member-id {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Shared: a membership ---- */
+
+.member-repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.member-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 7px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.72rem;
+  min-width: 0;
+}
+
+/* Admin tinted as well as labelled -- the label is what carries the meaning,
+   the tint is what makes it findable while scanning. */
+.member-repo-admin {
+  border-color: #f6d5dd;
+  background: #fff7f9;
+}
+
+.member-repo-name {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- By repo ---- */
+
+.member-repo-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.member-repo-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+.member-repo-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 18px;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+}
+
+.member-repo-group-name {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.member-repo-group-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.member-subhead {
+  font-size: 0.64rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin: 12px 0 0;
+  padding: 0 18px;
+}
+
+.member-chip-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  min-width: 0;
+}
+
+.member-chip-admin {
+  border-color: #f6d5dd;
+  background: #fff7f9;
+}
+
+.member-chip-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Team page stopped using these rules entirely (2026-10-07) -- it builds
+   its own grid above -- so the scoped fix that briefly lived here is gone.
+   The cause is worth keeping written down, because the rules below still
+   carry it: `.card-badges` is `flex-shrink: 0` and never yields, while
+   `.card-summary` is `flex: 1 1 auto; min-width: 0`, so the summary absorbs
+   the whole deficit. On the Team page that meant 650px of an 834px row went
+   to badges, leaving 172px for a 376px name, hard-clipped mid-character and
+   reported from a real deployment.
+
+   The other three users (Designs, Constraints, Alignment) are unaffected for
+   a reason rather than by luck: their summary is a sentence, which wraps.
+   Only an unbreakable token -- an email, a 49-character GitHub noreply
+   address -- clips instead, which is why the Team page was the one that
+   broke. A future list keyed on ids rather than prose should expect the same
+   and lay itself out in columns, rather than re-adding a scoped patch
+   here. */
+
 .card-summary {
   font-size: 0.92rem;
   line-height: 1.4;
@@ -1414,7 +2120,7 @@ li:first-child > .preview-row {
 
 .status-badge.tone-accent {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .status-badge.tone-good {
@@ -1557,15 +2263,28 @@ li:first-child > .preview-row {
   gap: 3px;
 }
 
+/* A fixed label column, not an auto-width one (2026-10-07).
+
+   As a flex row each `dt` was only as wide as its own word, so every value
+   began at a different x -- "clean" at 593, "components/DesignDetail.tsx" at
+   623, a path list at 641 -- and one entry's five fields started in five
+   different places. Nothing was misaligned with anything in particular, which
+   is precisely what made the tab read as scattered rather than as wrong.
+
+   `7rem` clears the longest label in use ("Added touches") with room spare; a
+   longer one wraps inside its own column instead of pushing the values out of
+   line, which is the failure mode the flex version had. `minmax(0, 1fr)` is
+   what lets the value column shrink far enough for `overflow-wrap` below to
+   break a long path rather than overflow it. */
 .activity-detail-field {
-  display: flex;
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
   gap: 8px;
   font-size: 0.82rem;
   line-height: 1.5;
 }
 
 .activity-detail-field dt {
-  flex-shrink: 0;
   color: var(--text-dim);
 }
 
@@ -1601,7 +2320,7 @@ li:first-child > .preview-row {
 
 .link-chip-accent {
   font-family: var(--font-body);
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: none;
 }
 
@@ -1614,7 +2333,7 @@ li:first-child > .preview-row {
   align-items: center;
   gap: 6px;
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: 100px;
   padding: 4px 6px 4px 12px;
   font-size: 0.8rem;
@@ -1783,7 +2502,7 @@ li:first-child > .preview-row {
 }
 
 .resolve-pending h3 {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .resolve-pending-note {
@@ -1978,7 +2697,7 @@ li:first-child > .preview-row {
 .kind-hint {
   flex: none;
   font-size: 0.72rem;
-  color: var(--accent);
+  color: var(--accent-text);
   text-transform: lowercase;
 }
 
@@ -2072,7 +2791,7 @@ li:first-child > .preview-row {
 .action-rename,
 .action-move {
   background: var(--accent-dim);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .change-target {
@@ -2534,7 +3253,7 @@ li:first-child > .preview-row {
   background: none;
   padding: 0;
   margin-left: 4px;
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -2700,10 +3419,19 @@ li:first-child > .preview-row {
   cursor: default;
 }
 
+/* Same problem `.work-row-meta .dev` has -- a raw address, often a ~50-char
+   GitHub noreply one -- but the opposite answer. A flex item won't shrink
+   below its content's min-content width, and an unbroken address has a large
+   one, so in a rail capped at 320px it ran past the card edge and lost its
+   domain. The row ellipsises because it's a dense one-line scan target; a
+   comment card has the room, and who left a comment is worth reading in
+   full, so this wraps instead. */
 .comment-author {
   font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--text-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .comment-meta {
@@ -2929,7 +3657,7 @@ li:first-child > .preview-row {
 }
 
 .chat-turn-reviewer .chat-turn-meta span:first-child {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .chat-turn-agent .chat-turn-meta span:first-child {
@@ -3311,4 +4039,402 @@ li:first-child > .preview-row {
   .work-detail-title {
     white-space: normal;
   }
+}
+
+/* Owner-editable design title/overview (2026-10-02, WorkView's Overview tab).
+   The edit affordance and provenance line sit above "What this design says
+   it's doing", and the editor replaces the bullets in place rather than
+   opening over them -- same reading position, so saving doesn't move the
+   text the owner was just looking at. */
+.overview-edit-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 0;
+  align-items: center;
+}
+
+/* The repo label leads its own design's control row (2026-10-07). `auto`
+   margin rather than `space-between` so the buttons stay hard right whether
+   or not a label is present -- a group of one has none and must keep the
+   flush-right row it has always had.
+
+   Styled as a heading rather than a chip: this names the half of the change
+   you are reading, so it carries the weight a section label carries. See
+   `RepoScopeLabel` for the argument. */
+.overview-repo-label {
+  margin-right: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-repo-owner {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* The rewrite affordance (2026-10-06). Same shape as the edit button beside
+   it, and deliberately no more prominent: folding a pile of amendments is
+   housekeeping, not the thing someone opened this design to do. */
+.overview-rewrite-button {
+  background: none;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-rewrite-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--accent-text);
+}
+
+.overview-rewrite-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The proposed rewrite, shown where the overview was (2026-10-06). Tinted and
+   ruled so it reads as "this is not the stored text yet" at a glance -- the
+   first version of this feature put the proposal in a plain edit form, which
+   was indistinguishable from the owner's own draft and read as though nothing
+   had happened. */
+.overview-proposal {
+  margin: 12px 18px 0;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.overview-proposal-banner {
+  padding: 8px 12px;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.overview-proposal-banner b {
+  color: var(--accent-text);
+}
+
+.overview-proposal-body {
+  padding: 12px;
+}
+
+.overview-proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.overview-proposal-actions button {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+}
+
+.overview-proposal-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The one affordance that writes anything, so it is the only one that looks
+   like a primary action. */
+.overview-proposal-keep {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.overview-rewriting {
+  margin: 12px 18px 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* Shown only to the owner of an overview they wrote themselves, once enough
+   amendments have piled on top of it -- the coordinator will never rewrite
+   that text on its own, so this is the only prompt that design ever gets. */
+.overview-nudge {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 7px 7px 0;
+  background: var(--surface-hover);
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.overview-nudge b {
+  color: var(--text);
+}
+
+.overview-edit-button {
+  background: none;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-edit-button:hover {
+  background: var(--surface-hover);
+  color: var(--accent-text);
+}
+
+.overview-editor {
+  padding: 14px 18px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overview-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.overview-editor-field > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.overview-editor-field input,
+.overview-editor-field textarea {
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.overview-editor-field textarea {
+  resize: vertical;
+}
+
+.overview-editor-field input:focus,
+.overview-editor-field textarea:focus {
+  outline: 2px solid var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.overview-editor-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+
+.overview-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.overview-editor-cancel,
+.overview-editor-save {
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 15px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-editor-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.overview-editor-save {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+
+.overview-editor-save:disabled,
+.overview-editor-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Rendered block-level markdown in a design's overview (2026-10-02). Headings
+   are clamped to h4-h6 by the renderer so an overview's own `#` never
+   outranks the pane's h3 section headings; these sizes keep that visible. */
+.md {
+  padding: 10px 18px 4px;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.md-paragraph {
+  margin: 0 0 10px;
+  /* The parser keeps a hard-wrapped paragraph's newlines (they are part of
+     the source slice comment anchors are matched against), so they must not
+     render as hard breaks. */
+  white-space: pre-wrap;
+}
+
+.md-heading {
+  margin: 16px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.md-heading:first-child {
+  margin-top: 0;
+}
+
+.md-list {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin-bottom: 5px;
+}
+
+.md-quote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.md-code {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  /* Long lines scroll inside the block rather than widening the pane. */
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Write/Preview tab strip in the overview editor. */
+.overview-editor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.overview-editor-tab {
+  background: none;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 5px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.overview-editor-tab.active {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--accent-text);
+}
+
+.overview-editor-hint {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.overview-editor-source {
+  /* Monospace while writing, since the source is markdown and column
+     alignment in a list or code fence is part of what you are editing. */
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.82rem !important;
+  line-height: 1.6;
+}
+
+.overview-editor-preview {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  min-height: 160px;
+}
+
+.overview-editor-preview .md {
+  padding: 12px 14px;
+}
+
+.overview-editor-empty {
+  margin: 0;
+  padding: 14px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+/* The rephrase skeleton (2026-10-06): three bars where the overview's own
+   lines are, so the wait reads as "this text is being replaced". */
+.overview-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 18px 0;
+}
+
+.overview-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--border) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: overview-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.overview-skeleton-line.short {
+  width: 62%;
+}
+
+@keyframes overview-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Motion is decoration here -- the bars still read as a placeholder without
+   it, and an animation nobody asked for is the kind a vestibular disorder
+   punishes. */
+@media (prefers-reduced-motion: reduce) {
+  .overview-skeleton-line { animation: none; }
 }

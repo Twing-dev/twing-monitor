@@ -35,6 +35,58 @@ export async function fetchDesignById(fetcher: Fetcher, id: string): Promise<{ d
   return fetcher<{ design: DesignStatement; groupMembers: DesignStatement[] }>(`/v1/designs/${id}`);
 }
 
+/** `PATCH /v1/designs/:id/overview` (2026-10-02) -- the design's owner
+ * replaces its title and/or its overview prose, as opposed to `amend`'s
+ * `summary`, which the server appends as a dated `Update (date):` entry.
+ * Owner-only server-side (403 for anyone else, project admins included), so
+ * the caller is expected to have checked ownership before showing the
+ * affordance at all; this is the enforcement, not the gate.
+ *
+ * Omitting a field leaves it untouched. `title: null` is distinct from
+ * omitting it -- it *clears* a stored title, reverting to the derived one
+ * (`lib/designTitle.ts`). A blank string for either is a 400, not a clear. */
+export async function reviseDesignOverview(fetcher: Fetcher, designId: string, body: { title?: string | null; summary?: string }): Promise<{ design: DesignStatement }> {
+  return fetcher<{ design: DesignStatement }>(`/v1/designs/${designId}/overview`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `POST /v1/designs/:id/resynthesize` (2026-10-06) -- asks the coordinator
+ * to fold the design's appended `Update (date):` entries back into one
+ * current overview.
+ *
+ * **Returns the proposal; saves nothing.** The caller puts it in front of the
+ * owner, who edits and saves it through `reviseDesignOverview` above like any
+ * other edit -- which is what records it as theirs, and what stops the
+ * coordinator's automatic path touching that design afterwards.
+ *
+ * `summary: null` is a 200, not a failure: a design with nothing to fold (or
+ * a coordinator with no model configured) has nothing to offer, and the
+ * difference between that and an error matters to what the UI says. A
+ * coordinator older than this route answers 404 instead -- the server ships
+ * before the dashboard, so the caller is expected to say so in words rather
+ * than show a bare "Not Found". */
+export async function resynthesizeDesignOverview(fetcher: Fetcher, designId: string): Promise<{ summary: string | null; unavailable?: string }> {
+  return fetcher<{ summary: string | null; unavailable?: string }>(`/v1/designs/${designId}/resynthesize`, { method: "POST" });
+}
+
+/** `POST /v1/designs/:id/resynthesize/apply` (2026-10-06) -- saves the
+ * proposal the coordinator computed for this design's current state.
+ *
+ * **Carries no text**, which is the whole reason it exists separately from
+ * `reviseDesignOverview`. That route takes arbitrary words and is owner-only;
+ * this one can only store what the server itself wrote, so any project member
+ * may accept a rephrase without ever being able to put words of their own
+ * into someone else's design.
+ *
+ * 409 when the coordinator has no proposal for the current state -- nobody
+ * fetched one, or the design moved underneath it. Ask for a rephrase again
+ * and read what comes back. */
+export async function applyDesignRephrase(fetcher: Fetcher, designId: string): Promise<{ design: DesignStatement }> {
+  return fetcher<{ design: DesignStatement }>(`/v1/designs/${designId}/resynthesize/apply`, { method: "POST" });
+}
+
 /** Mirrors packages/server/src/app.ts's `POST /v1/designs/:id/resolve` body
  * (`ResolveRequestBody`) -- the two ways a flagged design gets addressed
  * (§17.5): supersede it in favor of the design it conflicts with, or

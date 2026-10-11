@@ -147,7 +147,24 @@ function KindSection({
  * there's something to expand. See `groupByKind`'s doc comment for why the
  * empty ones are shown rather than omitted -- "no database changes" is the
  * answer a reader came for, and an omitted section can't say it. */
-export function DeclaredChanges({ changes, claims, designId }: { changes: DesignChange[]; claims: Claim[]; designId?: string }) {
+export function DeclaredChanges({
+  changes,
+  claims,
+  designId,
+  /** Whether to print the section's own heading (2026-10-07).
+   *
+   * Default true, so the standalone design view is unchanged. A view
+   * stacking one of these per design in a linked group passes false and
+   * prints the heading once above the group instead -- four designs used to
+   * mean four identical "What's changing" headings, which read as one panel
+   * rendered four times rather than as four designs. */
+  showHeading = true,
+}: {
+  changes: DesignChange[];
+  claims: Claim[];
+  designId?: string;
+  showHeading?: boolean;
+}) {
   const [conformanceOpen, setConformanceOpen] = useState(false);
   const report = computeConformance(changes, claims);
   const stateByChangeId = new Map(report.declared.map((row) => [row.change.id, row.state]));
@@ -156,7 +173,7 @@ export function DeclaredChanges({ changes, claims, designId }: { changes: Design
   return (
     <>
       <div className="detail-field">
-        <h3>What&rsquo;s changing</h3>
+        {showHeading && <h3>What&rsquo;s changing</h3>}
         <div className="kind-list">
           {groupByKind(changes).map((group) => (
             <KindSection key={group.kind} group={group} stateByChangeId={stateByChangeId} designId={designId} />

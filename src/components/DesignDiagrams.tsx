@@ -33,8 +33,8 @@ export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; desi
 
   const onRenderError = (diagram: DesignDiagram, message: string) => {
     setHidden((h) => ({ ...h, [diagram.id]: true }));
-    // Only a generated diagram can be redrawn, and only once.
-    if (diagram.source !== "generated" || replaced[diagram.id]) return;
+    // Only a coordinator-drawn diagram can be redrawn, and only once.
+    if (diagram.source === "author" || replaced[diagram.id]) return;
     repairDesignDiagram(apiFetch, designId, diagram.type, message)
       .then(({ diagram: fixed }) => {
         if (!fixed) return;
@@ -62,11 +62,18 @@ export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; desi
         ))}
       </div>
       <MermaidView key={`${current.id}:${current.mermaid}`} diagram={current} onError={(message) => onRenderError(current, message)} />
-      <div className="design-diagrams-foot">
-        {current.source === "author" ? "Drawn by the author's coding session" : "Generated from the plan and declared changes · may be simplified"}
-      </div>
+      <div className="design-diagrams-foot">{footerFor(current)}</div>
     </div>
   );
+}
+
+/** Who drew the diagram, and whether it still matches the design. */
+function footerFor(diagram: DesignDiagram): string {
+  if (diagram.source === "generated") return "Generated from the plan and declared changes · may be simplified";
+  if (diagram.source === "revised") return "Updated by twing after the latest amendment, from the author's diagram";
+  if (diagram.status === "unconfirmed") return "Drawn by the author's coding session · not re-checked since the latest amendment";
+  if (diagram.status === "outdated") return "Drawn by the author's coding session before the latest amendment · may be outdated";
+  return "Drawn by the author's coding session";
 }
 
 type MermaidApi = typeof import("mermaid").default;

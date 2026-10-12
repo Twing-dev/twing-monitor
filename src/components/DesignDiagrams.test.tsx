@@ -88,4 +88,15 @@ describe("DesignDiagrams", () => {
     const calls = (brokenFetcher as unknown as { mock: { calls: [string][] } }).mock.calls;
     expect(calls.some(([path]) => path.endsWith("/repair"))).toBe(false);
   });
+
+  it.each([
+    [{ source: "author", status: "current" }, "Drawn by the author's coding session"],
+    [{ source: "author", status: "unconfirmed" }, "Drawn by the author's coding session · not re-checked since the latest amendment"],
+    [{ source: "author", status: "outdated" }, "Drawn by the author's coding session before the latest amendment · may be outdated"],
+    [{ source: "revised" }, "Updated by twing after the latest amendment, from the author's diagram"],
+    [{ source: "generated" }, "Generated from the plan and declared changes · may be simplified"],
+  ] as const)("footer for %o", async (fields, text) => {
+    render(<DesignDiagrams apiFetch={fetcherFor([{ ...FLOW, ...fields }])} designId="d1" />);
+    expect(await screen.findByText(text)).toBeInTheDocument();
+  });
 });

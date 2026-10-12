@@ -467,8 +467,13 @@ export interface DesignDiagram {
   /** Stable tab key -- a linked group can carry two author diagrams of one type. */
   id: string;
   type: "flow" | "sequence" | "class";
-  /** Who drew it (2026-10-11): the registering coding session, or the coordinator. */
-  source: "author" | "generated";
+  /** Who drew it (2026-10-11): the registering coding session, the
+   * coordinator revising the author's diagram after an amendment, or the
+   * coordinator alone. */
+  source: "author" | "revised" | "generated";
+  /** Author diagrams only: current, not re-checked since the latest
+   * amendment, or outdated (shown when the coordinator couldn't revise it). */
+  status?: "current" | "unconfirmed" | "outdated";
   /** Tab label, e.g. "Flow", "Sequence (UML)". */
   title: string;
   mermaid: string;

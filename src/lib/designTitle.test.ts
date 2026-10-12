@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveTitle, toDesignPoints } from "./designTitle.js";
+import { deriveTitle, designTitle, toDesignPoints } from "./designTitle.js";
 
 // The real shape a design's summary takes once it's been amended a few
 // times: an initial "headline -- elaboration" paragraph, then one blank-
@@ -91,5 +91,23 @@ describe("toDesignPoints", () => {
   it("doesn't crash on null/undefined", () => {
     expect(toDesignPoints(null)).toEqual([]);
     expect(toDesignPoints(undefined)).toEqual([]);
+  });
+});
+
+describe("designTitle", () => {
+  const summary = "Problem: Diagrams go stale after an amend. They keep showing the old flow.";
+
+  it("prefers the owner's title over everything", () => {
+    expect(designTitle({ title: "Owner's words", generatedTitle: "Keep diagrams fresh", summary })).toBe("Owner's words");
+  });
+
+  it("uses the coordinator's generated title when the owner hasn't set one", () => {
+    expect(designTitle({ generatedTitle: "Keep diagrams fresh on amend", summary })).toBe("Keep diagrams fresh on amend");
+  });
+
+  it("falls back to deriving from summary when neither is set, or both are blank", () => {
+    const derived = designTitle({ summary });
+    expect(designTitle({ title: " ", generatedTitle: "  ", summary })).toBe(derived);
+    expect(derived).not.toBe("");
   });
 });

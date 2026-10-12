@@ -1044,7 +1044,7 @@ function deriveOverview(design: DesignStatement, isPrimary: boolean) {
   const points = toDesignPoints(base);
   const authoredMarkdown = hasMarkdownStructure(base);
   const overviewWasComposed = (design.overviewRevision ?? 0) > 0;
-  const headerStandsAlone = !isPrimary || Boolean(design.title?.trim()) || authoredMarkdown || overviewWasComposed;
+  const headerStandsAlone = !isPrimary || Boolean(design.title?.trim() || design.generatedTitle?.trim()) || authoredMarkdown || overviewWasComposed;
   const headline = headerStandsAlone || points.length === 0 ? designTitle(design, DETAIL_TITLE_CHARS) : points[0];
   const restPoints = headerStandsAlone ? points : points.slice(1);
   const restPointsOffset = headerStandsAlone ? 0 : 1;

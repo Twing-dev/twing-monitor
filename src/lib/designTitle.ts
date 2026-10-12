@@ -88,8 +88,8 @@ export function deriveTitle(summary: string | null | undefined, max: number = MA
   return hardClamp(head, max);
 }
 
-/** A design's title: the owner's own if they set one, else derived from the
- * summary (2026-10-02).
+/** A design's title: the owner's own if they set one, else the coordinator's
+ * generated one (2026-10-12), else derived from the summary (2026-10-02).
  *
  * The **single** fallback point for every place a title is shown -- a list
  * row, the detail header, the member panel. Deliberately not three separate
@@ -106,9 +106,14 @@ export function deriveTitle(summary: string | null | undefined, max: number = MA
  * the owner wrote it. The server caps it at `MAX_TITLE_CHARS` on the way in
  * (app.ts's `MAX_DESIGN_TITLE_CHARS`), which is what makes that safe -- and
  * why clamping here would only ever truncate text that already fits. */
-export function designTitle(design: { title?: string; summary: string | null | undefined }, max?: number): string {
+export function designTitle(design: { title?: string; generatedTitle?: string; summary: string | null | undefined }, max?: number): string {
   const stored = design.title?.trim();
   if (stored) return stored;
+  // The coordinator's model-written heading (2026-10-12) comes next: written
+  // once, by the call that generated the first overview, and capped at 60
+  // characters by that prompt. Returned whole like `title` -- never clipped.
+  const generated = design.generatedTitle?.trim();
+  if (generated) return generated;
   // Derive from the design's own text, not its amendments (2026-10-06): an
   // amended summary ends in dated `Update (date):` entries, and a title is a
   // statement of what the design *is*, which the first entry of its changelog

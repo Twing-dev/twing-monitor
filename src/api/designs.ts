@@ -1,4 +1,4 @@
-import type { DesignStatement } from "./types.js";
+import type { DesignDiagram, DesignStatement } from "./types.js";
 import type { Fetcher } from "./client.js";
 
 export interface DesignsPage {
@@ -140,5 +140,22 @@ export async function resolveDesign(fetcher: Fetcher, designId: string, body: Re
   return fetcher<ResolveDesignResult>(`/v1/designs/${designId}/resolve`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/** `GET /v1/designs/:id/diagrams` (2026-10-11) -- the optional flow / UML
+ * diagrams for the design's group. An empty list is the common, honest
+ * answer: most designs don't need one. */
+export async function fetchDesignDiagrams(fetcher: Fetcher, designId: string): Promise<{ diagrams: DesignDiagram[] }> {
+  return fetcher<{ diagrams: DesignDiagram[] }>(`/v1/designs/${designId}/diagrams`);
+}
+
+/** `POST /v1/designs/:id/diagrams/repair` (2026-10-11) -- the browser could
+ * not render a diagram: ask for one regeneration with the parse error.
+ * `null` means it could not be fixed and should stay hidden. */
+export async function repairDesignDiagram(fetcher: Fetcher, designId: string, type: DesignDiagram["type"], error: string): Promise<{ diagram: DesignDiagram | null }> {
+  return fetcher<{ diagram: DesignDiagram | null }>(`/v1/designs/${designId}/diagrams/repair`, {
+    method: "POST",
+    body: JSON.stringify({ type, error }),
   });
 }

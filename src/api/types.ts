@@ -459,3 +459,14 @@ export interface DesignChatMessage {
    * conversation. */
   provenance?: string;
 }
+
+/** One optional diagram under a design group's overview (2026-10-11),
+ * decided and drawn by the coordinator (design-diagrams.ts). `mermaid` is
+ * model output: render it with Mermaid's strict security level only. */
+export interface DesignDiagram {
+  type: "flow" | "sequence" | "class";
+  /** Tab label, e.g. "Flow", "Sequence (UML)". */
+  title: string;
+  mermaid: string;
+  reason: string;
+}

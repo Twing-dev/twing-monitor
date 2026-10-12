@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitOverviewSections } from "./overviewSections.js";
+import { splitBullets, splitOverviewSections } from "./overviewSections.js";
 
 describe("splitOverviewSections", () => {
   it("splits a Problem/Approach overview into two labelled sections", () => {
@@ -31,5 +31,29 @@ describe("splitOverviewSections", () => {
   it("does not treat the word mid-sentence as a label", () => {
     const text = "The approach: keep it simple.";
     expect(splitOverviewSections(text)).toEqual([{ body: text, offset: 0 }]);
+  });
+});
+
+describe("splitBullets", () => {
+  const overview = "Problem: Logs are missing.\nApproach:\n- Middleware logs each request, so one place sees all traffic.\n- The LLM client logs prompts.";
+
+  it("splits an Approach written as bullets into items whose offsets point into the full text", () => {
+    const approach = splitOverviewSections(overview)[1];
+    const list = splitBullets(approach.body, approach.offset)!;
+    expect(list.lead).toBeUndefined();
+    expect(list.items.map((i) => i.text)).toEqual(["Middleware logs each request, so one place sees all traffic.", "The LLM client logs prompts."]);
+    for (const item of list.items) {
+      expect(overview.slice(item.offset, item.offset + item.text.length)).toBe(item.text);
+    }
+  });
+
+  it("keeps text before the first bullet as a lead, and joins a wrapped line to its bullet", () => {
+    const list = splitBullets("Two steps:\n- first step\n  continues here\n- second", 100)!;
+    expect(list.lead).toEqual({ text: "Two steps:", offset: 100 });
+    expect(list.items.map((i) => i.text)).toEqual(["first step\n  continues here", "second"]);
+  });
+
+  it("returns undefined for plain prose, so it renders as before", () => {
+    expect(splitBullets("Implements logging with a middleware.", 0)).toBeUndefined();
   });
 });

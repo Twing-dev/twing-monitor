@@ -464,7 +464,11 @@ export interface DesignChatMessage {
  * decided and drawn by the coordinator (design-diagrams.ts). `mermaid` is
  * model output: render it with Mermaid's strict security level only. */
 export interface DesignDiagram {
+  /** Stable tab key -- a linked group can carry two author diagrams of one type. */
+  id: string;
   type: "flow" | "sequence" | "class";
+  /** Who drew it (2026-10-11): the registering coding session, or the coordinator. */
+  source: "author" | "generated";
   /** Tab label, e.g. "Flow", "Sequence (UML)". */
   title: string;
   mermaid: string;

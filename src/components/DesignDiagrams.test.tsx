@@ -14,8 +14,8 @@ vi.mock("mermaid", () => ({ default: mermaid }));
 
 import { DesignDiagrams } from "./DesignDiagrams.js";
 
-const FLOW: DesignDiagram = { type: "flow", title: "Flow", mermaid: "flowchart LR\n  a[A] --> b[B]", reason: "moves data" };
-const SEQ: DesignDiagram = { type: "sequence", title: "Sequence (UML)", mermaid: "sequenceDiagram\n  A->>B: hi", reason: "calls" };
+const FLOW: DesignDiagram = { id: "generated:flow", source: "generated", type: "flow", title: "Flow", mermaid: "flowchart LR\n  a[A] --> b[B]", reason: "moves data" };
+const SEQ: DesignDiagram = { id: "generated:sequence", source: "generated", type: "sequence", title: "Sequence (UML)", mermaid: "sequenceDiagram\n  A->>B: hi", reason: "calls" };
 
 function fetcherFor(diagrams: DesignDiagram[], repair: DesignDiagram | null = null) {
   return vi.fn(async (path: string) => (path.endsWith("/repair") ? { diagram: repair } : { diagrams })) as never;
@@ -70,5 +70,22 @@ describe("DesignDiagrams", () => {
     render(<DesignDiagrams apiFetch={fetcherFor([FLOW], FIXED)} designId="d1" />);
     expect(await screen.findByRole("tab", { name: "Flow" })).toBeInTheDocument();
     await waitFor(() => expect(mermaid.render).toHaveBeenCalledWith(expect.any(String), FIXED.mermaid));
+  });
+
+  it("labels an author-drawn diagram as such, and never asks the coordinator to redraw it", async () => {
+    const AUTHOR: DesignDiagram = { ...FLOW, id: "author:d1:flow", source: "author", mermaid: "flowchart LR\n  bad" };
+    mermaid.parse.mockImplementation(async (text: string) => {
+      if (text.includes("bad")) throw new Error("bad");
+      return true;
+    });
+    const fetcher = fetcherFor([{ ...AUTHOR, mermaid: "flowchart LR\n  a[A] --> b[B]" }]);
+    render(<DesignDiagrams apiFetch={fetcher} designId="d1" />);
+    expect(await screen.findByText("Drawn by the author's coding session")).toBeInTheDocument();
+
+    const brokenFetcher = fetcherFor([AUTHOR]);
+    render(<DesignDiagrams apiFetch={brokenFetcher} designId="d2" />);
+    await waitFor(() => expect(mermaid.parse).toHaveBeenCalledWith(AUTHOR.mermaid));
+    const calls = (brokenFetcher as unknown as { mock: { calls: [string][] } }).mock.calls;
+    expect(calls.some(([path]) => path.endsWith("/repair"))).toBe(false);
   });
 });

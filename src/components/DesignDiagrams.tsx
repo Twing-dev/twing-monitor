@@ -15,8 +15,11 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
  *   comes out broken (seen while building the mocks).
  * - The text is model output, so Mermaid runs with `securityLevel: "strict"`
  *   (no scripts, links or HTML in labels).
- * - A diagram the browser can't parse is hidden, never shown broken, and the
- *   coordinator is asked once to regenerate it with the parse error.
+ * - A diagram the browser can't parse is hidden, never shown broken. A
+ *   generated one is sent back once to be regenerated with the parse error;
+ *   an author-drawn one can't be redrawn here, so it just stays hidden.
+ * - The footer says who drew it: the author's coding session (which read the
+ *   code) or the coordinator (which only saw the declared plan).
  */
 export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; designId: string }) {
   const state = useAsyncData(() => fetchDesignDiagrams(apiFetch, designId), [apiFetch, designId]);
@@ -24,19 +27,19 @@ export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; desi
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const [active, setActive] = useState<string | undefined>();
 
-  const diagrams = state.status === "ready" ? state.data.diagrams.map((d) => replaced[d.type] ?? d).filter((d) => !hidden[d.type]) : [];
-  const current = diagrams.find((d) => d.type === active) ?? diagrams[0];
+  const diagrams = state.status === "ready" ? state.data.diagrams.map((d) => replaced[d.id] ?? d).filter((d) => !hidden[d.id]) : [];
+  const current = diagrams.find((d) => d.id === active) ?? diagrams[0];
   if (!current) return null;
 
   const onRenderError = (diagram: DesignDiagram, message: string) => {
-    setHidden((h) => ({ ...h, [diagram.type]: true }));
-    // A diagram that already came back from a repair gets no second one.
-    if (replaced[diagram.type]) return;
+    setHidden((h) => ({ ...h, [diagram.id]: true }));
+    // Only a generated diagram can be redrawn, and only once.
+    if (diagram.source !== "generated" || replaced[diagram.id]) return;
     repairDesignDiagram(apiFetch, designId, diagram.type, message)
       .then(({ diagram: fixed }) => {
         if (!fixed) return;
-        setReplaced((r) => ({ ...r, [fixed.type]: fixed }));
-        setHidden((h) => ({ ...h, [fixed.type]: false }));
+        setReplaced((r) => ({ ...r, [diagram.id]: fixed }));
+        setHidden((h) => ({ ...h, [diagram.id]: false }));
       })
       .catch(() => {});
   };
@@ -46,20 +49,22 @@ export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; desi
       <div className="design-diagrams-tabs" role="tablist">
         {diagrams.map((d) => (
           <button
-            key={d.type}
+            key={d.id}
             type="button"
             role="tab"
-            aria-selected={d.type === current.type}
-            className={d.type === current.type ? "on" : undefined}
+            aria-selected={d.id === current.id}
+            className={d.id === current.id ? "on" : undefined}
             title={d.reason || undefined}
-            onClick={() => setActive(d.type)}
+            onClick={() => setActive(d.id)}
           >
             {d.title}
           </button>
         ))}
       </div>
-      <MermaidView key={`${current.type}:${current.mermaid}`} diagram={current} onError={(message) => onRenderError(current, message)} />
-      <div className="design-diagrams-foot">Generated from the plan and declared changes · may be simplified</div>
+      <MermaidView key={`${current.id}:${current.mermaid}`} diagram={current} onError={(message) => onRenderError(current, message)} />
+      <div className="design-diagrams-foot">
+        {current.source === "author" ? "Drawn by the author's coding session" : "Generated from the plan and declared changes · may be simplified"}
+      </div>
     </div>
   );
 }

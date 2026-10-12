@@ -109,9 +109,9 @@ export function deriveTitle(summary: string | null | undefined, max: number = MA
 export function designTitle(design: { title?: string; generatedTitle?: string; summary: string | null | undefined }, max?: number): string {
   const stored = design.title?.trim();
   if (stored) return stored;
-  // The coordinator's model-written heading (2026-10-12) comes next: it names
-  // the change, where a cut of `summary` -- now usually a `Problem:` sentence
-  // -- names the pain. Returned as-is, like `title`: the coordinator caps it.
+  // The coordinator's model-written heading (2026-10-12) comes next: written
+  // once, by the call that generated the first overview, and capped at 60
+  // characters by that prompt. Returned whole like `title` -- never clipped.
   const generated = design.generatedTitle?.trim();
   if (generated) return generated;
   // Derive from the design's own text, not its amendments (2026-10-06): an

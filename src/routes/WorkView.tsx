@@ -29,6 +29,7 @@ import { dedupeDesignsByGroup, uniqueBy, type DesignGroup } from "../lib/aggrega
 import { hasStructuredChanges, type MemberSlice } from "../lib/designConformance.js";
 import { conflictKindInfo } from "../lib/conflictKind.js";
 import { formatActivityEvent } from "../lib/activityFormat.js";
+import { splitOverviewSections } from "../lib/overviewSections.js";
 
 /** The unified "list of designs, click one, work from its tabs" home screen
  * (2026-09): replaces the old Overview + Designs + Conflicts three-tab split
@@ -1704,9 +1705,18 @@ function DesignDetailPane({
                   />
                 ) : (
                   <>
-                    <p className="work-combined-overview">
-                      <HighlightableText designId={primary.id} field="groupOverview" text={combinedOverview} />
-                    </p>
+                    {/* Problem / Approach as two labelled parts (2026-10-11):
+                        one <p> collapsed the coordinator's line break and
+                        left "Approach:" mid-sentence. Each body keeps its
+                        offset into the full text, so comments still anchor. */}
+                    {splitOverviewSections(combinedOverview).map((section) => (
+                      <div key={section.offset} className="work-combined-overview-section">
+                        {section.label && <div className="work-combined-overview-label">{section.label}</div>}
+                        <p className="work-combined-overview">
+                          <HighlightableText designId={primary.id} field="groupOverview" text={section.body} offset={section.offset} />
+                        </p>
+                      </div>
+                    ))}
                     {canEditGroupOverview && (
                       <div className="overview-edit-row">
                         <button type="button" className="overview-edit-button" onClick={() => setGroupEditing(true)}>

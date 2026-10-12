@@ -1387,6 +1387,24 @@ button {
   margin: 18px 18px 0;
 }
 
+/* Problem / Approach labels in the combined overview (overviewSections.ts). */
+.work-combined-overview-section + .work-combined-overview-section {
+  margin-top: 10px;
+}
+
+.work-combined-overview-label {
+  margin: 12px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6b6b6b);
+}
+
+.work-combined-overview-section .work-combined-overview {
+  margin-top: 0;
+}
+
 /* Inside a card the metadata line is the card header's business, so it sits
    in the header band's gutter rather than the body's. */
 .work-scope-card .member-panel-heading {

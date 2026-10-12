@@ -94,6 +94,11 @@ export interface DesignStatement {
    * falls back to deriving one from `summary` in both cases, which is what
    * this dashboard did before the field existed. */
   title?: string;
+  /** Short model-written heading (2026-10-12, coordinator's `design-title.ts`).
+   * Shown when the owner hasn't set `title`; absent until the coordinator's
+   * first successful call, and on any older server -- `designTitle()` then
+   * falls back to deriving one from `summary`, as before. */
+  generatedTitle?: string;
   summary: string;
   /** The extraction-time `summary`, kept once the owner first rewrites the
    * overview -- what the "original" disclosure shows. Absent while

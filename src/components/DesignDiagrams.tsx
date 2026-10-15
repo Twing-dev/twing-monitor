@@ -21,13 +21,26 @@ import { useAsyncData } from "../hooks/useAsyncData.js";
  * - The footer says who drew it: the author's coding session (which read the
  *   code) or the coordinator (which only saw the declared plan).
  */
-export function DesignDiagrams({ apiFetch, designId }: { apiFetch: Fetcher; designId: string }) {
-  const state = useAsyncData(() => fetchDesignDiagrams(apiFetch, designId), [apiFetch, designId]);
+export function DesignDiagrams({
+  apiFetch,
+  designId,
+  saved,
+  stale,
+}: {
+  apiFetch: Fetcher;
+  designId: string;
+  /** The saved diagrams that came with the design (2026-10-15): shown on the
+   * first frame, and not fetched again unless `stale`. */
+  saved?: DesignDiagram[] | null;
+  stale?: boolean;
+}) {
+  const state = useAsyncData(() => (saved && !stale ? Promise.resolve({ diagrams: saved }) : fetchDesignDiagrams(apiFetch, designId)), [apiFetch, designId]);
   const [replaced, setReplaced] = useState<Record<string, DesignDiagram>>({});
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const [active, setActive] = useState<string | undefined>();
 
-  const diagrams = state.status === "ready" ? state.data.diagrams.map((d) => replaced[d.id] ?? d).filter((d) => !hidden[d.id]) : [];
+  const loaded = state.status === "ready" ? state.data.diagrams : (saved ?? []);
+  const diagrams = loaded.map((d) => replaced[d.id] ?? d).filter((d) => !hidden[d.id]);
   const current = diagrams.find((d) => d.id === active) ?? diagrams[0];
   if (!current) return null;
 

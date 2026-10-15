@@ -109,6 +109,14 @@ export interface DesignStatement {
   /** The channel: `"owner_edit"` today. `activityFormat.ts` labels a
    * revision from this, so a future channel needs no new field here. */
   overviewRevisionSource?: string;
+  /** The group's saved final overview and diagrams (2026-10-15), sent with
+   * the design so the detail pane renders them at once. `null` when nothing
+   * is saved for this viewer yet -- then they're fetched as before.
+   * `finalStale`: a member changed since they were saved; show them, and
+   * refresh in the background. Absent from an older coordinator. */
+  finalOverview?: string | null;
+  finalDiagrams?: DesignDiagram[] | null;
+  finalStale?: boolean;
   creates: string[];
   touches: string[];
   dependsOn: string[];

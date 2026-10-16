@@ -488,6 +488,40 @@ describe("WorkView (desktop baseline)", () => {
     });
   });
 
+  // Found live (2026-10-15): the pane showed the stored per-member text, then
+  // swapped to the group overview when /group-overview answered, then the
+  // diagrams arrived. The saved final overview now comes with the design.
+  it("renders the saved final overview at once, without asking for it or the diagrams", async () => {
+    stubApi([design({ groupId: "design-1", finalOverview: "Saved final overview text.", finalDiagrams: [], finalStale: false })]);
+    const { container } = renderWork();
+    await waitFor(() => expect(within(detailPane(container)).getByText("Saved final overview text.")).toBeInTheDocument());
+    const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(urls.some((u) => u.includes("/group-overview"))).toBe(false);
+    expect(urls.some((u) => u.includes("/diagrams"))).toBe(false);
+  });
+
+  it("shows a stale saved overview while it refreshes it in the background", async () => {
+    const stale = design({ groupId: "design-1", finalOverview: "Saved final overview text.", finalDiagrams: [], finalStale: true });
+    let answerOverview: (body: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v1/designs?")) return new Response(JSON.stringify({ items: [stale] }), { status: 200 });
+        if (url.includes("/group-overview")) return new Promise<Response>((resolve) => (answerOverview = (body) => resolve(new Response(JSON.stringify(body), { status: 200 }))));
+        if (url.includes("/diagrams")) return new Response(JSON.stringify({ diagrams: [] }), { status: 200 });
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+    const { container } = renderWork();
+    // The saved text shows while the refresh is still in flight...
+    await waitFor(() => expect(within(detailPane(container)).getByText("Saved final overview text.")).toBeInTheDocument());
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/group-overview"))).toBe(true));
+    // ...and the refreshed text replaces it when it arrives.
+    answerOverview({ overview: "Refreshed overview text." });
+    await waitFor(() => expect(within(detailPane(container)).getByText("Refreshed overview text.")).toBeInTheDocument());
+  });
+
   it("renders the detail tab strip for the selected design", async () => {
     stubApi([design()]);
     const { container } = renderWork();

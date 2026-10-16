@@ -1590,8 +1590,18 @@ function DesignDetailPane({
   // coordinator genuinely has nothing to offer (no model configured) --
   // never a reason to hide the real, editable per-member text underneath.
   const [groupOverviewReload, setGroupOverviewReload] = useState(0);
-  const groupOverviewState = useAsyncData(() => fetchGroupOverview(apiFetch, primary.id), [apiFetch, group.key, groupOverviewReload]);
-  const combinedOverview = groupOverviewState.status === "ready" ? groupOverviewState.data.overview : null;
+  // The saved final overview comes with the design (2026-10-15) and renders
+  // on the first frame. It is only fetched when nothing is saved yet, when a
+  // member changed since it was saved (the saved text shows meanwhile), or
+  // after an edit here -- found live: fetching it on every open showed the
+  // stored per-member text first and swapped ~0.4-3.5s later.
+  const savedOverview = primary.finalOverview ?? null;
+  const fetchOverview = savedOverview === null || primary.finalStale === true || groupOverviewReload > 0;
+  const groupOverviewState = useAsyncData(
+    () => (fetchOverview ? fetchGroupOverview(apiFetch, primary.id) : Promise.resolve({ overview: savedOverview })),
+    [apiFetch, group.key, groupOverviewReload],
+  );
+  const combinedOverview = (groupOverviewState.status === "ready" ? groupOverviewState.data.overview : null) ?? savedOverview;
   // Mirrors the server's own check (`app.ts`'s `/group-overview` PATCH route)
   // as a client-side proxy: if every member's project is one this viewer has
   // loaded (i.e. is a member of), they can plausibly see the whole group --
@@ -1746,7 +1756,7 @@ function DesignDetailPane({
                     ))}
                     {/* Optional flow / UML diagrams (2026-10-11): renders
                         nothing unless the coordinator decided one helps. */}
-                    <DesignDiagrams apiFetch={apiFetch} designId={primary.id} />
+                    <DesignDiagrams apiFetch={apiFetch} designId={primary.id} saved={primary.finalDiagrams} stale={primary.finalStale} />
                     {canEditGroupOverview && (
                       <div className="overview-edit-row">
                         <button type="button" className="overview-edit-button" onClick={() => setGroupEditing(true)}>
